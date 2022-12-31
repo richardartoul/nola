@@ -1,0 +1,97 @@
+package main
+
+import (
+	"fmt"
+
+	"github.com/richardartoul/nola/wapcutils"
+	wapc "github.com/wapc/wapc-guest-tinygo"
+)
+
+func main() {
+	wapc.RegisterFunctions(wapc.Functions{
+		"inc":         inc,
+		"dec":         dec,
+		"getCount":    getCount,
+		"echo":        echo,
+		"log":         log,
+		"fail":        fail,
+		"kvPutCount":  putCount,
+		"kvGet":       kvGet,
+		"fork":        fork,
+		"invokeActor": invokeActor,
+	})
+}
+
+var count int64
+
+// inc increments the actor's in-memory global counter.
+func inc(payload []byte) ([]byte, error) {
+	count++
+	wapc.ConsoleLog(fmt.Sprintf("%d", count))
+	return []byte(fmt.Sprintf("%d", count)), nil
+}
+
+// dec decrements the actor's in-memory global counter.
+func dec(payload []byte) ([]byte, error) {
+	count--
+	return []byte(fmt.Sprintf("%d", count)), nil
+}
+
+// getCount gets the current value of the counter.
+func getCount(payload []byte) ([]byte, error) {
+	return []byte(fmt.Sprintf("%d", count)), nil
+}
+
+// echo "echos" the payload back to the host.
+func echo(payload []byte) ([]byte, error) {
+	wapc.HostCall("wapc", "testing", "echo", payload)
+	return payload, nil
+}
+
+// log calls the host logging function.
+func log(payload []byte) ([]byte, error) {
+	wapc.ConsoleLog(string(payload))
+	return []byte(""), nil
+}
+
+// fail returns an error immediately.
+func fail(payload []byte) ([]byte, error) {
+	return []byte(""), fmt.Errorf("planned Failure")
+}
+
+// putCount stores the current value of count in the actor's durable KV using
+// the string in reqPayload as the key.
+func putCount(reqPayload []byte) ([]byte, error) {
+	var (
+		value   = []byte(fmt.Sprintf("%d", count))
+		payload = wapcutils.EncodePutPayload(nil, reqPayload, value)
+	)
+	_, err := wapc.HostCall("wapc", "nola", wapcutils.KVPutOperationName, payload)
+	return nil, err
+}
+
+// kvGet is a "pass through" method that simply calls the host's KV Get function.
+func kvGet(payload []byte) ([]byte, error) {
+	v, err := wapc.HostCall("wapc", "nola", wapcutils.KVGetOperationName, payload)
+	if err != nil {
+		return nil, err
+	}
+	// Skip the first byte since that's just a single bit that indicates whether
+	// the key existed or not (to distinguish between empty values and value does
+	// not exist). First byte 0 == does not exist, first byte 1 == exists.
+	return v[1:], nil
+}
+
+// fork "forks" the current actor by creating a new actor based on the same module.
+// The new actor's ID will be whatever string payload is.
+func fork(payload []byte) ([]byte, error) {
+	createActorReq := fmt.Sprintf(`{"actor_id":"%s"}`, string(payload))
+	return wapc.HostCall("wapc", "nola", wapcutils.CreateActorOperationName, []byte(createActorReq))
+}
+
+// invokeActor is a "passthrough" method which just passes through the provided []byte
+// payload to the host invoke actor function. This helps us test that actor's can
+// communicate with other actors by invoking their operations/functions.
+func invokeActor(payload []byte) ([]byte, error) {
+	return wapc.HostCall("wapc", "nola", wapcutils.InvokeActorOperationName, payload)
+}
