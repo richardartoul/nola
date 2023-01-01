@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 )
@@ -15,6 +16,7 @@ type environment struct {
 
 	// Dependencies.
 	serverID string
+	address  string
 	registry registry.Registry
 }
 
@@ -23,18 +25,29 @@ func NewEnvironment(
 	serverID string,
 	reg registry.Registry,
 ) (Environment, error) {
+	// TODO: Eventually we need to support discovering our own IP here or having this
+	//       passed in.
+	address := uuid.New().String()
 	env := &environment{
 		registry: reg,
+		address:  address,
 		serverID: serverID,
 	}
 	activations := newActivations(reg, env)
 	env.activations = activations
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
-	err := reg.Heartbeat(ctx, serverID, registry.HeartbeatState{NumActivatedActors: 0})
+	err := reg.Heartbeat(ctx, serverID, registry.HeartbeatState{
+		NumActivatedActors: 0,
+		Address:            address,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform initial heartbeat: %w", err)
 	}
+
+	localEnvironmentsRouterLock.Lock()
+	localEnvironmentsRouter[address] = env
+	localEnvironmentsRouterLock.Unlock()
 
 	return env, nil
 }
@@ -79,6 +92,10 @@ func (r *environment) InvokeLocal(
 
 func (r *environment) Close() error {
 	// TODO: This should call Close on the activations field (which needs to be implemented).
+
+	localEnvironmentsRouterLock.Lock()
+	delete(localEnvironmentsRouter, r.address)
+	localEnvironmentsRouterLock.Unlock()
 	return nil
 }
 

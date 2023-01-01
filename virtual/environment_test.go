@@ -354,9 +354,6 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 		_, err = env3.Invoke(ctx, "ns-1", "a", "inc", nil)
 		require.NoError(t, err)
 	}
-
-	fmt.Println(env2)
-	fmt.Println(env3)
 }
 
 func getCount(t *testing.T, v []byte) int64 {
