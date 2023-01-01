@@ -10,6 +10,7 @@ import (
 func main() {
 	wapc.RegisterFunctions(wapc.Functions{
 		"inc":         inc,
+		"incFast":     incFast,
 		"dec":         dec,
 		"getCount":    getCount,
 		"echo":        echo,
@@ -28,6 +29,13 @@ var count int64
 func inc(payload []byte) ([]byte, error) {
 	count++
 	return []byte(fmt.Sprintf("%d", count)), nil
+}
+
+// incFast is the same as inc, but it doesn't return a response
+// making it zero-alloc.
+func incFast(payload []byte) ([]byte, error) {
+	count++
+	return nil, nil
 }
 
 // dec decrements the actor's in-memory global counter.
