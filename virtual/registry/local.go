@@ -3,19 +3,35 @@ package registry
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/richardartoul/nola/virtual/types"
 )
 
+const (
+	// maxHeartbeatDelay is the maximum amount of time between server heartbeats before
+	// the registry will consider a server as dead.
+	//
+	// TODO: Should be configurable.
+	maxHeartbeatDelay = 5 * time.Second
+)
+
 type local struct {
 	sync.Mutex
 
 	// State.
-	m       map[string][]byte
-	actors  map[types.NamespacedID]registeredActor
+	m map[string][]byte
+
+	// Contains all known registered modules. Key is module ID.
 	modules map[types.NamespacedID]registeredModule
+	// Contains all actors ever created. Key is actor ID.
+	actors map[types.NamespacedID]registeredActor
+	// Contain the last known activation for every actor ever activated.
+	// Key is actor ID.
+	activations map[types.NamespacedID]activation
+	// Contains all servers that have ever heartbeated.
 	servers map[string]serverState
 }
 
@@ -23,10 +39,11 @@ type local struct {
 // tests and simple benchmarking.
 func NewLocal() Registry {
 	return newValidatedRegistry(&local{
-		m:       make(map[string][]byte),
-		actors:  make(map[types.NamespacedID]registeredActor),
-		modules: make(map[types.NamespacedID]registeredModule),
-		servers: make(map[string]serverState),
+		m:           make(map[string][]byte),
+		modules:     make(map[types.NamespacedID]registeredModule),
+		actors:      make(map[types.NamespacedID]registeredActor),
+		activations: make(map[types.NamespacedID]activation),
+		servers:     make(map[string]serverState),
 	})
 }
 
@@ -143,8 +160,40 @@ func (l *local) EnsureActivation(
 			actorID, namespace)
 	}
 
+	var (
+		activation, activationExists = l.activations[nsActorID]
+		server, serverExists         = l.servers[activation.serverID]
+		timeSinceLastHeartbeat       = time.Since(server.lastHeartbeatedAt)
+		serverID                     string
+	)
+	if activationExists && serverExists && timeSinceLastHeartbeat < maxHeartbeatDelay {
+		// We have an existing activation and the server is still alive, so just use that.
+		serverID = activation.serverID
+	} else {
+		// We need to create a new activation.
+		liveServers := []serverState{}
+		for _, server := range l.servers {
+			if time.Since(server.lastHeartbeatedAt) < maxHeartbeatDelay {
+				liveServers = append(liveServers, server)
+			}
+		}
+		if len(liveServers) == 0 {
+			return nil, fmt.Errorf("0 live servers available for new activation")
+		}
+
+		// Pick the server with the lowest current number of activated actors to try and load-balance.
+		// TODO: This is obviously insufficient and we should take other factors into account like
+		//       memory / CPU usage.
+		// TODO: We should also have some hard limits and just reject new activations at some point.
+		sort.Slice(liveServers, func(i, j int) bool {
+			return liveServers[i].heartbeatState.NumActivatedActors < liveServers[j].heartbeatState.NumActivatedActors
+		})
+
+		serverID = liveServers[0].serverID
+	}
+
 	return []types.ActorReference{
-		types.NewLocalReference(namespace, actorID, actor.moduleID, actor.generation),
+		types.NewLocalReference(serverID, namespace, actorID, actor.moduleID, actor.generation),
 	}, nil
 }
 
@@ -200,7 +249,9 @@ func (l *local) Heartbeat(
 
 	state, ok := l.servers[serverID]
 	if !ok {
-		state = serverState{}
+		state = serverState{
+			serverID: serverID,
+		}
 	}
 	state.lastHeartbeatedAt = time.Now()
 	state.heartbeatState = heartbeatState
@@ -221,6 +272,11 @@ type registeredModule struct {
 }
 
 type serverState struct {
+	serverID          string
 	lastHeartbeatedAt time.Time
 	heartbeatState    HeartbeatState
+}
+
+type activation struct {
+	serverID string
 }
