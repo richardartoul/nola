@@ -49,6 +49,24 @@ The current implementation is a basic prototype, however, NOLA seeks to provide 
 4. [tinygo](https://tinygo.org/)
 5. [FoundationDB](https://www.foundationdb.org/)
 
+## Playground
+
+The NOLA repository contains a simple playground for local experimentation. In the root of the directory run:
+
+```bash
+make server
+```
+
+to start a local instance of the NOLA server backed by an in-memory registry.
+
+Next, run:
+
+```bash
+make run-playground
+```
+
+which will execute `./scripts/playground/basic.sh`. This will register a module in the `playground` namespace, instantiate a single actor named: `test_utils_actor_1`, and then invoke the `inc` function on the actor a few times and print the result.
+
 ## Implemented Functionality
 
 NOLA is currently an MVP prototype with limited functionality. The current capabilities of the system are best understood via `environment_test.go`. It has many severe limitations currently:
@@ -70,24 +88,6 @@ That said, NOLA is none the less a useful prototype with a basic foundation that
 `testdata/tinygo/util/main.go` demonstrates a simple utility actor (including KV storage and the ability to fork itself to create new actors) that is used heavily throughout the test suite.
 
 See the "Playground" section of the README for instructions on how to run the playground to play around with NOLA locally.
-
-## Playground
-
-The NOLA repository contains a simple playground for local experimentation. In the root of the directory run:
-
-```bash
-make server
-```
-
-to start a local instance of the NOLA server backed by an in-memory registry.
-
-Next, run:
-
-```bash
-make run-playground
-```
-
-which will execute `./scripts/playground/basic.sh`. This will register a module in the `playground` namespace, instantiate a single actor named: `test_utils_actor_1`, and then invoke the `inc` function on the actor a few times and print the result.
 
 ## Roadmap
 
