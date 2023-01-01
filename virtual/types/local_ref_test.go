@@ -7,8 +7,9 @@ import (
 )
 
 func TestNewLocalReference(t *testing.T) {
-	ref := NewLocalReference("a", "b", "c", 1)
+	ref := NewLocalReference("server1", "a", "b", "c", 1)
 	require.Equal(t, ReferenceTypeLocal, ref.Type())
+	require.Equal(t, "server1", ref.ServerID())
 	require.Equal(t, "a", ref.Namespace())
 	require.Equal(t, "a", ref.ActorID().Namespace)
 	require.Equal(t, "b", ref.ActorID().ID)
