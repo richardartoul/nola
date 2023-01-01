@@ -13,12 +13,17 @@ type environment struct {
 	activations *activations // Internally synchronized.
 
 	// Dependencies.
+	serverID string
 	registry registry.Registry
 }
 
-func NewEnvironment(registry registry.Registry) (Environment, error) {
+func NewEnvironment(
+	serverID string,
+	registry registry.Registry,
+) (Environment, error) {
 	env := &environment{
 		registry: registry,
+		serverID: serverID,
 	}
 	activations := newActivations(registry, env)
 	env.activations = activations
@@ -50,10 +55,17 @@ func (r *environment) Invoke(
 
 func (r *environment) InvokeLocal(
 	ctx context.Context,
+	serverID string,
 	reference types.ActorReference,
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	if serverID != r.serverID {
+		return nil, fmt.Errorf(
+			"request for serverID: %s received by server: %s, cannot fullfil",
+			serverID, r.serverID)
+	}
+
 	return r.activations.invoke(ctx, reference, operation, payload)
 }
 
@@ -72,7 +84,7 @@ func (r *environment) invokeReferences(
 	reference := references[0]
 	switch reference.Type() {
 	case types.ReferenceTypeLocal:
-		return r.InvokeLocal(ctx, reference, operation, payload)
+		return r.InvokeLocal(ctx, r.serverID, reference, operation, payload)
 	case types.ReferenceTypeRemoteHTTP:
 		fallthrough
 	default:

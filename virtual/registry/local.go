@@ -51,6 +51,7 @@ func (l *local) RegisterModule(
 		bytes: moduleBytes,
 		opts:  opts,
 	}
+
 	return RegisterModuleResult{}, nil
 }
 
@@ -120,6 +121,7 @@ func (l *local) IncGeneration(
 			"error incrementing generation for actor with ID: %s, actor does not exist in namespace: %s",
 			actorID, namespace)
 	}
+
 	actor.generation++
 	l.actors[nsActorID] = actor
 	return nil

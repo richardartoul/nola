@@ -120,6 +120,7 @@ func (s *server) createActor(w http.ResponseWriter, r *http.Request) {
 }
 
 type invokeRequest struct {
+	ServerID  string `json:"server_id"`
 	Namespace string `json:"namespace"`
 	ActorID   string `json:"actor_id"`
 	Operation string `json:"operation"`

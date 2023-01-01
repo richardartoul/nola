@@ -30,7 +30,7 @@ func init() {
 // TestSimple is a basic sanity test that verifies the most basic flow.
 func TestSimple(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment(reg)
+	env, err := NewEnvironment("serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -67,7 +67,7 @@ func TestSimple(t *testing.T) {
 // them as needed.
 func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment(reg)
+	env, err := NewEnvironment("serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -111,7 +111,7 @@ func TestKVHostFunctions(t *testing.T) {
 			count++
 		}()
 
-		env, err := NewEnvironment(reg)
+		env, err := NewEnvironment("serverID1", reg)
 		require.NoError(t, err)
 		defer env.Close()
 
@@ -172,7 +172,7 @@ func TestKVHostFunctions(t *testing.T) {
 // that actors can create new actors.
 func TestCreateActorHostFunction(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment(reg)
+	env, err := NewEnvironment("serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -227,7 +227,7 @@ func TestCreateActorHostFunction(t *testing.T) {
 // test ensures that actors can communicate with other actors.
 func TestInvokeActorHostFunction(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment(reg)
+	env, err := NewEnvironment("serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -296,7 +296,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 // another actor that is not yet activated without introducing a deadlock.
 func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment(reg)
+	env, err := NewEnvironment("serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
