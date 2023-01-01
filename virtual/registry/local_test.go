@@ -154,7 +154,7 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 	//
 	// TODO: Sleeps in tests are bad, but I'm lazy to inject a clock right now and deal
 	//       with all of that.
-	time.Sleep(maxHeartbeatDelay)
+	time.Sleep(MaxHeartbeatDelay + time.Second)
 
 	// Heartbeat server2. After this, the Registry should only consider server2 to be alive.
 	err = registry.Heartbeat(ctx, "server2", HeartbeatState{

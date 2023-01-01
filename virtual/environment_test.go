@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/wapcutils"
@@ -343,17 +344,90 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
+	// Create 3 different actors because we want to end up with at least one actor on each
+	// server to test the ability to "migrate" the actor's activation from one server to
+	// another.
 	_, err = reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
+	require.NoError(t, err)
+	_, err = reg.CreateActor(ctx, "ns-1", "b", "test-module", registry.ActorOptions{})
+	require.NoError(t, err)
+	_, err = reg.CreateActor(ctx, "ns-1", "c", "test-module", registry.ActorOptions{})
 	require.NoError(t, err)
 
 	for i := 0; i < 100; i++ {
+		// Ensure we can invoke each actor from each environment. Note that just because
+		// we invoke an actor on env1 first does not mean that the actor will be activated
+		// on env1. The actor will be activated on whichever environment/server the Registry
+		// decides and if we send the invocation to the "wrong" environment it will get
+		// re-routed automatically.
+		//
+		// Also note that we force each environment to heartbeat manually. This is important
+		// because the Registry load-balancing mechanism relies on the state provided to the
+		// Registry about the server from the server heartbeats. Therefore we need to
+		// heartbeat at least once after every actor is activated if we want to ensure the
+		// registry is able to actually load-balance the activations evenly.
 		_, err = env1.Invoke(ctx, "ns-1", "a", "inc", nil)
 		require.NoError(t, err)
 		_, err = env2.Invoke(ctx, "ns-1", "a", "inc", nil)
 		require.NoError(t, err)
 		_, err = env3.Invoke(ctx, "ns-1", "a", "inc", nil)
 		require.NoError(t, err)
+		require.NoError(t, env1.heartbeat())
+		require.NoError(t, env2.heartbeat())
+		require.NoError(t, env3.heartbeat())
+		_, err = env1.Invoke(ctx, "ns-1", "b", "inc", nil)
+		require.NoError(t, err)
+		_, err = env2.Invoke(ctx, "ns-1", "b", "inc", nil)
+		require.NoError(t, err)
+		_, err = env3.Invoke(ctx, "ns-1", "b", "inc", nil)
+		require.NoError(t, err)
+		require.NoError(t, env1.heartbeat())
+		require.NoError(t, env2.heartbeat())
+		require.NoError(t, env3.heartbeat())
+		_, err = env1.Invoke(ctx, "ns-1", "c", "inc", nil)
+		require.NoError(t, err)
+		_, err = env2.Invoke(ctx, "ns-1", "c", "inc", nil)
+		require.NoError(t, err)
+		_, err = env3.Invoke(ctx, "ns-1", "c", "inc", nil)
+		require.NoError(t, err)
+		require.NoError(t, env1.heartbeat())
+		require.NoError(t, env2.heartbeat())
+		require.NoError(t, env3.heartbeat())
 	}
+
+	// Registry load-balancing should ensure that we ended up with 1 actor in each environment
+	// I.E "on each server".
+	require.Equal(t, 1, env1.numActivatedActors())
+	require.Equal(t, 1, env2.numActivatedActors())
+	require.Equal(t, 1, env3.numActivatedActors())
+
+	// TODO: Sleeps in tests are bad, but I'm lazy to inject a clock right now and deal
+	//       with all of that.
+	require.NoError(t, env1.Close())
+	require.NoError(t, env2.Close())
+	time.Sleep(registry.MaxHeartbeatDelay + time.Second)
+
+	// env1 and env2 have been closed (and not heartbeating) for longer than the maximum
+	// heartbeat delay which means that the registry should view them as "dead". Therefore, we
+	// expect that we should still be able to invoke all 3 of our actors, however, all of them
+	// should end up being activated on server3 now since it is the only remaining live actor.
+
+	// Quickly make sure the registry has an up to date view of env3.
+	require.NoError(t, env3.heartbeat())
+	for i := 0; i < 100; i++ {
+		_, err = env3.Invoke(ctx, "ns-1", "a", "inc", nil)
+		require.NoError(t, err)
+		require.NoError(t, env3.heartbeat())
+		_, err = env3.Invoke(ctx, "ns-1", "b", "inc", nil)
+		require.NoError(t, err)
+		require.NoError(t, env3.heartbeat())
+		_, err = env3.Invoke(ctx, "ns-1", "c", "inc", nil)
+		require.NoError(t, err)
+		require.NoError(t, env3.heartbeat())
+	}
+
+	// Ensure that all of our invocations above were actually served by environment3.
+	require.Equal(t, 3, env3.numActivatedActors())
 }
 
 func getCount(t *testing.T, v []byte) int64 {

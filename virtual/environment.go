@@ -10,6 +10,10 @@ import (
 	"github.com/richardartoul/nola/virtual/types"
 )
 
+const (
+	heartbeatTimeout = registry.MaxHeartbeatDelay
+)
+
 type environment struct {
 	// State.
 	activations *activations // Internally synchronized.
@@ -37,10 +41,7 @@ func NewEnvironment(
 	env.activations = activations
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
-	err := reg.Heartbeat(ctx, serverID, registry.HeartbeatState{
-		NumActivatedActors: 0,
-		Address:            address,
-	})
+	err := env.heartbeat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform initial heartbeat: %w", err)
 	}
@@ -97,6 +98,19 @@ func (r *environment) Close() error {
 	delete(localEnvironmentsRouter, r.address)
 	localEnvironmentsRouterLock.Unlock()
 	return nil
+}
+
+func (r *environment) numActivatedActors() int {
+	return r.activations.numActivatedActors()
+}
+
+func (r *environment) heartbeat() error {
+	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
+	defer cc()
+	return r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
+		NumActivatedActors: r.numActivatedActors(),
+		Address:            r.address,
+	})
 }
 
 // TODO: This is kind of a giant hack, but it's really only used for testing. The idea is that

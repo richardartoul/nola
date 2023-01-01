@@ -36,4 +36,12 @@ type Environment interface {
 
 	// Close closes the Environment and all of its associated resources.
 	Close() error
+
+	// numActivatedActors returns the number of activated actors in the environment. It is
+	// primarily used for tests.
+	numActivatedActors() int
+
+	// heartbeat forces the environment to heartbeat the Registry immediately. It is primarily
+	// used for tests.
+	heartbeat() error
 }

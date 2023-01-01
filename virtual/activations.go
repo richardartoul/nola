@@ -148,6 +148,12 @@ func (a *activations) invoke(
 	return actor.o.Invoke(ctx, operation, payload)
 }
 
+func (a *activations) numActivatedActors() int {
+	a.RLock()
+	defer a.RUnlock()
+	return len(a._actors)
+}
+
 // TODO: Should have some kind of ACL enforcement polic here, but for now allow any module to
 //
 //	run any host function.

@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	// maxHeartbeatDelay is the maximum amount of time between server heartbeats before
+	// MaxHeartbeatDelay is the maximum amount of time between server heartbeats before
 	// the registry will consider a server as dead.
 	//
 	// TODO: Should be configurable.
-	maxHeartbeatDelay = 5 * time.Second
+	MaxHeartbeatDelay = 5 * time.Second
 )
 
 type local struct {
@@ -167,7 +167,7 @@ func (l *local) EnsureActivation(
 		serverID                         string
 		serverAddress                    string
 	)
-	if activationExists && serverExists && timeSinceLastHeartbeat < maxHeartbeatDelay {
+	if activationExists && serverExists && timeSinceLastHeartbeat < MaxHeartbeatDelay {
 		// We have an existing activation and the server is still alive, so just use that.
 		serverID = currActivation.serverID
 		serverAddress = l.servers[currActivation.serverID].heartbeatState.Address
@@ -175,7 +175,7 @@ func (l *local) EnsureActivation(
 		// We need to create a new activation.
 		liveServers := []serverState{}
 		for _, server := range l.servers {
-			if time.Since(server.lastHeartbeatedAt) < maxHeartbeatDelay {
+			if time.Since(server.lastHeartbeatedAt) < MaxHeartbeatDelay {
 				liveServers = append(liveServers, server)
 			}
 		}
@@ -261,7 +261,6 @@ func (l *local) Heartbeat(
 	state.lastHeartbeatedAt = time.Now()
 	state.heartbeatState = heartbeatState
 
-	fmt.Println(serverID, "::", heartbeatState.NumActivatedActors)
 	l.servers[serverID] = state
 
 	return nil
