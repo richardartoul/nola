@@ -97,6 +97,27 @@ See the "Playground" section of the README for instructions on how to run the pl
 4. Write an FDB or Tigris backed registry implementation.
 5. See #TODOs.
 
+## Benchmarks
+
+There is a very simple set of single-threaded benchmarks in `benchmarks_test.go`. These benchmarks use a fake in-memory registry and a tiny WASM module with a function that does nothing but increment an in-memory counter. While these benchmarks are not representative of any realistic workloads, they're useful for understanding the maximum throughput which the basic NOLA framework could ever achieve in its current state.
+
+On my 2021 M1 Max:
+
+```
+goos: darwin
+goarch: arm64
+pkg: github.com/richardartoul/nola/virtual
+BenchmarkInvoke-10                       	  970826	      1209 ns/op	    827078 ops/s	     348 B/op	       8 allocs/op
+BenchmarkCreateThenInvokeActor-10        	   15018	     74805 ns/op	     13368 ops/s	  187778 B/op	     531 allocs/op
+BenchmarkActorToActorCommunication-10    	  251772	      4629 ns/op	    216048 ops/s	    1130 B/op	      28 allocs/op
+PASS
+ok  	github.com/richardartoul/nola/virtual	7.149s
+```
+
+In summary, if we ignore RPC and Registry overhead then NOLA is able to achieve 827k function calls/s on a single actor, instantiate new actors into memory and invoke a function on them at a rate of 13k/s, and support actors communicating with each other at a rate of 215k function calls/s. All of this is accomplished in a single-threaded manner on a single core.
+
+Of course a production system will never achieve these results on a single core once a distributed registry and inter-server RPCs are being used. However, these numbers indicate that the most experimental aspect of NOLA's design (creating virtual actors by compiling WASM programs to Go assembly using the Wazero library and executing them on the fly) are efficient enough to handle large-scale workloads. Efficient Registry and RPC implementations will have to be built, but those are problems we already know how to solve.
+
 # TODOs
 
 1. Transactional KV.
