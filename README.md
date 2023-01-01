@@ -95,11 +95,9 @@ See the "Playground" section of the README for instructions on how to run the pl
 
 ## Roadmap
 
-1. Add an HTTP API for interacting with the actor system.
-2. Build service discovery system so that the Registry is aware of all live servers and can automatically place actor activations on an appropriate server and "heal" when servers are lost by reactivating an actor elsehwere.
-3. Fix the KV interface to be transactional.
-4. Write an FDB or Tigris backed registry implementation.
-5. See #TODOs.
+1. Write an FDB or Tigris backed registry implementation.
+2. Fix the KV interface to be transactional.
+3. See #TODOs.
 
 ## Benchmarks
 
