@@ -332,7 +332,6 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 		reg = registry.NewLocal()
 		ctx = context.Background()
 	)
-	// TODO: Ensure all close.
 	// Create 3 environments backed by the same registry to simulate 3 different servers.
 	env1, err := NewEnvironment(ctx, "serverID1", reg)
 	require.NoError(t, err)
@@ -428,6 +427,9 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 
 	// Ensure that all of our invocations above were actually served by environment3.
 	require.Equal(t, 3, env3.numActivatedActors())
+
+	// Finally, make sure environment 3 is closed.
+	require.NoError(t, env3.Close())
 }
 
 func getCount(t *testing.T, v []byte) int64 {
