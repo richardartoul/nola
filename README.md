@@ -54,9 +54,8 @@ The current implementation is a basic prototype, however, NOLA seeks to provide 
 NOLA is currently an MVP prototype with limited functionality. The current capabilities of the system are best understood via `environment_test.go`. It has many severe limitations currently:
 
 1. The only Registry implementation is an in-memory fake (`registry/local.go`) that is lost on process restart.
-2. There is no exposed server. The only way to interact with NOLA is via unit / integration tests.
-3. The KV interface exposed to actors is not transactional.
-4. Much more (see the TODOs section)
+2. The KV interface exposed to actors is not transactional.
+3. Much more (see the TODOs section)
 
 That said, NOLA is none the less a useful prototype with a basic foundation that can be easily expanded upon. Currently, it supports:
 
