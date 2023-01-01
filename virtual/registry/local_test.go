@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -141,6 +142,31 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 		})
 		require.NoError(t, err)
 		lastServerID = activations[0].ServerID()
+	}
+
+	// Wait for server1's heartbeat to expire.
+	//
+	// TODO: Sleeps in tests are bad, but I'm lazy to inject a clock right now and deal
+	//       with all of that.
+	time.Sleep(maxHeartbeatDelay)
+
+	// Heartbeat server2. After this, the Registry should only consider server2 to be alive.
+	err = registry.Heartbeat(ctx, "server2", HeartbeatState{
+		NumActivatedActors: 9999999,
+	})
+	require.NoError(t, err)
+
+	// Even though server2's NumActivatedActors value is very high, all activations will go to
+	// server2 because its the only one available.
+	for i := 0; i < 100; i++ {
+		actorID := fmt.Sprintf("2-%d", i)
+		_, err = registry.CreateActor(ctx, "ns1", actorID, "test-module", ActorOptions{})
+		require.NoError(t, err)
+
+		activations, err = registry.EnsureActivation(ctx, "ns1", actorID)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(activations))
+		require.Equal(t, "server2", activations[0].ServerID())
 	}
 }
 
