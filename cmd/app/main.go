@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
+	"time"
 
 	_ "net/http/pprof"
 
@@ -19,7 +21,10 @@ var (
 
 func main() {
 	registry := registry.NewLocal()
-	environment, err := virtual.NewEnvironment(*serverID, registry)
+
+	ctx, cc := context.WithTimeout(context.Background(), 10*time.Second)
+	environment, err := virtual.NewEnvironment(ctx, *serverID, registry)
+	cc()
 	if err != nil {
 		log.Fatal(err)
 	}

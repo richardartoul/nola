@@ -18,15 +18,22 @@ type environment struct {
 }
 
 func NewEnvironment(
+	ctx context.Context,
 	serverID string,
-	registry registry.Registry,
+	reg registry.Registry,
 ) (Environment, error) {
 	env := &environment{
-		registry: registry,
+		registry: reg,
 		serverID: serverID,
 	}
-	activations := newActivations(registry, env)
+	activations := newActivations(reg, env)
 	env.activations = activations
+
+	// Do one heartbeat right off the bat so the environment is immediately useable.
+	err := reg.Heartbeat(ctx, serverID, registry.HeartbeatState{NumActivatedActors: 0})
+	if err != nil {
+		return nil, fmt.Errorf("failed to perform initial heartbeat: %w", err)
+	}
 
 	return env, nil
 }

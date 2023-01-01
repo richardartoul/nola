@@ -30,7 +30,7 @@ func init() {
 // TestSimple is a basic sanity test that verifies the most basic flow.
 func TestSimple(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment("serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -67,7 +67,7 @@ func TestSimple(t *testing.T) {
 // them as needed.
 func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment("serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -111,7 +111,7 @@ func TestKVHostFunctions(t *testing.T) {
 			count++
 		}()
 
-		env, err := NewEnvironment("serverID1", reg)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg)
 		require.NoError(t, err)
 		defer env.Close()
 
@@ -172,7 +172,7 @@ func TestKVHostFunctions(t *testing.T) {
 // that actors can create new actors.
 func TestCreateActorHostFunction(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment("serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -227,7 +227,7 @@ func TestCreateActorHostFunction(t *testing.T) {
 // test ensures that actors can communicate with other actors.
 func TestInvokeActorHostFunction(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment("serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -296,7 +296,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 // another actor that is not yet activated without introducing a deadlock.
 func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 	reg := registry.NewLocal()
-	env, err := NewEnvironment("serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -321,6 +321,23 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 	_, err = env.Invoke(ctx, "bench-ns", "a", "invokeActor", marshaled)
 	require.NoError(t, err)
 }
+
+// TestHeartbeatAndSelfHealing tests the interaction between the service discovery / heartbeating system
+// and the registry. It ensures that every "server" (environment) is constantly heartbeating the registry,
+// that the registry will detect server's that are no longer heartbeating and reactivate the actors elsewhere,
+// and that the activation/routing system can accomodate all of this.
+// func TestHeartbeatAndSelfHealing(t *testing.T) {
+// 	// Create 3 environments backed by the same registry to simulate 3 different servers.
+// 	reg := registry.NewLocal()
+
+// 	// TODO: Ensure all close.
+// 	env1, err := NewEnvironment(context.Background(),"serverID1", reg)
+// 	require.NoError(t, err)
+// 	env2, err := NewEnvironment(context.Background(),"serverID1", reg)
+// 	require.NoError(t, err)
+// 	env3, err := NewEnvironment(context.Background(),"serverID1", reg)
+// 	require.NoError(t, err)
+// }
 
 func getCount(t *testing.T, v []byte) int64 {
 	x, err := strconv.Atoi(string(v))
