@@ -9,6 +9,7 @@ import (
 // Registry is the interface that is implemented by the virtual actor registry.
 type Registry interface {
 	ActorStorage
+	ServiceDiscovery
 
 	// RegisterModule registers the provided module []byte and options with the
 	// provided module ID for subsequent calls to CreateActor().
@@ -86,7 +87,14 @@ type ActorStorage interface {
 // ServiceDiscovery contains the methods for interacting with the Registry's service
 // discovery mechanism.
 type ServiceDiscovery interface {
-	heartbeat(serverID string)
+	// Heartbeat updates the "lastHeartbeatedAt" value for the provided server ID. Server's
+	// must heartbeat regularly to be considered alive and eligible for hosting actor
+	// activations.
+	Heartbeat(
+		ctx context.Context,
+		serverID string,
+		state HeartbeatState,
+	) error
 }
 
 // ActorOptions contains the options for a given actor.
@@ -101,3 +109,17 @@ type ModuleOptions struct{}
 
 // RegisterModuleResult is the result of a call to RegisterModule().
 type RegisterModuleResult struct{}
+
+// HeartbeatState contains information that accompanies a server's heartbeat. It contains
+// various information about the current state of the server that might be useful to the
+// registry. For example, the number of currently activated actors on the server is useful
+// to the registry so it can load-balance future actor activations around the cluster to
+// achieve uniformity.
+//
+// TODO: This should include things like how many CPU seconds and memory the actors are
+//
+//	using, etc for hotspot detection.
+type HeartbeatState struct {
+	// NumActivatedActors is the number of actors currently activated on the server.
+	NumActivatedActors int
+}

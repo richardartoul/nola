@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/richardartoul/nola/virtual/types"
 )
@@ -15,6 +16,7 @@ type local struct {
 	m       map[string][]byte
 	actors  map[types.NamespacedID]registeredActor
 	modules map[types.NamespacedID]registeredModule
+	servers map[string]serverState
 }
 
 // NewLocal creates a new local (in-memory) registry. It is primarily used for
@@ -24,6 +26,7 @@ func NewLocal() Registry {
 		m:       make(map[string][]byte),
 		actors:  make(map[types.NamespacedID]registeredActor),
 		modules: make(map[types.NamespacedID]registeredModule),
+		servers: make(map[string]serverState),
 	})
 }
 
@@ -185,6 +188,25 @@ func (l *local) ActorKVGet(
 	return v, ok, nil
 }
 
+func (l *local) Heartbeat(
+	ctx context.Context,
+	serverID string,
+	heartbeatState HeartbeatState,
+) error {
+	l.Lock()
+	defer l.Unlock()
+
+	state, ok := l.servers[serverID]
+	if !ok {
+		state = serverState{}
+	}
+	state.lastHeartbeatedAt = time.Now()
+	state.heartbeatState = heartbeatState
+	l.servers[serverID] = state
+
+	return nil
+}
+
 type registeredActor struct {
 	opts       ActorOptions
 	moduleID   string
@@ -194,4 +216,9 @@ type registeredActor struct {
 type registeredModule struct {
 	bytes []byte
 	opts  ModuleOptions
+}
+
+type serverState struct {
+	lastHeartbeatedAt time.Time
+	heartbeatState    HeartbeatState
 }

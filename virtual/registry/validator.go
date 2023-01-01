@@ -157,6 +157,17 @@ func (v *validator) ActorKVGet(
 	return v.r.ActorKVGet(ctx, namespace, actorID, key)
 }
 
+func (v *validator) Heartbeat(
+	ctx context.Context,
+	serverID string,
+	state HeartbeatState,
+) error {
+	if err := validateString("serverID", serverID); err != nil {
+		return err
+	}
+	return v.r.Heartbeat(ctx, serverID, state)
+}
+
 func validateString(name, x string) error {
 	if x == "" {
 		return fmt.Errorf("%s cannot be empty", name)
