@@ -85,6 +85,8 @@ That said, NOLA is none the less a useful prototype with a basic foundation that
 6. Actors can create new actors from their own module, or a completely different module.
 7. Actors can communicate with other actors by invoking functions / operations on remote actors.
 
+Actor's are not inherently replicated, and in general an actor will only ever be activated on a single server at any given time. However, the existing implementation of NOLA is already "highly available. NOLA has a service discovery mechanism where every "server" is constantly heartbeating the registry. If a server fails to heartbeat the registry for too long (currently hardcoded at 5s) then the registry will consider that server "dead" and all future invocations for actors that were previously activated on the failed server will trigger an on-demand reactivation on one of the remaining live servers. This means that NOLA will automatically self-heal and actors running on servers that fail will automatically be reactivated on a new server (assuming one is available). However, relocation does take time and the actor will be temporarily unavailable when a server fails. The window of unavailability for an actor is ~ proportional to the heatbeat TTL (currently 5 seconds) + the time it takes to download and recompile a WASM module on a new server.
+
 `testdata/tinygo/util/main.go` demonstrates a simple utility actor (including KV storage and the ability to fork itself to create new actors) that is used heavily throughout the test suite.
 
 See the "Playground" section of the README for instructions on how to run the playground to play around with NOLA locally.
@@ -124,11 +126,9 @@ Of course a production system will never achieve these results on a single core 
 2. FDB registry implementation.
 3. ACL policy for module capabilities + access to host functions.
 4. Limiting actor memory usage.
-5. Balancing actors.
-6. Server registration.
-7. Scheduling.
-8. WASM modules need dedicated storage so they can be large.
-9. Cycle/dead-lock detection for inter-actor RPC.
-10. Use a queue for buffering incoming actor RPCs + backpressure.
+5. Scheduling.
+6. WASM modules need dedicated storage so they can be large.
+7. Cycle/dead-lock detection for inter-actor RPC.
+8. Use a queue for buffering incoming actor RPCs + backpressure.
 
 So many more things.
