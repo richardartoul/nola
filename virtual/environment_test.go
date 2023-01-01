@@ -411,8 +411,6 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	// expect that we should still be able to invoke all 3 of our actors, however, all of them
 	// should end up being activated on server3 now since it is the only remaining live actor.
 
-	// Quickly make sure the registry has an up to date view of env3.
-	require.NoError(t, env3.heartbeat())
 	for i := 0; i < 100; i++ {
 		_, err = env3.Invoke(ctx, "ns-1", "a", "inc", nil)
 		require.NoError(t, err)

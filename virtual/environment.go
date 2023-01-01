@@ -3,7 +3,9 @@ package virtual
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/richardartoul/nola/virtual/registry"
@@ -17,6 +19,10 @@ const (
 type environment struct {
 	// State.
 	activations *activations // Internally synchronized.
+	// Closed when the background heartbeating goroutine should be shut down.
+	closeCh chan struct{}
+	// Closed when the background heartbeating goroutine completes shutting down.
+	closedCh chan struct{}
 
 	// Dependencies.
 	serverID string
@@ -33,6 +39,8 @@ func NewEnvironment(
 	//       passed in.
 	address := uuid.New().String()
 	env := &environment{
+		closeCh:  make(chan struct{}),
+		closedCh: make(chan struct{}),
 		registry: reg,
 		address:  address,
 		serverID: serverID,
@@ -49,6 +57,24 @@ func NewEnvironment(
 	localEnvironmentsRouterLock.Lock()
 	localEnvironmentsRouter[address] = env
 	localEnvironmentsRouterLock.Unlock()
+
+	go func() {
+		defer close(env.closedCh)
+		ticker := time.NewTicker(1 * time.Second)
+		for {
+			select {
+			case <-ticker.C:
+				if err := env.heartbeat(); err != nil {
+					log.Printf("error heartbeating: %v\n", err)
+				}
+			case <-env.closeCh:
+				log.Printf(
+					"enironment with serverID: %s and address: %s is shutting down\n",
+					env.serverID, env.address)
+				return
+			}
+		}
+	}()
 
 	return env, nil
 }
@@ -97,6 +123,10 @@ func (r *environment) Close() error {
 	localEnvironmentsRouterLock.Lock()
 	delete(localEnvironmentsRouter, r.address)
 	localEnvironmentsRouterLock.Unlock()
+
+	close(r.closeCh)
+	<-r.closedCh
+
 	return nil
 }
 
