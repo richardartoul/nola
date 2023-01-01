@@ -165,6 +165,9 @@ func (v *validator) Heartbeat(
 	if err := validateString("serverID", serverID); err != nil {
 		return err
 	}
+	if err := validateString("address", state.Address); err != nil {
+		return err
+	}
 	return v.r.Heartbeat(ctx, serverID, state)
 }
 

@@ -3,6 +3,7 @@ package virtual
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
@@ -81,6 +82,15 @@ func (r *environment) Close() error {
 	return nil
 }
 
+// TODO: This is kind of a giant hack, but it's really only used for testing. The idea is that
+// even when we're using local references, we still want to be able to create multiple
+// environments in memory that can all "route" to each other. To accomplish this, everytime an
+// environment is created in memory we added it to this global map. Once it is closed, we remove it.
+var (
+	localEnvironmentsRouter     map[string]Environment = map[string]Environment{}
+	localEnvironmentsRouterLock sync.RWMutex
+)
+
 func (r *environment) invokeReferences(
 	ctx context.Context,
 	references []types.ActorReference,
@@ -91,7 +101,15 @@ func (r *environment) invokeReferences(
 	reference := references[0]
 	switch reference.Type() {
 	case types.ReferenceTypeLocal:
-		return r.InvokeLocal(ctx, r.serverID, reference, operation, payload)
+		localEnvironmentsRouterLock.RLock()
+		localEnv, ok := localEnvironmentsRouter[reference.Address()]
+		localEnvironmentsRouterLock.RUnlock()
+		if !ok {
+			return nil, fmt.Errorf(
+				"unable to route invocation for server: %s at path: %s, does not exist in global routing map",
+				reference.ServerID(), reference.Address())
+		}
+		return localEnv.InvokeLocal(ctx, reference.ServerID(), reference, operation, payload)
 	case types.ReferenceTypeRemoteHTTP:
 		fallthrough
 	default:

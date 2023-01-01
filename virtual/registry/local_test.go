@@ -68,6 +68,7 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 
 	err = registry.Heartbeat(ctx, "server1", HeartbeatState{
 		NumActivatedActors: 100,
+		Address:            "server1_address",
 	})
 	require.NoError(t, err)
 
@@ -76,6 +77,7 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations))
 	require.Equal(t, "server1", activations[0].ServerID())
+	require.Equal(t, "server1_address", activations[0].Address())
 	require.Equal(t, "ns1", activations[0].Namespace())
 	require.Equal(t, "ns1", activations[0].ModuleID().Namespace)
 	require.Equal(t, "test-module", activations[0].ModuleID().ID)
@@ -85,6 +87,7 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 	// Add another server, this one with no existing activations.
 	err = registry.Heartbeat(ctx, "server2", HeartbeatState{
 		NumActivatedActors: 0,
+		Address:            "server2_address",
 	})
 	require.NoError(t, err)
 
@@ -96,6 +99,7 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "server1", activations[0].ServerID())
+		require.Equal(t, "server1_address", activations[0].Address())
 		require.Equal(t, "ns1", activations[0].Namespace())
 		require.Equal(t, "ns1", activations[0].ModuleID().Namespace)
 		require.Equal(t, "test-module", activations[0].ModuleID().ID)
@@ -116,6 +120,7 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 
 		err = registry.Heartbeat(ctx, "server2", HeartbeatState{
 			NumActivatedActors: i + 1,
+			Address:            "server2_address",
 		})
 		require.NoError(t, err)
 	}
@@ -139,6 +144,7 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 		}
 		err = registry.Heartbeat(ctx, activations[0].ServerID(), HeartbeatState{
 			NumActivatedActors: 100 + i + 1,
+			Address:            fmt.Sprintf("%s_address", activations[0].ServerID()),
 		})
 		require.NoError(t, err)
 		lastServerID = activations[0].ServerID()
@@ -153,6 +159,7 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 	// Heartbeat server2. After this, the Registry should only consider server2 to be alive.
 	err = registry.Heartbeat(ctx, "server2", HeartbeatState{
 		NumActivatedActors: 9999999,
+		Address:            "server2_address",
 	})
 	require.NoError(t, err)
 

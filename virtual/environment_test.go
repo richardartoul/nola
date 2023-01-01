@@ -302,12 +302,12 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
-	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", registry.ActorOptions{})
+	_, err = reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
 	require.NoError(t, err)
-	_, err = reg.CreateActor(ctx, "bench-ns", "b", "test-module", registry.ActorOptions{})
+	_, err = reg.CreateActor(ctx, "ns-1", "b", "test-module", registry.ActorOptions{})
 	require.NoError(t, err)
 
 	invokeReq := wapcutils.InvokeActorRequest{
@@ -318,7 +318,7 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 	marshaled, err := json.Marshal(invokeReq)
 	require.NoError(t, err)
 
-	_, err = env.Invoke(ctx, "bench-ns", "a", "invokeActor", marshaled)
+	_, err = env.Invoke(ctx, "ns-1", "a", "invokeActor", marshaled)
 	require.NoError(t, err)
 }
 
@@ -326,18 +326,38 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 // and the registry. It ensures that every "server" (environment) is constantly heartbeating the registry,
 // that the registry will detect server's that are no longer heartbeating and reactivate the actors elsewhere,
 // and that the activation/routing system can accomodate all of this.
-// func TestHeartbeatAndSelfHealing(t *testing.T) {
-// 	// Create 3 environments backed by the same registry to simulate 3 different servers.
-// 	reg := registry.NewLocal()
+func TestHeartbeatAndSelfHealing(t *testing.T) {
+	var (
+		reg = registry.NewLocal()
+		ctx = context.Background()
+	)
+	// TODO: Ensure all close.
+	// Create 3 environments backed by the same registry to simulate 3 different servers.
+	env1, err := NewEnvironment(ctx, "serverID1", reg)
+	require.NoError(t, err)
+	env2, err := NewEnvironment(ctx, "serverID2", reg)
+	require.NoError(t, err)
+	env3, err := NewEnvironment(ctx, "serverID3", reg)
+	require.NoError(t, err)
 
-// 	// TODO: Ensure all close.
-// 	env1, err := NewEnvironment(context.Background(),"serverID1", reg)
-// 	require.NoError(t, err)
-// 	env2, err := NewEnvironment(context.Background(),"serverID1", reg)
-// 	require.NoError(t, err)
-// 	env3, err := NewEnvironment(context.Background(),"serverID1", reg)
-// 	require.NoError(t, err)
-// }
+	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	_, err = reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
+	require.NoError(t, err)
+
+	for i := 0; i < 100; i++ {
+		_, err = env1.Invoke(ctx, "ns-1", "a", "inc", nil)
+		require.NoError(t, err)
+		_, err = env2.Invoke(ctx, "ns-1", "a", "inc", nil)
+		require.NoError(t, err)
+		_, err = env3.Invoke(ctx, "ns-1", "a", "inc", nil)
+		require.NoError(t, err)
+	}
+
+	fmt.Println(env2)
+	fmt.Println(env3)
+}
 
 func getCount(t *testing.T, v []byte) int64 {
 	x, err := strconv.Atoi(string(v))

@@ -2,6 +2,7 @@ package types
 
 type localRef struct {
 	serverID   string
+	address    string
 	namespace  string
 	actorID    string
 	moduleID   string
@@ -10,7 +11,8 @@ type localRef struct {
 
 // NewLocalReferences creates an ActorReference of type ReferenceTypeLocal.
 func NewLocalReference(
-	serverID string,
+	serverID,
+	address,
 	namespace,
 	actorID,
 	moduleID string,
@@ -18,6 +20,7 @@ func NewLocalReference(
 ) ActorReference {
 	return localRef{
 		serverID:   serverID,
+		address:    address,
 		namespace:  namespace,
 		actorID:    actorID,
 		moduleID:   moduleID,
@@ -46,7 +49,7 @@ func (l localRef) ModuleID() NamespacedID {
 }
 
 func (l localRef) Address() string {
-	return "LOCAL"
+	return l.address
 }
 
 func (l localRef) Generation() uint64 {

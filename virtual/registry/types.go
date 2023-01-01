@@ -122,4 +122,6 @@ type RegisterModuleResult struct{}
 type HeartbeatState struct {
 	// NumActivatedActors is the number of actors currently activated on the server.
 	NumActivatedActors int
+	// Address is the address at which the server can be reached.
+	Address string
 }

@@ -165,10 +165,12 @@ func (l *local) EnsureActivation(
 		server, serverExists             = l.servers[currActivation.serverID]
 		timeSinceLastHeartbeat           = time.Since(server.lastHeartbeatedAt)
 		serverID                         string
+		serverAddress                    string
 	)
 	if activationExists && serverExists && timeSinceLastHeartbeat < maxHeartbeatDelay {
 		// We have an existing activation and the server is still alive, so just use that.
 		serverID = currActivation.serverID
+		serverAddress = l.servers[currActivation.serverID].heartbeatState.Address
 	} else {
 		// We need to create a new activation.
 		liveServers := []serverState{}
@@ -190,12 +192,13 @@ func (l *local) EnsureActivation(
 		})
 
 		serverID = liveServers[0].serverID
+		serverAddress = liveServers[0].heartbeatState.Address
 		currActivation = activation{serverID: serverID}
 		l.activations[nsActorID] = currActivation
 	}
 
 	return []types.ActorReference{
-		types.NewLocalReference(serverID, namespace, actorID, actor.moduleID, actor.generation),
+		types.NewLocalReference(serverID, serverAddress, namespace, actorID, actor.moduleID, actor.generation),
 	}, nil
 }
 
