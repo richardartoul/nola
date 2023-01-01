@@ -3,3 +3,9 @@ compile-wasm:
 
 test:
 	go test ./...
+
+server:
+	go run cmd/app/main.go
+
+run-playground:
+	bash ./scripts/playground/basic.sh

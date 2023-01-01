@@ -27,7 +27,6 @@ var count int64
 // inc increments the actor's in-memory global counter.
 func inc(payload []byte) ([]byte, error) {
 	count++
-	wapc.ConsoleLog(fmt.Sprintf("%d", count))
 	return []byte(fmt.Sprintf("%d", count)), nil
 }
 

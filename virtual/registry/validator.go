@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/richardartoul/nola/virtual/types"
 )
@@ -162,6 +163,10 @@ func validateString(name, x string) error {
 	}
 	if len(x) > 128 {
 		return fmt.Errorf("%s cannot be > 128 bytes, but was: %d", name, len(x))
+	}
+
+	if len(strings.TrimSpace(x)) != len(x) {
+		return fmt.Errorf("%s cannot contain leader or trailing whitespace, but was: %s", name, x)
 	}
 
 	return nil

@@ -47,9 +47,8 @@ func (s *server) Start(port int) error {
 // more clever.
 func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 	var (
-		headers   = w.Header()
-		namespace = headers.Get("namespace")
-		moduleID  = headers.Get("module-id")
+		namespace = r.Header.Get("namespace")
+		moduleID  = r.Header.Get("module_id")
 	)
 
 	moduleBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
@@ -80,9 +79,9 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 }
 
 type createActorRequest struct {
-	Namespace string
-	ActorID   string
-	ModuleID  string
+	Namespace string `json:"namespace"`
+	ActorID   string `json:"actor_id"`
+	ModuleID  string `json:"module_id"`
 }
 
 func (s *server) createActor(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +93,7 @@ func (s *server) createActor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req createActorRequest
-	if err := json.Unmarshal(jsonBytes, req); err != nil {
+	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
 		return
@@ -121,10 +120,10 @@ func (s *server) createActor(w http.ResponseWriter, r *http.Request) {
 }
 
 type invokeRequest struct {
-	Namespace string
-	ActorID   string
-	Operation string
-	Payload   []byte
+	Namespace string `json:"namespace"`
+	ActorID   string `json:"actor_id"`
+	Operation string `json:"operation"`
+	Payload   []byte `json:"payload"`
 }
 
 func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +135,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req invokeRequest
-	if err := json.Unmarshal(jsonBytes, req); err != nil {
+	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
 		return
