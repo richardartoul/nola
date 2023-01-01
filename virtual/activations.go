@@ -40,6 +40,11 @@ func newActivations(
 	}
 }
 
+// invoke has a lot of manual locking and unlocking. While error prone, this is intentional
+// as we need to avoid holding the lock in certain paths that may end up doing expensive
+// or high latency operations. In addition, we need to ensure that the lock is not held while
+// actor.o.Invoke() is called because it may run for a long time, but also to avoid deadlocks
+// when one actor ends up invoking a function on another actor running in the same environment.
 func (a *activations) invoke(
 	ctx context.Context,
 	reference types.ActorReference,
@@ -74,6 +79,7 @@ func (a *activations) invoke(
 		// Module is cached, instantiate the actor then we're done.
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID)
 		if err != nil {
+			a.Unlock()
 			return nil, fmt.Errorf(
 				"error instantiating actor: %s from module: %s",
 				reference.ActorID(), reference.ModuleID())
@@ -106,7 +112,6 @@ func (a *activations) invoke(
 	// created them in the meantime.
 
 	a.Lock()
-	defer a.Unlock()
 
 	module, ok = a._modules[reference.ModuleID()]
 	if !ok {
@@ -118,6 +123,7 @@ func (a *activations) invoke(
 		//       interfaces.
 		module, err = durablewazero.NewModule(ctx, wazero.Engine(), hostFn, moduleBytes)
 		if err != nil {
+			a.Unlock()
 			return nil, fmt.Errorf(
 				"error constructing module: %s from module bytes, err: %w",
 				reference.ModuleID(), err)
@@ -129,6 +135,7 @@ func (a *activations) invoke(
 	if !ok {
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID)
 		if err != nil {
+			a.Unlock()
 			return nil, fmt.Errorf(
 				"error instantiating actor: %s from module: %s",
 				reference.ActorID(), reference.ModuleID())
@@ -137,6 +144,7 @@ func (a *activations) invoke(
 		a._actors[reference.ActorID()] = actor
 	}
 
+	a.Unlock()
 	return actor.o.Invoke(ctx, operation, payload)
 }
 

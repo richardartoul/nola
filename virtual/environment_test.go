@@ -292,6 +292,36 @@ func TestInvokeActorHostFunction(t *testing.T) {
 	}
 }
 
+// TestInvokeActorHostFunctionDeadlockRegression is a regression test to ensure that an actor can invoke
+// another actor that is not yet activated without introducing a deadlock.
+func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
+	reg := registry.NewLocal()
+	env, err := NewEnvironment(reg)
+	require.NoError(t, err)
+	defer env.Close()
+
+	ctx := context.Background()
+
+	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", registry.ActorOptions{})
+	require.NoError(t, err)
+	_, err = reg.CreateActor(ctx, "bench-ns", "b", "test-module", registry.ActorOptions{})
+	require.NoError(t, err)
+
+	invokeReq := wapcutils.InvokeActorRequest{
+		ActorID:   "b",
+		Operation: "inc",
+		Payload:   nil,
+	}
+	marshaled, err := json.Marshal(invokeReq)
+	require.NoError(t, err)
+
+	_, err = env.Invoke(ctx, "bench-ns", "a", "invokeActor", marshaled)
+	require.NoError(t, err)
+}
+
 func getCount(t *testing.T, v []byte) int64 {
 	x, err := strconv.Atoi(string(v))
 	require.NoError(t, err)
