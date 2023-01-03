@@ -92,6 +92,22 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, "test-module", activations[0].ModuleID().ID)
 	require.Equal(t, "ns1", activations[0].ActorID().Namespace)
 	require.Equal(t, "a", activations[0].ActorID().ID)
+	require.Equal(t, uint64(0), activations[0].Generation())
+
+	// Ensure we get back all the same information but with the generation
+	// bumped now.
+	require.NoError(t, registry.IncGeneration(ctx, "ns1", "a"))
+	activations, err = registry.EnsureActivation(ctx, "ns1", "a")
+	require.NoError(t, err)
+	require.Equal(t, 1, len(activations))
+	require.Equal(t, "server1", activations[0].ServerID())
+	require.Equal(t, "server1_address", activations[0].Address())
+	require.Equal(t, "ns1", activations[0].Namespace())
+	require.Equal(t, "ns1", activations[0].ModuleID().Namespace)
+	require.Equal(t, "test-module", activations[0].ModuleID().ID)
+	require.Equal(t, "ns1", activations[0].ActorID().Namespace)
+	require.Equal(t, "a", activations[0].ActorID().ID)
+	require.Equal(t, uint64(1), activations[0].Generation())
 
 	// Add another server, this one with no existing activations.
 	err = registry.Heartbeat(ctx, "server2", HeartbeatState{

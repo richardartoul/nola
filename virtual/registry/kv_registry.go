@@ -154,17 +154,6 @@ func (k *kvRegistry) CreateActor(
 	return r.(CreateActorResult), nil
 }
 
-// func (k *kvRegistry) actorExists(namespace, actorID string, tr transaction) (bool, error) {
-// 	actorKey := tuple.Tuple{namespace, "actors", actorID}.Pack()
-// 	_, ok, err := tr.get(actorKey)
-// 	if err != nil {
-// 		return false, err
-// 	}
-
-// 	return ok,nil
-// }
-
-// TODO: Make sure this function is tested.
 func (k *kvRegistry) IncGeneration(
 	ctx context.Context,
 	namespace,

@@ -7,6 +7,7 @@ import (
 	"github.com/google/btree"
 )
 
+// localKV is an implementation of kv backed by local memory.
 type localKV struct {
 	sync.Mutex
 	b *btree.BTreeG[btreeKV]
