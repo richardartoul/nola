@@ -58,7 +58,7 @@ func (l *local) RegisterModule(
 	moduleBytes []byte,
 	opts ModuleOptions,
 ) (RegisterModuleResult, error) {
-	key := tuple.Tuple{namespace, "modules", moduleID}.Pack()
+	key := l.getModuleKey(namespace, moduleID)
 	r, err := l.kv.transact(func(tr transaction) (any, error) {
 		_, ok, err := tr.get(key)
 		if err != nil {
@@ -95,7 +95,7 @@ func (l *local) GetModule(
 	namespace,
 	moduleID string,
 ) ([]byte, ModuleOptions, error) {
-	key := tuple.Tuple{namespace, "modules", moduleID}.Pack()
+	key := l.getModuleKey(namespace, moduleID)
 	r, err := l.kv.transact(func(tr transaction) (any, error) {
 		v, ok, err := tr.get(key)
 		if err != nil {
@@ -129,8 +129,8 @@ func (l *local) CreateActor(
 	opts ActorOptions,
 ) (CreateActorResult, error) {
 	var (
-		actorKey  = tuple.Tuple{namespace, "actors", actorID}.Pack()
-		moduleKey = tuple.Tuple{namespace, "modules", moduleID}.Pack()
+		actorKey  = l.getActorKey(namespace, actorID)
+		moduleKey = l.getModuleKey(namespace, moduleID)
 	)
 	r, err := l.kv.transact(func(tr transaction) (any, error) {
 		_, ok, err := tr.get(actorKey)
@@ -172,24 +172,54 @@ func (l *local) CreateActor(
 	return r.(CreateActorResult), nil
 }
 
+// func (l *local) actorExists(namespace, actorID string, tr transaction) (bool, error) {
+// 	actorKey := tuple.Tuple{namespace, "actors", actorID}.Pack()
+// 	_, ok, err := tr.get(actorKey)
+// 	if err != nil {
+// 		return false, err
+// 	}
+
+// 	return ok,nil
+// }
+
+// TODO: Make sure this function is tested.
 func (l *local) IncGeneration(
 	ctx context.Context,
 	namespace,
 	actorID string,
 ) error {
-	l.Lock()
-	defer l.Unlock()
+	actorKey := l.getActorKey(namespace, actorID)
+	_, err := l.kv.transact(func(tr transaction) (any, error) {
+		actorBytes, ok, err := tr.get(actorKey)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return RegisterModuleResult{}, fmt.Errorf(
+				"error incrementing generation for actor with ID: %s, actor does not exist in namespace: %s",
+				actorID, namespace)
+		}
 
-	nsActorID := types.NewNamespacedID(namespace, actorID)
-	actor, ok := l.actors[nsActorID]
-	if !ok {
-		return fmt.Errorf(
-			"error incrementing generation for actor with ID: %s, actor does not exist in namespace: %s",
-			actorID, namespace)
+		var ra registeredActor
+		if err := json.Unmarshal(actorBytes, &ra); err != nil {
+			return nil, fmt.Errorf("error unmarshaling registered actor: %w", err)
+		}
+
+		ra.Generation++
+
+		marshaled, err := json.Marshal(&ra)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling registered actor: %w", err)
+		}
+
+		tr.put(actorKey, marshaled)
+
+		return nil, nil
+	})
+	if err != nil {
+		return err
 	}
 
-	actor.Generation++
-	l.actors[nsActorID] = actor
 	return nil
 }
 
@@ -258,18 +288,28 @@ func (l *local) ActorKVPut(
 	key []byte,
 	value []byte,
 ) error {
-	l.Lock()
-	defer l.Unlock()
+	var (
+		actorKey  = l.getActorKey(namespace, actorID)
+		packedKey = tuple.Tuple{namespace, "kv", "actors", actorID}.Pack()
+	)
+	_, err := l.kv.transact(func(tr transaction) (any, error) {
+		// TODO: This is an expensive check to run each time, consider removing this if it becomes
+		//       a bottleneck.
+		_, ok, err := tr.get(actorKey)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf("cannot perform KV Put for actor: %s that does not exist", actorID)
+		}
 
-	nsActorID := types.NewNamespacedID(namespace, actorID)
-	if _, ok := l.actors[nsActorID]; !ok {
-		return fmt.Errorf(
-			"error performing PUT for actor: %s with key: %s, actor does not exist in namespace: %s",
-			actorID, key, namespace)
+		tr.put(packedKey, value)
+		return nil, nil
+	})
+	if err != nil {
+		return err
 	}
 
-	// Copy the key and value in case they are reused.
-	l.m[string(key)] = append([]byte(nil), value...)
 	return nil
 }
 
@@ -279,18 +319,38 @@ func (l *local) ActorKVGet(
 	actorID string,
 	key []byte,
 ) ([]byte, bool, error) {
-	l.Lock()
-	defer l.Unlock()
+	var (
+		actorKey  = l.getActorKey(namespace, actorID)
+		packedKey = tuple.Tuple{namespace, "kv", "actors", actorID}.Pack()
+	)
+	result, err := l.kv.transact(func(tr transaction) (any, error) {
+		// TODO: This is an expensive check to run each time, consider removing this if it becomes
+		//       a bottleneck.
+		_, ok, err := tr.get(actorKey)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf("cannot perform KV Put for actor: %s that does not exist", actorID)
+		}
 
-	nsActorID := types.NewNamespacedID(namespace, actorID)
-	if _, ok := l.actors[nsActorID]; !ok {
-		return nil, false, fmt.Errorf(
-			"error performing GET for actor: %s with key: %s, actor does not exist in namespace: %s",
-			actorID, key, namespace)
+		v, ok, err := tr.get(packedKey)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, nil
+		}
+
+		return v, nil
+	})
+	if err != nil {
+		return nil, false, err
 	}
-
-	v, ok := l.m[string(key)]
-	return v, ok, nil
+	if result == nil {
+		return nil, false, nil
+	}
+	return result.([]byte), true, nil
 }
 
 func (l *local) Heartbeat(
@@ -313,6 +373,14 @@ func (l *local) Heartbeat(
 	l.servers[serverID] = state
 
 	return nil
+}
+
+func (l *local) getModuleKey(namespace, moduleID string) []byte {
+	return tuple.Tuple{namespace, "modules", moduleID}.Pack()
+}
+
+func (l *local) getActorKey(namespace, actorID string) []byte {
+	return tuple.Tuple{namespace, "actors", actorID}.Pack()
 }
 
 type registeredActor struct {
