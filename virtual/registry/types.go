@@ -61,6 +61,13 @@ type Registry interface {
 		namespace,
 		actorID string,
 	) ([]types.ActorReference, error)
+
+	// Close closes the registry and releases any resources associated (DB connections, etc).
+	Close(ctx context.Context) error
+
+	// Wipes the entire registry. Only used for tests. Do not make this public or call
+	// it anywhere in production code.
+	unsafeWipeAll() error
 }
 
 // ActorStorage contains the methods for interacting with per-actor durable storage.

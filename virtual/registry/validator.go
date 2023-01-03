@@ -171,6 +171,14 @@ func (v *validator) Heartbeat(
 	return v.r.Heartbeat(ctx, serverID, state)
 }
 
+func (v *validator) Close(ctx context.Context) error {
+	return v.r.Close(ctx)
+}
+
+func (v *validator) unsafeWipeAll() error {
+	return v.r.unsafeWipeAll()
+}
+
 func validateString(name, x string) error {
 	if x == "" {
 		return fmt.Errorf("%s cannot be empty", name)

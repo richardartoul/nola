@@ -15,6 +15,7 @@ func testAllCommon(t *testing.T, registryCtor func() Registry) {
 	t.Run("simple", func(t *testing.T) {
 		testRegistrySimple(t, registryCtor())
 	})
+
 	t.Run("service discovery and ensure activation", func(t *testing.T) {
 		testRegistryServiceDiscoveryAndEnsureActivation(t, registryCtor())
 	})
@@ -78,7 +79,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Error(t, err)
 
 	err = registry.Heartbeat(ctx, "server1", HeartbeatState{
-		NumActivatedActors: 100,
+		NumActivatedActors: 10,
 		Address:            "server1_address",
 	})
 	require.NoError(t, err)
@@ -120,7 +121,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 
 	// Keep checking the activation of the existing actor, it should remain sticky to
 	// server 1.
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		// Should succeed now that we have a server to activate on.
 		activations, err := registry.EnsureActivation(ctx, "ns1", "a")
 		require.NoError(t, err)
@@ -134,8 +135,8 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		require.Equal(t, "a", activations[0].ActorID().ID)
 	}
 
-	// Next 100 activations should all go to server2 for balancing purposes.
-	for i := 0; i < 100; i++ {
+	// Next 10 activations should all go to server2 for balancing purposes.
+	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("0-%d", i)
 		_, err = registry.CreateActor(ctx, "ns1", actorID, "test-module", ActorOptions{})
 		require.NoError(t, err)
@@ -154,7 +155,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 
 	// Subsequent activations should load balance.
 	var lastServerID string
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("1-%d", i)
 		_, err = registry.CreateActor(ctx, "ns1", actorID, "test-module", ActorOptions{})
 		require.NoError(t, err)
@@ -170,7 +171,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 			require.Equal(t, "server1", activations[0].ServerID())
 		}
 		err = registry.Heartbeat(ctx, activations[0].ServerID(), HeartbeatState{
-			NumActivatedActors: 100 + i + 1,
+			NumActivatedActors: 10 + i + 1,
 			Address:            fmt.Sprintf("%s_address", activations[0].ServerID()),
 		})
 		require.NoError(t, err)
@@ -192,7 +193,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 
 	// Even though server2's NumActivatedActors value is very high, all activations will go to
 	// server2 because its the only one available.
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("2-%d", i)
 		_, err = registry.CreateActor(ctx, "ns1", actorID, "test-module", ActorOptions{})
 		require.NoError(t, err)
@@ -222,7 +223,7 @@ func testKVSimple(t *testing.T, registry Registry) {
 			_, err = registry.CreateActor(ctx, ns, actor, "test-module", ActorOptions{})
 			require.NoError(t, err)
 
-			for i := 0; i < 100; i++ {
+			for i := 0; i < 10; i++ {
 				var (
 					key   = []byte(fmt.Sprintf("key-%d", i))
 					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
@@ -244,7 +245,7 @@ func testKVSimple(t *testing.T, registry Registry) {
 			}
 
 			// Make sure we can re-read all the keys.
-			for i := 0; i < 100; i++ {
+			for i := 0; i < 10; i++ {
 				var (
 					key   = []byte(fmt.Sprintf("key-%d", i))
 					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))

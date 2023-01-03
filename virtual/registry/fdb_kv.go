@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -24,6 +25,20 @@ func (f *fdbKV) transact(fn func(tr transaction) (any, error)) (any, error) {
 	return f.db.Transact(func(tr fdb.Transaction) (any, error) {
 		return fn(&fdbTransaction{tr})
 	})
+}
+
+func (f *fdbKV) close(ctx context.Context) error {
+	// TODO: Why does f.db.Close() not exist?
+	// https://pkg.go.dev/github.com/apple/foundationdb/bindings/go/src/fdb#Database.Close
+	return nil
+}
+
+func (f *fdbKV) unsafeWipeAll() error {
+	_, err := f.db.Transact(func(tr fdb.Transaction) (any, error) {
+		tr.ClearRange(fdb.KeyRange{Begin: fdb.Key{0x00}, End: fdb.Key{0xFF}})
+		return nil, nil
+	})
+	return err
 }
 
 type fdbTransaction struct {

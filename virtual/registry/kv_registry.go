@@ -404,6 +404,14 @@ func (k *kvRegistry) Heartbeat(
 	return err
 }
 
+func (k *kvRegistry) Close(ctx context.Context) error {
+	return k.kv.close(ctx)
+}
+
+func (k *kvRegistry) unsafeWipeAll() error {
+	return k.kv.unsafeWipeAll()
+}
+
 func (k *kvRegistry) getModuleKey(namespace, moduleID string) []byte {
 	return tuple.Tuple{namespace, "modules", moduleID}.Pack()
 }
