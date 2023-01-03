@@ -28,26 +28,26 @@ type local struct {
 	kv kv
 
 	// Contains all known registered modules. Key is module ID.
-	modules map[types.NamespacedID]registeredModule
+	// modules map[types.NamespacedID]registeredModule
 	// Contains all actors ever created. Key is actor ID.
-	actors map[types.NamespacedID]registeredActor
+	// actors map[types.NamespacedID]registeredActor
 	// Contain the last known activation for every actor ever activated.
 	// Key is actor ID.
-	activations map[types.NamespacedID]activation
+	// activations map[types.NamespacedID]activation
 	// Contains all servers that have ever heartbeated.
-	servers map[string]serverState
+	// servers map[string]serverState
 }
 
 // NewLocal creates a new local (in-memory) registry. It is primarily used for
 // tests and simple benchmarking.
 func NewLocal() Registry {
 	return newValidatedRegistry(&local{
-		m:           make(map[string][]byte),
-		kv:          newLocalKV(),
-		modules:     make(map[types.NamespacedID]registeredModule),
-		actors:      make(map[types.NamespacedID]registeredActor),
-		activations: make(map[types.NamespacedID]activation),
-		servers:     make(map[string]serverState),
+		m:  make(map[string][]byte),
+		kv: newLocalKV(),
+		// modules:     make(map[types.NamespacedID]registeredModule),
+		// actors:      make(map[types.NamespacedID]registeredActor),
+		// activations: make(map[types.NamespacedID]activation),
+		// servers: make(map[string]serverState),
 	})
 }
 
@@ -228,69 +228,102 @@ func (l *local) EnsureActivation(
 	namespace,
 	actorID string,
 ) ([]types.ActorReference, error) {
-	// key := l.getActorKey(namespace, actorID)
-	// l.kv.transact(func(tr transaction) (any, error) {
-	// 	v, ok, err := tr.get(key)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	if !ok {
-	// 		return nil, fmt.Errorf(
-	// 			"error ensuring activation of actor with ID: %s, does not exist in namespace: %s",
-	// 			actorID, namespace)
-	// 	}
-	// })
-	l.Lock()
-	defer l.Unlock()
+	actorKey := l.getActorKey(namespace, actorID)
+	references, err := l.kv.transact(func(tr transaction) (any, error) {
+		v, ok, err := tr.get(actorKey)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf(
+				"error ensuring activation of actor with ID: %s, does not exist in namespace: %s",
+				actorID, namespace)
+		}
 
-	nsActorID := types.NewNamespacedID(namespace, actorID)
-	actor, ok := l.actors[nsActorID]
-	if !ok {
-		return nil, fmt.Errorf(
-			"error ensuring activation of actor with ID: %s, does not exist in namespace: %s",
-			actorID, namespace)
-	}
+		var ra registeredActor
+		if err := json.Unmarshal(v, &ra); err != nil {
+			return nil, fmt.Errorf("error unmarsaling registered actor with ID: %s", actorID)
+		}
 
-	var (
-		currActivation, activationExists = l.activations[nsActorID]
-		server, serverExists             = l.servers[currActivation.serverID]
-		timeSinceLastHeartbeat           = time.Since(server.LastHeartbeatedAt)
-		serverID                         string
-		serverAddress                    string
-	)
-	if activationExists && serverExists && timeSinceLastHeartbeat < MaxHeartbeatDelay {
-		// We have an existing activation and the server is still alive, so just use that.
-		serverID = currActivation.serverID
-		serverAddress = l.servers[currActivation.serverID].HeartbeatState.Address
-	} else {
-		// We need to create a new activation.
-		liveServers := []serverState{}
-		for _, server := range l.servers {
-			if time.Since(server.LastHeartbeatedAt) < MaxHeartbeatDelay {
-				liveServers = append(liveServers, server)
+		serverKey := l.getServerKey(ra.Activation.ServerID)
+		v, ok, err = tr.get(serverKey)
+		if err != nil {
+			return nil, err
+		}
+
+		var (
+			server       serverState
+			serverExists bool
+		)
+		if ok {
+			if err := json.Unmarshal(v, &server); err != nil {
+				return nil, fmt.Errorf("error unmarsaling server state with ID: %s", actorID)
 			}
-		}
-		if len(liveServers) == 0 {
-			return nil, fmt.Errorf("0 live servers available for new activation")
+			serverExists = true
 		}
 
-		// Pick the server with the lowest current number of activated actors to try and load-balance.
-		// TODO: This is obviously insufficient and we should take other factors into account like
-		//       memory / CPU usage.
-		// TODO: We should also have some hard limits and just reject new activations at some point.
-		sort.Slice(liveServers, func(i, j int) bool {
-			return liveServers[i].HeartbeatState.NumActivatedActors < liveServers[j].HeartbeatState.NumActivatedActors
-		})
+		var (
+			currActivation, activationExists = ra.Activation, ra.Activation.ServerID != ""
+			timeSinceLastHeartbeat           = time.Since(server.LastHeartbeatedAt)
+			serverID                         string
+			serverAddress                    string
+		)
+		if activationExists && serverExists && timeSinceLastHeartbeat < MaxHeartbeatDelay {
+			// We have an existing activation and the server is still alive, so just use that.
+			serverID = currActivation.ServerID
+			serverAddress = server.HeartbeatState.Address
+		} else {
+			// We need to create a new activation.
+			liveServers := []serverState{}
+			err = tr.iterPrefix(l.getServersPrefix(), func(k, v []byte) error {
+				var currServer serverState
+				if err := json.Unmarshal(v, &currServer); err != nil {
+					return fmt.Errorf("error unmarshaling server state: %w", err)
+				}
 
-		serverID = liveServers[0].ServerID
-		serverAddress = liveServers[0].HeartbeatState.Address
-		currActivation = activation{serverID: serverID}
-		l.activations[nsActorID] = currActivation
+				if time.Since(currServer.LastHeartbeatedAt) < MaxHeartbeatDelay {
+					liveServers = append(liveServers, currServer)
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
+			if len(liveServers) == 0 {
+				return nil, fmt.Errorf("0 live servers available for new activation")
+			}
+
+			// Pick the server with the lowest current number of activated actors to try and load-balance.
+			// TODO: This is obviously insufficient and we should take other factors into account like
+			//       memory / CPU usage.
+			// TODO: We should also have some hard limits and just reject new activations at some point.
+			sort.Slice(liveServers, func(i, j int) bool {
+				return liveServers[i].HeartbeatState.NumActivatedActors < liveServers[j].HeartbeatState.NumActivatedActors
+			})
+
+			serverID = liveServers[0].ServerID
+			serverAddress = liveServers[0].HeartbeatState.Address
+			currActivation = activation{ServerID: serverID}
+
+			ra.Activation = currActivation
+			marshaled, err := json.Marshal(&ra)
+			if err != nil {
+				return nil, fmt.Errorf("error marshaling activation: %w", err)
+			}
+
+			tr.put(actorKey, marshaled)
+		}
+
+		return []types.ActorReference{
+			types.NewLocalReference(serverID, serverAddress, namespace, actorID, ra.ModuleID, ra.Generation),
+		}, nil
+
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	return []types.ActorReference{
-		types.NewLocalReference(serverID, serverAddress, namespace, actorID, actor.ModuleID, actor.Generation),
-	}, nil
+	return references.([]types.ActorReference), nil
 }
 
 func (l *local) ActorKVPut(
@@ -415,10 +448,15 @@ func (l *local) getServerKey(serverID string) []byte {
 	return tuple.Tuple{"servers", serverID}.Pack()
 }
 
+func (l *local) getServersPrefix() []byte {
+	return tuple.Tuple{"servers"}.Pack()
+}
+
 type registeredActor struct {
 	Opts       ActorOptions
 	ModuleID   string
 	Generation uint64
+	Activation activation
 }
 
 type registeredModule struct {
@@ -433,5 +471,5 @@ type serverState struct {
 }
 
 type activation struct {
-	serverID string
+	ServerID string
 }

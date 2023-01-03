@@ -14,6 +14,7 @@ type kv interface {
 type transaction interface {
 	put([]byte, []byte)
 	get([]byte) ([]byte, bool, error)
+	iterPrefix(prefix []byte, fn func(k, v []byte) error) error
 }
 
 type localKV struct {
@@ -52,15 +53,19 @@ func (l *localKV) get(k []byte) ([]byte, bool, error) {
 	return v.v, true, nil
 }
 
-func (l *localKV) iterPrefix(prefix []byte, fn func(k, v []byte)) error {
+func (l *localKV) iterPrefix(prefix []byte, fn func(k, v []byte) error) error {
+	var globalErr error
 	l.b.AscendGreaterOrEqual(btreeKV{prefix, nil}, func(currKV btreeKV) bool {
 		if bytes.HasPrefix(currKV.k, prefix) {
-			fn(currKV.k, currKV.v)
+			if err := fn(currKV.k, currKV.v); err != nil {
+				globalErr = err
+				return false
+			}
 			return true
 		}
 		return false
 	})
-	return nil
+	return globalErr
 }
 
 type btreeKV struct {
