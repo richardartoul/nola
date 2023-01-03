@@ -20,46 +20,28 @@ const (
 	MaxHeartbeatDelay = 5 * time.Second
 )
 
-type local struct {
+type kvRegistry struct {
 	sync.Mutex
 
 	// State.
-	m  map[string][]byte
 	kv kv
-
-	// Contains all known registered modules. Key is module ID.
-	// modules map[types.NamespacedID]registeredModule
-	// Contains all actors ever created. Key is actor ID.
-	// actors map[types.NamespacedID]registeredActor
-	// Contain the last known activation for every actor ever activated.
-	// Key is actor ID.
-	// activations map[types.NamespacedID]activation
-	// Contains all servers that have ever heartbeated.
-	// servers map[string]serverState
 }
 
-// NewLocal creates a new local (in-memory) registry. It is primarily used for
-// tests and simple benchmarking.
-func NewLocal() Registry {
-	return newValidatedRegistry(&local{
-		m:  make(map[string][]byte),
-		kv: newLocalKV(),
-		// modules:     make(map[types.NamespacedID]registeredModule),
-		// actors:      make(map[types.NamespacedID]registeredActor),
-		// activations: make(map[types.NamespacedID]activation),
-		// servers: make(map[string]serverState),
-	})
+func newKVRegistry(kv kv) Registry {
+	return &kvRegistry{
+		kv: kv,
+	}
 }
 
-func (l *local) RegisterModule(
+func (k *kvRegistry) RegisterModule(
 	ctx context.Context,
 	namespace,
 	moduleID string,
 	moduleBytes []byte,
 	opts ModuleOptions,
 ) (RegisterModuleResult, error) {
-	key := l.getModuleKey(namespace, moduleID)
-	r, err := l.kv.transact(func(tr transaction) (any, error) {
+	key := k.getModuleKey(namespace, moduleID)
+	r, err := k.kv.transact(func(tr transaction) (any, error) {
 		_, ok, err := tr.get(key)
 		if err != nil {
 			return nil, err
@@ -90,13 +72,13 @@ func (l *local) RegisterModule(
 }
 
 // GetModule gets the bytes and options associated with the provided module.
-func (l *local) GetModule(
+func (k *kvRegistry) GetModule(
 	ctx context.Context,
 	namespace,
 	moduleID string,
 ) ([]byte, ModuleOptions, error) {
-	key := l.getModuleKey(namespace, moduleID)
-	r, err := l.kv.transact(func(tr transaction) (any, error) {
+	key := k.getModuleKey(namespace, moduleID)
+	r, err := k.kv.transact(func(tr transaction) (any, error) {
 		v, ok, err := tr.get(key)
 		if err != nil {
 			return ModuleOptions{}, err
@@ -121,7 +103,7 @@ func (l *local) GetModule(
 	return result.Bytes, result.Opts, nil
 }
 
-func (l *local) CreateActor(
+func (k *kvRegistry) CreateActor(
 	ctx context.Context,
 	namespace,
 	actorID,
@@ -129,10 +111,10 @@ func (l *local) CreateActor(
 	opts ActorOptions,
 ) (CreateActorResult, error) {
 	var (
-		actorKey  = l.getActorKey(namespace, actorID)
-		moduleKey = l.getModuleKey(namespace, moduleID)
+		actorKey  = k.getActorKey(namespace, actorID)
+		moduleKey = k.getModuleKey(namespace, moduleID)
 	)
-	r, err := l.kv.transact(func(tr transaction) (any, error) {
+	r, err := k.kv.transact(func(tr transaction) (any, error) {
 		_, ok, err := tr.get(actorKey)
 		if err != nil {
 			return nil, err
@@ -172,7 +154,7 @@ func (l *local) CreateActor(
 	return r.(CreateActorResult), nil
 }
 
-// func (l *local) actorExists(namespace, actorID string, tr transaction) (bool, error) {
+// func (k *kvRegistry) actorExists(namespace, actorID string, tr transaction) (bool, error) {
 // 	actorKey := tuple.Tuple{namespace, "actors", actorID}.Pack()
 // 	_, ok, err := tr.get(actorKey)
 // 	if err != nil {
@@ -183,13 +165,13 @@ func (l *local) CreateActor(
 // }
 
 // TODO: Make sure this function is tested.
-func (l *local) IncGeneration(
+func (k *kvRegistry) IncGeneration(
 	ctx context.Context,
 	namespace,
 	actorID string,
 ) error {
-	actorKey := l.getActorKey(namespace, actorID)
-	_, err := l.kv.transact(func(tr transaction) (any, error) {
+	actorKey := k.getActorKey(namespace, actorID)
+	_, err := k.kv.transact(func(tr transaction) (any, error) {
 		actorBytes, ok, err := tr.get(actorKey)
 		if err != nil {
 			return nil, err
@@ -223,13 +205,13 @@ func (l *local) IncGeneration(
 	return nil
 }
 
-func (l *local) EnsureActivation(
+func (k *kvRegistry) EnsureActivation(
 	ctx context.Context,
 	namespace,
 	actorID string,
 ) ([]types.ActorReference, error) {
-	actorKey := l.getActorKey(namespace, actorID)
-	references, err := l.kv.transact(func(tr transaction) (any, error) {
+	actorKey := k.getActorKey(namespace, actorID)
+	references, err := k.kv.transact(func(tr transaction) (any, error) {
 		v, ok, err := tr.get(actorKey)
 		if err != nil {
 			return nil, err
@@ -245,7 +227,7 @@ func (l *local) EnsureActivation(
 			return nil, fmt.Errorf("error unmarsaling registered actor with ID: %s", actorID)
 		}
 
-		serverKey := l.getServerKey(ra.Activation.ServerID)
+		serverKey := k.getServerKey(ra.Activation.ServerID)
 		v, ok, err = tr.get(serverKey)
 		if err != nil {
 			return nil, err
@@ -275,7 +257,7 @@ func (l *local) EnsureActivation(
 		} else {
 			// We need to create a new activation.
 			liveServers := []serverState{}
-			err = tr.iterPrefix(l.getServersPrefix(), func(k, v []byte) error {
+			err = tr.iterPrefix(k.getServersPrefix(), func(k, v []byte) error {
 				var currServer serverState
 				if err := json.Unmarshal(v, &currServer); err != nil {
 					return fmt.Errorf("error unmarshaling server state: %w", err)
@@ -326,7 +308,7 @@ func (l *local) EnsureActivation(
 	return references.([]types.ActorReference), nil
 }
 
-func (l *local) ActorKVPut(
+func (k *kvRegistry) ActorKVPut(
 	ctx context.Context,
 	namespace string,
 	actorID string,
@@ -334,10 +316,10 @@ func (l *local) ActorKVPut(
 	value []byte,
 ) error {
 	var (
-		actorKey  = l.getActorKey(namespace, actorID)
+		actorKey  = k.getActorKey(namespace, actorID)
 		packedKey = tuple.Tuple{namespace, "kv", "actors", actorID}.Pack()
 	)
-	_, err := l.kv.transact(func(tr transaction) (any, error) {
+	_, err := k.kv.transact(func(tr transaction) (any, error) {
 		// TODO: This is an expensive check to run each time, consider removing this if it becomes
 		//       a bottleneck.
 		_, ok, err := tr.get(actorKey)
@@ -358,17 +340,17 @@ func (l *local) ActorKVPut(
 	return nil
 }
 
-func (l *local) ActorKVGet(
+func (k *kvRegistry) ActorKVGet(
 	ctx context.Context,
 	namespace string,
 	actorID string,
 	key []byte,
 ) ([]byte, bool, error) {
 	var (
-		actorKey  = l.getActorKey(namespace, actorID)
+		actorKey  = k.getActorKey(namespace, actorID)
 		packedKey = tuple.Tuple{namespace, "kv", "actors", actorID}.Pack()
 	)
-	result, err := l.kv.transact(func(tr transaction) (any, error) {
+	result, err := k.kv.transact(func(tr transaction) (any, error) {
 		// TODO: This is an expensive check to run each time, consider removing this if it becomes
 		//       a bottleneck.
 		_, ok, err := tr.get(actorKey)
@@ -398,13 +380,13 @@ func (l *local) ActorKVGet(
 	return result.([]byte), true, nil
 }
 
-func (l *local) Heartbeat(
+func (k *kvRegistry) Heartbeat(
 	ctx context.Context,
 	serverID string,
 	heartbeatState HeartbeatState,
 ) error {
-	key := l.getServerKey(serverID)
-	_, err := l.kv.transact(func(tr transaction) (any, error) {
+	key := k.getServerKey(serverID)
+	_, err := k.kv.transact(func(tr transaction) (any, error) {
 		v, ok, err := tr.get(key)
 		if err != nil {
 			return nil, err
@@ -436,19 +418,19 @@ func (l *local) Heartbeat(
 	return err
 }
 
-func (l *local) getModuleKey(namespace, moduleID string) []byte {
+func (k *kvRegistry) getModuleKey(namespace, moduleID string) []byte {
 	return tuple.Tuple{namespace, "modules", moduleID}.Pack()
 }
 
-func (l *local) getActorKey(namespace, actorID string) []byte {
+func (k *kvRegistry) getActorKey(namespace, actorID string) []byte {
 	return tuple.Tuple{namespace, "actors", actorID}.Pack()
 }
 
-func (l *local) getServerKey(serverID string) []byte {
+func (k *kvRegistry) getServerKey(serverID string) []byte {
 	return tuple.Tuple{"servers", serverID}.Pack()
 }
 
-func (l *local) getServersPrefix() []byte {
+func (k *kvRegistry) getServersPrefix() []byte {
 	return tuple.Tuple{"servers"}.Pack()
 }
 

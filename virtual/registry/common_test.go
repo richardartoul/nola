@@ -9,6 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testAllCommon(t *testing.T, registryCtor func() Registry) {
+	t.Run("simple", func(t *testing.T) {
+		testRegistrySimple(t, registryCtor())
+	})
+	t.Run("service discovery and ensure activation", func(t *testing.T) {
+		testRegistryServiceDiscoveryAndEnsureActivation(t, registryCtor())
+	})
+
+	t.Run("kv simple", func(t *testing.T) {
+		testKVSimple(t, registryCtor())
+	})
+}
+
 // testRegistrySimple is a basic smoke test that ensures we can register modules and create actors.
 func testRegistrySimple(t *testing.T, registry Registry) {
 	ctx := context.Background()
