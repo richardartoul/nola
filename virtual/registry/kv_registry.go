@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -21,8 +20,6 @@ const (
 )
 
 type kvRegistry struct {
-	sync.Mutex
-
 	// State.
 	kv kv
 }

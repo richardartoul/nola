@@ -15,7 +15,6 @@ type localKV struct {
 
 func newLocalKV() kv {
 	return &localKV{
-		// m: make(map[string][]byte),
 		b: btree.NewG(16, func(a, b btreeKV) bool {
 			return bytes.Compare(a.k, b.k) < 0
 		}),
