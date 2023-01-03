@@ -2,11 +2,13 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/richardartoul/nola/virtual/types"
 )
 
@@ -22,7 +24,8 @@ type local struct {
 	sync.Mutex
 
 	// State.
-	m map[string][]byte
+	m  map[string][]byte
+	kv kv
 
 	// Contains all known registered modules. Key is module ID.
 	modules map[types.NamespacedID]registeredModule
@@ -40,6 +43,7 @@ type local struct {
 func NewLocal() Registry {
 	return newValidatedRegistry(&local{
 		m:           make(map[string][]byte),
+		kv:          newLocalKV(),
 		modules:     make(map[types.NamespacedID]registeredModule),
 		actors:      make(map[types.NamespacedID]registeredActor),
 		activations: make(map[types.NamespacedID]activation),
@@ -54,22 +58,35 @@ func (l *local) RegisterModule(
 	moduleBytes []byte,
 	opts ModuleOptions,
 ) (RegisterModuleResult, error) {
-	l.Lock()
-	defer l.Unlock()
+	key := tuple.Tuple{namespace, "modules", moduleID}.Pack()
+	r, err := l.kv.transact(func(tr transaction) (any, error) {
+		_, ok, err := tr.get(key)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return RegisterModuleResult{}, fmt.Errorf(
+				"error creating module: %s in namespace: %s, already exists",
+				moduleID, namespace)
+		}
 
-	nsModID := types.NewNamespacedID(namespace, moduleID)
-	if _, ok := l.modules[nsModID]; ok {
-		return RegisterModuleResult{}, fmt.Errorf(
-			"error creating module: %s in namespace: %s, already exists",
-			moduleID, namespace)
+		rm := registeredModule{
+			Bytes: moduleBytes,
+			Opts:  opts,
+		}
+		marshaled, err := json.Marshal(&rm)
+		if err != nil {
+			return nil, err
+		}
+
+		tr.put(key, marshaled)
+		return RegisterModuleResult{}, err
+	})
+	if err != nil {
+		return RegisterModuleResult{}, err
 	}
 
-	l.modules[nsModID] = registeredModule{
-		bytes: moduleBytes,
-		opts:  opts,
-	}
-
-	return RegisterModuleResult{}, nil
+	return r.(RegisterModuleResult), nil
 }
 
 // GetModule gets the bytes and options associated with the provided module.
@@ -78,18 +95,30 @@ func (l *local) GetModule(
 	namespace,
 	moduleID string,
 ) ([]byte, ModuleOptions, error) {
-	l.Lock()
-	defer l.Unlock()
+	key := tuple.Tuple{namespace, "modules", moduleID}.Pack()
+	r, err := l.kv.transact(func(tr transaction) (any, error) {
+		v, ok, err := tr.get(key)
+		if err != nil {
+			return ModuleOptions{}, err
+		}
+		if !ok {
+			return ModuleOptions{}, fmt.Errorf(
+				"error getting module: %s, does not exist in namespace: %s",
+				moduleID, namespace)
+		}
 
-	nsModID := types.NewNamespacedID(namespace, moduleID)
-	module, ok := l.modules[nsModID]
-	if !ok {
-		return nil, ModuleOptions{}, fmt.Errorf(
-			"error getting module: %s, does not exist in namespace: %s",
-			moduleID, namespace)
+		rm := registeredModule{}
+		if err := json.Unmarshal(v, &rm); err != nil {
+			return ModuleOptions{}, fmt.Errorf("error unmarshaling stored module: %w", err)
+		}
+		return rm, nil
+	})
+	if err != nil {
+		return nil, ModuleOptions{}, err
 	}
 
-	return module.bytes, module.opts, nil
+	result := r.(registeredModule)
+	return result.Bytes, result.Opts, nil
 }
 
 func (l *local) CreateActor(
@@ -99,28 +128,48 @@ func (l *local) CreateActor(
 	moduleID string,
 	opts ActorOptions,
 ) (CreateActorResult, error) {
-	l.Lock()
-	defer l.Unlock()
+	var (
+		actorKey  = tuple.Tuple{namespace, "actors", actorID}.Pack()
+		moduleKey = tuple.Tuple{namespace, "modules", moduleID}.Pack()
+	)
+	r, err := l.kv.transact(func(tr transaction) (any, error) {
+		_, ok, err := tr.get(actorKey)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return RegisterModuleResult{}, fmt.Errorf(
+				"error creating actor with ID: %s, already exists in namespace: %s",
+				actorID, namespace)
+		}
 
-	nsActorID := types.NewNamespacedID(namespace, actorID)
-	if _, ok := l.actors[nsActorID]; ok {
-		return CreateActorResult{}, fmt.Errorf(
-			"error creating actor with ID: %s, already exists in namespace: %s",
-			actorID, namespace)
+		_, ok, err = tr.get(moduleKey)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return RegisterModuleResult{}, fmt.Errorf(
+				"error creating actor, module: %s does not exist in namespace: %s",
+				moduleID, namespace)
+		}
+
+		ra := registeredActor{
+			Opts:     opts,
+			ModuleID: moduleID,
+		}
+		marshaled, err := json.Marshal(&ra)
+		if err != nil {
+			return nil, err
+		}
+
+		tr.put(actorKey, marshaled)
+		return CreateActorResult{}, err
+	})
+	if err != nil {
+		return CreateActorResult{}, err
 	}
 
-	if _, ok := l.modules[types.NewNamespacedID(namespace, moduleID)]; !ok {
-		return CreateActorResult{}, fmt.Errorf(
-			"error creating actor, module: %s does not exist in namespace: %s",
-			moduleID, namespace)
-	}
-
-	l.actors[nsActorID] = registeredActor{
-		opts:     opts,
-		moduleID: moduleID,
-	}
-
-	return CreateActorResult{}, nil
+	return r.(CreateActorResult), nil
 }
 
 func (l *local) IncGeneration(
@@ -139,7 +188,7 @@ func (l *local) IncGeneration(
 			actorID, namespace)
 	}
 
-	actor.generation++
+	actor.Generation++
 	l.actors[nsActorID] = actor
 	return nil
 }
@@ -198,7 +247,7 @@ func (l *local) EnsureActivation(
 	}
 
 	return []types.ActorReference{
-		types.NewLocalReference(serverID, serverAddress, namespace, actorID, actor.moduleID, actor.generation),
+		types.NewLocalReference(serverID, serverAddress, namespace, actorID, actor.ModuleID, actor.Generation),
 	}, nil
 }
 
@@ -267,14 +316,14 @@ func (l *local) Heartbeat(
 }
 
 type registeredActor struct {
-	opts       ActorOptions
-	moduleID   string
-	generation uint64
+	Opts       ActorOptions
+	ModuleID   string
+	Generation uint64
 }
 
 type registeredModule struct {
-	bytes []byte
-	opts  ModuleOptions
+	Bytes []byte
+	Opts  ModuleOptions
 }
 
 type serverState struct {
