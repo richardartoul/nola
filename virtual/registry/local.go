@@ -242,19 +242,19 @@ func (l *local) EnsureActivation(
 	var (
 		currActivation, activationExists = l.activations[nsActorID]
 		server, serverExists             = l.servers[currActivation.serverID]
-		timeSinceLastHeartbeat           = time.Since(server.lastHeartbeatedAt)
+		timeSinceLastHeartbeat           = time.Since(server.LastHeartbeatedAt)
 		serverID                         string
 		serverAddress                    string
 	)
 	if activationExists && serverExists && timeSinceLastHeartbeat < MaxHeartbeatDelay {
 		// We have an existing activation and the server is still alive, so just use that.
 		serverID = currActivation.serverID
-		serverAddress = l.servers[currActivation.serverID].heartbeatState.Address
+		serverAddress = l.servers[currActivation.serverID].HeartbeatState.Address
 	} else {
 		// We need to create a new activation.
 		liveServers := []serverState{}
 		for _, server := range l.servers {
-			if time.Since(server.lastHeartbeatedAt) < MaxHeartbeatDelay {
+			if time.Since(server.LastHeartbeatedAt) < MaxHeartbeatDelay {
 				liveServers = append(liveServers, server)
 			}
 		}
@@ -267,11 +267,11 @@ func (l *local) EnsureActivation(
 		//       memory / CPU usage.
 		// TODO: We should also have some hard limits and just reject new activations at some point.
 		sort.Slice(liveServers, func(i, j int) bool {
-			return liveServers[i].heartbeatState.NumActivatedActors < liveServers[j].heartbeatState.NumActivatedActors
+			return liveServers[i].HeartbeatState.NumActivatedActors < liveServers[j].HeartbeatState.NumActivatedActors
 		})
 
-		serverID = liveServers[0].serverID
-		serverAddress = liveServers[0].heartbeatState.Address
+		serverID = liveServers[0].ServerID
+		serverAddress = liveServers[0].HeartbeatState.Address
 		currActivation = activation{serverID: serverID}
 		l.activations[nsActorID] = currActivation
 	}
@@ -358,21 +358,37 @@ func (l *local) Heartbeat(
 	serverID string,
 	heartbeatState HeartbeatState,
 ) error {
-	l.Lock()
-	defer l.Unlock()
-
-	state, ok := l.servers[serverID]
-	if !ok {
-		state = serverState{
-			serverID: serverID,
+	key := l.getServerKey(serverID)
+	_, err := l.kv.transact(func(tr transaction) (any, error) {
+		v, ok, err := tr.get(key)
+		if err != nil {
+			return nil, err
 		}
-	}
-	state.lastHeartbeatedAt = time.Now()
-	state.heartbeatState = heartbeatState
 
-	l.servers[serverID] = state
+		var state serverState
+		if !ok {
+			state = serverState{
+				ServerID: serverID,
+			}
+		} else {
+			if err := json.Unmarshal(v, &state); err != nil {
+				return nil, err
+			}
+		}
 
-	return nil
+		state.LastHeartbeatedAt = time.Now()
+		state.HeartbeatState = heartbeatState
+
+		marshaled, err := json.Marshal(&state)
+		if err != nil {
+			return nil, err
+		}
+
+		tr.put(key, marshaled)
+
+		return nil, nil
+	})
+	return err
 }
 
 func (l *local) getModuleKey(namespace, moduleID string) []byte {
@@ -381,6 +397,10 @@ func (l *local) getModuleKey(namespace, moduleID string) []byte {
 
 func (l *local) getActorKey(namespace, actorID string) []byte {
 	return tuple.Tuple{namespace, "actors", actorID}.Pack()
+}
+
+func (l *local) getServerKey(serverID string) []byte {
+	return tuple.Tuple{"servers", serverID}.Pack()
 }
 
 type registeredActor struct {
@@ -395,9 +415,9 @@ type registeredModule struct {
 }
 
 type serverState struct {
-	serverID          string
-	lastHeartbeatedAt time.Time
-	heartbeatState    HeartbeatState
+	ServerID          string
+	LastHeartbeatedAt time.Time
+	HeartbeatState    HeartbeatState
 }
 
 type activation struct {
