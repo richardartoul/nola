@@ -9,10 +9,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRegistrySimple is a basic smoke test that ensures we can register modules and create actors.
-func TestRegistrySimple(t *testing.T) {
-	registry := NewLocal()
+// TODO: Add some concurrency tests.
 
+func testAllCommon(t *testing.T, registryCtor func() Registry) {
+	t.Run("simple", func(t *testing.T) {
+		testRegistrySimple(t, registryCtor())
+	})
+	t.Run("service discovery and ensure activation", func(t *testing.T) {
+		testRegistryServiceDiscoveryAndEnsureActivation(t, registryCtor())
+	})
+
+	t.Run("kv simple", func(t *testing.T) {
+		testKVSimple(t, registryCtor())
+	})
+}
+
+// testRegistrySimple is a basic smoke test that ensures we can register modules and create actors.
+func testRegistrySimple(t *testing.T, registry Registry) {
 	ctx := context.Background()
 
 	// Create module.
@@ -44,15 +57,13 @@ func TestRegistrySimple(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestRegistryServiceDiscoveryAndEnsureActivation tests the combination of the
+// testRegistryServiceDiscoveryAndEnsureActivation tests the combination of the
 // service discovery system and EnsureActivation() method to ensure we can:
 //  1. Register servers.
 //  2. Load balance across servers.
 //  3. Remember which server an actor activation is currently assigned to.
 //  4. Detect dead servers and reactive actors elsewhere.
-func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
-	registry := NewLocal()
-
+func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Registry) {
 	ctx := context.Background()
 
 	// Create module and actor to experiment with.
@@ -83,6 +94,22 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 	require.Equal(t, "test-module", activations[0].ModuleID().ID)
 	require.Equal(t, "ns1", activations[0].ActorID().Namespace)
 	require.Equal(t, "a", activations[0].ActorID().ID)
+	require.Equal(t, uint64(0), activations[0].Generation())
+
+	// Ensure we get back all the same information but with the generation
+	// bumped now.
+	require.NoError(t, registry.IncGeneration(ctx, "ns1", "a"))
+	activations, err = registry.EnsureActivation(ctx, "ns1", "a")
+	require.NoError(t, err)
+	require.Equal(t, 1, len(activations))
+	require.Equal(t, "server1", activations[0].ServerID())
+	require.Equal(t, "server1_address", activations[0].Address())
+	require.Equal(t, "ns1", activations[0].Namespace())
+	require.Equal(t, "ns1", activations[0].ModuleID().Namespace)
+	require.Equal(t, "test-module", activations[0].ModuleID().ID)
+	require.Equal(t, "ns1", activations[0].ActorID().Namespace)
+	require.Equal(t, "a", activations[0].ActorID().ID)
+	require.Equal(t, uint64(1), activations[0].Generation())
 
 	// Add another server, this one with no existing activations.
 	err = registry.Heartbeat(ctx, "server2", HeartbeatState{
@@ -177,35 +204,56 @@ func TestRegistryServiceDiscoveryAndEnsureActivation(t *testing.T) {
 	}
 }
 
-func TestKVSimple(t *testing.T) {
-	registry := NewLocal()
-
+func testKVSimple(t *testing.T, registry Registry) {
 	ctx := context.Background()
 
-	// Neither PUT nor GET should work until an actor exists.
-	err := registry.ActorKVPut(ctx, "ns1", "a", []byte("key1"), []byte("hello world"))
-	require.Error(t, err)
-	_, _, err = registry.ActorKVGet(ctx, "ns1", "a", []byte("key1"))
-	require.Error(t, err)
+	for _, ns := range []string{"ns1", "ns2"} {
+		// Neither PUT nor GET should work until an actor exists.
+		err := registry.ActorKVPut(ctx, ns, "a", []byte("key1"), []byte("hello world"))
+		require.Error(t, err)
+		_, _, err = registry.ActorKVGet(ctx, ns, "a", []byte("key1"))
+		require.Error(t, err)
 
-	// Create the module/actor.
-	_, err = registry.RegisterModule(ctx, "ns1", "test-module", []byte("wasm"), ModuleOptions{})
-	require.NoError(t, err)
-	_, err = registry.CreateActor(ctx, "ns1", "a", "test-module", ActorOptions{})
-	require.NoError(t, err)
+		// Create the module/actor.
+		_, err = registry.RegisterModule(ctx, ns, "test-module", []byte("wasm"), ModuleOptions{})
+		require.NoError(t, err)
 
-	// PUT/GET should work now.
-	_, ok, err := registry.ActorKVGet(ctx, "ns1", "a", []byte("key1"))
-	require.NoError(t, err)
-	// key1 should not exist yet.
-	require.False(t, ok)
+		for _, actor := range []string{"1", "2", "3", "4", "5"} {
+			_, err = registry.CreateActor(ctx, ns, actor, "test-module", ActorOptions{})
+			require.NoError(t, err)
 
-	// Store key1 now. Subsequent GET should work.
-	err = registry.ActorKVPut(ctx, "ns1", "a", []byte("key1"), []byte("hello world"))
-	require.NoError(t, err)
+			for i := 0; i < 100; i++ {
+				var (
+					key   = []byte(fmt.Sprintf("key-%d", i))
+					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
+				)
+				// PUT/GET should work now.
+				_, ok, err := registry.ActorKVGet(ctx, ns, actor, key)
+				require.NoError(t, err)
+				// key1 should not exist yet.
+				require.False(t, ok)
 
-	val, ok, err := registry.ActorKVGet(ctx, "ns1", "a", []byte("key1"))
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, []byte("hello world"), val)
+				// Store key1 now. Subsequent GET should work.
+				err = registry.ActorKVPut(ctx, ns, actor, key, value)
+				require.NoError(t, err)
+
+				val, ok, err := registry.ActorKVGet(ctx, ns, actor, key)
+				require.NoError(t, err)
+				require.True(t, ok)
+				require.Equal(t, value, val)
+			}
+
+			// Make sure we can re-read all the keys.
+			for i := 0; i < 100; i++ {
+				var (
+					key   = []byte(fmt.Sprintf("key-%d", i))
+					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
+				)
+				val, ok, err := registry.ActorKVGet(ctx, ns, actor, key)
+				require.NoError(t, err)
+				require.True(t, ok)
+				require.Equal(t, value, val)
+			}
+		}
+	}
 }

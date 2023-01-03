@@ -69,7 +69,7 @@ func NewEnvironment(
 				}
 			case <-env.closeCh:
 				log.Printf(
-					"enironment with serverID: %s and address: %s is shutting down\n",
+					"environment with serverID: %s and address: %s is shutting down\n",
 					env.serverID, env.address)
 				return
 			}

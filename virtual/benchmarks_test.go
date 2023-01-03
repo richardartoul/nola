@@ -14,7 +14,7 @@ import (
 )
 
 func BenchmarkInvoke(b *testing.B) {
-	reg := registry.NewLocal()
+	reg := registry.NewLocalRegistry()
 	env, err := NewEnvironment(context.Background(), "serverID1", reg)
 	require.NoError(b, err)
 	defer env.Close()
@@ -40,7 +40,7 @@ func BenchmarkInvoke(b *testing.B) {
 func BenchmarkCreateActor(b *testing.B) {
 	b.Skip("Skip this benchmark for now since its not interesting with a fake in-memory registry implementation")
 
-	reg := registry.NewLocal()
+	reg := registry.NewLocalRegistry()
 	env, err := NewEnvironment(context.Background(), "serverID1", reg)
 	require.NoError(b, err)
 	defer env.Close()
@@ -61,7 +61,7 @@ func BenchmarkCreateActor(b *testing.B) {
 }
 
 func BenchmarkCreateThenInvokeActor(b *testing.B) {
-	reg := registry.NewLocal()
+	reg := registry.NewLocalRegistry()
 	env, err := NewEnvironment(context.Background(), "serverID1", reg)
 	require.NoError(b, err)
 	defer env.Close()
@@ -87,7 +87,7 @@ func BenchmarkCreateThenInvokeActor(b *testing.B) {
 }
 
 func BenchmarkActorToActorCommunication(b *testing.B) {
-	reg := registry.NewLocal()
+	reg := registry.NewLocalRegistry()
 	env, err := NewEnvironment(context.Background(), "serverID1", reg)
 	require.NoError(b, err)
 	defer env.Close()
