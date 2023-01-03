@@ -52,6 +52,17 @@ func (l *localKV) get(k []byte) ([]byte, bool, error) {
 	return v.v, true, nil
 }
 
+func (l *localKV) iterPrefix(prefix []byte, fn func(k, v []byte)) error {
+	l.b.AscendGreaterOrEqual(btreeKV{prefix, nil}, func(currKV btreeKV) bool {
+		if bytes.HasPrefix(currKV.k, prefix) {
+			fn(currKV.k, currKV.v)
+			return true
+		}
+		return false
+	})
+	return nil
+}
+
 type btreeKV struct {
 	k []byte
 	v []byte
