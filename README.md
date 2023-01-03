@@ -69,11 +69,7 @@ which will execute `./scripts/playground/basic.sh`. This will register a module 
 
 ## Implemented Functionality
 
-NOLA is currently an MVP prototype with limited functionality. The current capabilities of the system are best understood via `environment_test.go`. It has many severe limitations currently:
-
-1. The only Registry implementation is an in-memory fake (`registry/local.go`) that is lost on process restart.
-2. The KV interface exposed to actors is not transactional.
-3. Much more (see the TODOs section)
+NOLA is currently an MVP prototype with limited functionality. The current capabilities of the system are best understood via `environment_test.go`.
 
 That said, NOLA is none the less a useful prototype with a basic foundation that can be easily expanded upon. Currently, it supports:
 
@@ -95,9 +91,8 @@ See the "Playground" section of the README for instructions on how to run the pl
 
 ## Roadmap
 
-1. Write an FDB or Tigris backed registry implementation.
-2. Fix the KV interface to be transactional.
-3. See #TODOs.
+1. Fix the KV interface to be transactional.
+2. See #TODOs.
 
 ## Benchmarks
 
@@ -123,12 +118,11 @@ Of course a production system will never achieve these results on a single core 
 # TODOs
 
 1. Transactional KV.
-2. FDB registry implementation.
-3. ACL policy for module capabilities + access to host functions.
-4. Limiting actor memory usage.
-5. Scheduling.
-6. WASM modules need dedicated storage so they can be large.
-7. Cycle/dead-lock detection for inter-actor RPC.
-8. Use a queue for buffering incoming actor RPCs + backpressure.
+2. ACL policy for module capabilities + access to host functions.
+3. Limiting actor memory usage.
+4. Scheduling.
+5. WASM modules need dedicated storage so they can be large.
+6. Cycle/dead-lock detection for inter-actor RPC.
+7. Use a queue for buffering incoming actor RPCs + backpressure.
 
 So many more things.
