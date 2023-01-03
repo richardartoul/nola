@@ -32,7 +32,8 @@ func (l *localKV) transact(fn func(transaction) (any, error)) (any, error) {
 }
 
 func (l *localKV) put(k, v []byte) {
-	l.b.ReplaceOrInsert(btreeKV{k, v})
+	// Copy v in case the caller reuses it or mutates it.
+	l.b.ReplaceOrInsert(btreeKV{k, append([]byte(nil), v...)})
 }
 
 func (l *localKV) get(k []byte) ([]byte, bool, error) {
