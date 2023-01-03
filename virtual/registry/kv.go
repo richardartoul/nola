@@ -1,6 +1,11 @@
 package registry
 
-import "sync"
+import (
+	"bytes"
+	"sync"
+
+	"github.com/google/btree"
+)
 
 type kv interface {
 	transact(func(transaction) (any, error)) (any, error)
@@ -13,12 +18,16 @@ type transaction interface {
 
 type localKV struct {
 	sync.Mutex
-	m map[string][]byte
+	b *btree.BTreeG[btreeKV]
+	// m map[string][]byte
 }
 
 func newLocalKV() kv {
 	return &localKV{
-		m: make(map[string][]byte),
+		// m: make(map[string][]byte),
+		b: btree.NewG(16, func(a, b btreeKV) bool {
+			return bytes.Compare(a.k, b.k) < 0
+		}),
 	}
 }
 
@@ -32,13 +41,18 @@ func (l *localKV) transact(fn func(transaction) (any, error)) (any, error) {
 }
 
 func (l *localKV) put(k, v []byte) {
-	l.m[string(k)] = v
+	l.b.ReplaceOrInsert(btreeKV{k, v})
 }
 
 func (l *localKV) get(k []byte) ([]byte, bool, error) {
-	v, ok := l.m[string(k)]
+	v, ok := l.b.Get(btreeKV{k, nil})
 	if !ok {
 		return nil, false, nil
 	}
-	return v, true, nil
+	return v.v, true, nil
+}
+
+type btreeKV struct {
+	k []byte
+	v []byte
 }

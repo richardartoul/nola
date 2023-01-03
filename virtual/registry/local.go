@@ -228,6 +228,18 @@ func (l *local) EnsureActivation(
 	namespace,
 	actorID string,
 ) ([]types.ActorReference, error) {
+	// key := l.getActorKey(namespace, actorID)
+	// l.kv.transact(func(tr transaction) (any, error) {
+	// 	v, ok, err := tr.get(key)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	if !ok {
+	// 		return nil, fmt.Errorf(
+	// 			"error ensuring activation of actor with ID: %s, does not exist in namespace: %s",
+	// 			actorID, namespace)
+	// 	}
+	// })
 	l.Lock()
 	defer l.Unlock()
 
