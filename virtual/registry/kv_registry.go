@@ -305,8 +305,8 @@ func (k *kvRegistry) ActorKVPut(
 	value []byte,
 ) error {
 	var (
-		actorKey  = k.getActorKey(namespace, actorID)
-		packedKey = tuple.Tuple{namespace, "kv", "actors", actorID}.Pack()
+		actorKey = k.getActorKey(namespace, actorID)
+		kvKey    = k.getActoKVKey(namespace, actorID, key)
 	)
 	_, err := k.kv.transact(func(tr transaction) (any, error) {
 		// TODO: This is an expensive check to run each time, consider removing this if it becomes
@@ -319,7 +319,7 @@ func (k *kvRegistry) ActorKVPut(
 			return nil, fmt.Errorf("cannot perform KV Put for actor: %s that does not exist", actorID)
 		}
 
-		tr.put(packedKey, value)
+		tr.put(kvKey, value)
 		return nil, nil
 	})
 	if err != nil {
@@ -336,8 +336,8 @@ func (k *kvRegistry) ActorKVGet(
 	key []byte,
 ) ([]byte, bool, error) {
 	var (
-		actorKey  = k.getActorKey(namespace, actorID)
-		packedKey = tuple.Tuple{namespace, "kv", "actors", actorID}.Pack()
+		actorKey = k.getActorKey(namespace, actorID)
+		kvKey    = k.getActoKVKey(namespace, actorID, key)
 	)
 	result, err := k.kv.transact(func(tr transaction) (any, error) {
 		// TODO: This is an expensive check to run each time, consider removing this if it becomes
@@ -347,10 +347,10 @@ func (k *kvRegistry) ActorKVGet(
 			return nil, err
 		}
 		if !ok {
-			return nil, fmt.Errorf("cannot perform KV Put for actor: %s that does not exist", actorID)
+			return nil, fmt.Errorf("cannot perform KV Get for actor: %s that does not exist", actorID)
 		}
 
-		v, ok, err := tr.get(packedKey)
+		v, ok, err := tr.get(kvKey)
 		if err != nil {
 			return nil, err
 		}
@@ -412,7 +412,11 @@ func (k *kvRegistry) getModuleKey(namespace, moduleID string) []byte {
 }
 
 func (k *kvRegistry) getActorKey(namespace, actorID string) []byte {
-	return tuple.Tuple{namespace, "actors", actorID}.Pack()
+	return tuple.Tuple{namespace, "actors", actorID, "state"}.Pack()
+}
+
+func (k *kvRegistry) getActoKVKey(namespace, actorID string, key []byte) []byte {
+	return tuple.Tuple{namespace, "actors", actorID, "kv", key}.Pack()
 }
 
 func (k *kvRegistry) getServerKey(serverID string) []byte {

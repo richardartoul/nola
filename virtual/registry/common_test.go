@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TODO: Add some concurrency tests.
+
 func testAllCommon(t *testing.T, registryCtor func() Registry) {
 	t.Run("simple", func(t *testing.T) {
 		testRegistrySimple(t, registryCtor())
@@ -205,30 +207,53 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 func testKVSimple(t *testing.T, registry Registry) {
 	ctx := context.Background()
 
-	// Neither PUT nor GET should work until an actor exists.
-	err := registry.ActorKVPut(ctx, "ns1", "a", []byte("key1"), []byte("hello world"))
-	require.Error(t, err)
-	_, _, err = registry.ActorKVGet(ctx, "ns1", "a", []byte("key1"))
-	require.Error(t, err)
+	for _, ns := range []string{"ns1", "ns2"} {
+		// Neither PUT nor GET should work until an actor exists.
+		err := registry.ActorKVPut(ctx, ns, "a", []byte("key1"), []byte("hello world"))
+		require.Error(t, err)
+		_, _, err = registry.ActorKVGet(ctx, ns, "a", []byte("key1"))
+		require.Error(t, err)
 
-	// Create the module/actor.
-	_, err = registry.RegisterModule(ctx, "ns1", "test-module", []byte("wasm"), ModuleOptions{})
-	require.NoError(t, err)
-	_, err = registry.CreateActor(ctx, "ns1", "a", "test-module", ActorOptions{})
-	require.NoError(t, err)
+		// Create the module/actor.
+		_, err = registry.RegisterModule(ctx, ns, "test-module", []byte("wasm"), ModuleOptions{})
+		require.NoError(t, err)
 
-	// PUT/GET should work now.
-	_, ok, err := registry.ActorKVGet(ctx, "ns1", "a", []byte("key1"))
-	require.NoError(t, err)
-	// key1 should not exist yet.
-	require.False(t, ok)
+		for _, actor := range []string{"1", "2", "3", "4", "5"} {
+			_, err = registry.CreateActor(ctx, ns, actor, "test-module", ActorOptions{})
+			require.NoError(t, err)
 
-	// Store key1 now. Subsequent GET should work.
-	err = registry.ActorKVPut(ctx, "ns1", "a", []byte("key1"), []byte("hello world"))
-	require.NoError(t, err)
+			for i := 0; i < 100; i++ {
+				var (
+					key   = []byte(fmt.Sprintf("key-%d", i))
+					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
+				)
+				// PUT/GET should work now.
+				_, ok, err := registry.ActorKVGet(ctx, ns, actor, key)
+				require.NoError(t, err)
+				// key1 should not exist yet.
+				require.False(t, ok)
 
-	val, ok, err := registry.ActorKVGet(ctx, "ns1", "a", []byte("key1"))
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, []byte("hello world"), val)
+				// Store key1 now. Subsequent GET should work.
+				err = registry.ActorKVPut(ctx, ns, actor, key, value)
+				require.NoError(t, err)
+
+				val, ok, err := registry.ActorKVGet(ctx, ns, actor, key)
+				require.NoError(t, err)
+				require.True(t, ok)
+				require.Equal(t, value, val)
+			}
+
+			// Make sure we can re-read all the keys.
+			for i := 0; i < 100; i++ {
+				var (
+					key   = []byte(fmt.Sprintf("key-%d", i))
+					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
+				)
+				val, ok, err := registry.ActorKVGet(ctx, ns, actor, key)
+				require.NoError(t, err)
+				require.True(t, ok)
+				require.Equal(t, value, val)
+			}
+		}
+	}
 }
