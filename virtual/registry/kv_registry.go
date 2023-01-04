@@ -59,7 +59,7 @@ func (k *kvRegistry) RegisterModule(
 		}
 
 		for i := 0; len(marshaled) > 0; i++ {
-			// Maximum valeu size in FoundationDB is 100_000, so split anything larger
+			// Maximum value size in FoundationDB is 100_000, so split anything larger
 			// over multiple KV pairs.
 			numBytes := 99_999
 			if len(marshaled) < numBytes {
