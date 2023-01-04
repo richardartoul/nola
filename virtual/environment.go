@@ -137,10 +137,11 @@ func (r *environment) numActivatedActors() int {
 func (r *environment) heartbeat() error {
 	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
 	defer cc()
-	return r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
+	_, err := r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
 		NumActivatedActors: r.numActivatedActors(),
 		Address:            r.address,
 	})
+	return err
 }
 
 // TODO: This is kind of a giant hack, but it's really only used for testing. The idea is that
