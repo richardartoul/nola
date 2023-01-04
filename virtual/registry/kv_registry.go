@@ -30,6 +30,7 @@ func newKVRegistry(kv kv) Registry {
 	}
 }
 
+// TODO: Add compression?
 func (k *kvRegistry) RegisterModule(
 	ctx context.Context,
 	namespace,
@@ -37,9 +38,8 @@ func (k *kvRegistry) RegisterModule(
 	moduleBytes []byte,
 	opts ModuleOptions,
 ) (RegisterModuleResult, error) {
-	key := k.getModuleKey(namespace, moduleID)
 	r, err := k.kv.transact(func(tr transaction) (any, error) {
-		_, ok, err := tr.get(key)
+		_, ok, err := tr.get(k.getModulePartKey(namespace, moduleID, 0))
 		if err != nil {
 			return nil, err
 		}
@@ -58,11 +58,19 @@ func (k *kvRegistry) RegisterModule(
 			return nil, err
 		}
 
-		tr.put(key, marshaled)
+		for i := 0; len(marshaled) > 0; i++ {
+			numBytes := 99_999
+			if len(marshaled) < numBytes {
+				numBytes = len(marshaled)
+			}
+			toWrite := marshaled[:numBytes]
+			tr.put(k.getModulePartKey(namespace, moduleID, i), toWrite)
+			marshaled = marshaled[numBytes:]
+		}
 		return RegisterModuleResult{}, err
 	})
 	if err != nil {
-		return RegisterModuleResult{}, err
+		return RegisterModuleResult{}, fmt.Errorf("RegisterModule: error: %w", err)
 	}
 
 	return r.(RegisterModuleResult), nil
@@ -74,26 +82,34 @@ func (k *kvRegistry) GetModule(
 	namespace,
 	moduleID string,
 ) ([]byte, ModuleOptions, error) {
-	key := k.getModuleKey(namespace, moduleID)
+	key := k.getModulePrefix(namespace, moduleID)
 	r, err := k.kv.transact(func(tr transaction) (any, error) {
-		v, ok, err := tr.get(key)
+		var (
+			moduleBytes []byte
+			i           = 0
+		)
+		err := tr.iterPrefix(key, func(k, v []byte) error {
+			moduleBytes = append(moduleBytes, v...)
+			i++
+			return nil
+		})
 		if err != nil {
 			return ModuleOptions{}, err
 		}
-		if !ok {
+		if i == 0 {
 			return ModuleOptions{}, fmt.Errorf(
 				"error getting module: %s, does not exist in namespace: %s",
 				moduleID, namespace)
 		}
 
 		rm := registeredModule{}
-		if err := json.Unmarshal(v, &rm); err != nil {
+		if err := json.Unmarshal(moduleBytes, &rm); err != nil {
 			return ModuleOptions{}, fmt.Errorf("error unmarshaling stored module: %w", err)
 		}
 		return rm, nil
 	})
 	if err != nil {
-		return nil, ModuleOptions{}, err
+		return nil, ModuleOptions{}, fmt.Errorf("GetModule: error: %w", err)
 	}
 
 	result := r.(registeredModule)
@@ -109,7 +125,7 @@ func (k *kvRegistry) CreateActor(
 ) (CreateActorResult, error) {
 	var (
 		actorKey  = k.getActorKey(namespace, actorID)
-		moduleKey = k.getModuleKey(namespace, moduleID)
+		moduleKey = k.getModulePartKey(namespace, moduleID, 0)
 	)
 	r, err := k.kv.transact(func(tr transaction) (any, error) {
 		_, ok, err := tr.get(actorKey)
@@ -145,7 +161,7 @@ func (k *kvRegistry) CreateActor(
 		return CreateActorResult{}, err
 	})
 	if err != nil {
-		return CreateActorResult{}, err
+		return CreateActorResult{}, fmt.Errorf("CreateActor: error: %w", err)
 	}
 
 	return r.(CreateActorResult), nil
@@ -185,7 +201,7 @@ func (k *kvRegistry) IncGeneration(
 		return nil, nil
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("IncGeneration: error: %w", err)
 	}
 
 	return nil
@@ -288,7 +304,7 @@ func (k *kvRegistry) EnsureActivation(
 
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("EnsureActivation: error: %w", err)
 	}
 
 	return references.([]types.ActorReference), nil
@@ -320,7 +336,7 @@ func (k *kvRegistry) ActorKVPut(
 		return nil, nil
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("ActorKVPUT: error: %w", err)
 	}
 
 	return nil
@@ -358,7 +374,7 @@ func (k *kvRegistry) ActorKVGet(
 		return v, nil
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("ActorKVGet: error: %w", err)
 	}
 	if result == nil {
 		return nil, false, nil
@@ -401,19 +417,26 @@ func (k *kvRegistry) Heartbeat(
 
 		return nil, nil
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("Heartbeat: error: %w", err)
+	}
+	return nil
 }
 
 func (k *kvRegistry) Close(ctx context.Context) error {
 	return k.kv.close(ctx)
 }
 
-func (k *kvRegistry) unsafeWipeAll() error {
+func (k *kvRegistry) UnsafeWipeAll() error {
 	return k.kv.unsafeWipeAll()
 }
 
-func (k *kvRegistry) getModuleKey(namespace, moduleID string) []byte {
+func (k *kvRegistry) getModulePrefix(namespace, moduleID string) []byte {
 	return tuple.Tuple{namespace, "modules", moduleID}.Pack()
+}
+
+func (k *kvRegistry) getModulePartKey(namespace, moduleID string, part int) []byte {
+	return tuple.Tuple{namespace, "modules", moduleID, part}.Pack()
 }
 
 func (k *kvRegistry) getActorKey(namespace, actorID string) []byte {

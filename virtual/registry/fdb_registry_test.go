@@ -13,7 +13,7 @@ func TestFDBRegistry(t *testing.T) {
 		registry, err := NewFoundationDBRegistry("")
 		require.NoError(t, err)
 
-		registry.unsafeWipeAll()
+		registry.UnsafeWipeAll()
 
 		return registry
 	})
