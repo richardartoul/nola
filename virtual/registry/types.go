@@ -101,7 +101,7 @@ type ServiceDiscovery interface {
 		ctx context.Context,
 		serverID string,
 		state HeartbeatState,
-	) error
+	) (HeartbeatResult, error)
 }
 
 // ActorOptions contains the options for a given actor.
@@ -131,4 +131,9 @@ type HeartbeatState struct {
 	NumActivatedActors int
 	// Address is the address at which the server can be reached.
 	Address string
+}
+
+// HeartbeatResult is the result returned by the Heartbeat() method.
+type HeartbeatResult struct {
+	VersionStamp int64
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"sync"
+	"time"
 
 	"github.com/google/btree"
 )
@@ -11,12 +12,14 @@ import (
 // localKV is an implementation of kv backed by local memory.
 type localKV struct {
 	sync.Mutex
+	t      time.Time
 	b      *btree.BTreeG[btreeKV]
 	closed bool
 }
 
 func newLocalKV() kv {
 	return &localKV{
+		t: time.Now(),
 		b: btree.NewG(16, func(a, b btreeKV) bool {
 			return bytes.Compare(a.k, b.k) < 0
 		}),
@@ -30,6 +33,12 @@ func (l *localKV) transact(fn func(transaction) (any, error)) (any, error) {
 	l.Lock()
 	defer l.Unlock()
 	return fn(l)
+}
+
+func (l *localKV) getVersionStamp() (int64, error) {
+	l.Lock()
+	defer l.Unlock()
+	return time.Since(l.t).Nanoseconds(), nil
 }
 
 func (l *localKV) close(ctx context.Context) error {

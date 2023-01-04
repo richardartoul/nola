@@ -16,4 +16,5 @@ type transaction interface {
 	put([]byte, []byte)
 	get([]byte) ([]byte, bool, error)
 	iterPrefix(prefix []byte, fn func(k, v []byte) error) error
+	getVersionStamp() (int64, error)
 }

@@ -161,12 +161,12 @@ func (v *validator) Heartbeat(
 	ctx context.Context,
 	serverID string,
 	state HeartbeatState,
-) error {
+) (HeartbeatResult, error) {
 	if err := validateString("serverID", serverID); err != nil {
-		return err
+		return HeartbeatResult{}, err
 	}
 	if err := validateString("address", state.Address); err != nil {
-		return err
+		return HeartbeatResult{}, err
 	}
 	return v.r.Heartbeat(ctx, serverID, state)
 }

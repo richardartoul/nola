@@ -388,9 +388,9 @@ func (k *kvRegistry) Heartbeat(
 	ctx context.Context,
 	serverID string,
 	heartbeatState HeartbeatState,
-) error {
+) (HeartbeatResult, error) {
 	key := k.getServerKey(serverID)
-	_, err := k.kv.transact(func(tr transaction) (any, error) {
+	versionStamp, err := k.kv.transact(func(tr transaction) (any, error) {
 		v, ok, err := tr.get(key)
 		if err != nil {
 			return nil, err
@@ -417,12 +417,12 @@ func (k *kvRegistry) Heartbeat(
 
 		tr.put(key, marshaled)
 
-		return nil, nil
+		return tr.getVersionStamp()
 	})
 	if err != nil {
-		return fmt.Errorf("Heartbeat: error: %w", err)
+		return HeartbeatResult{}, fmt.Errorf("Heartbeat: error: %w", err)
 	}
-	return nil
+	return HeartbeatResult{VersionStamp: versionStamp.(int64)}, nil
 }
 
 func (k *kvRegistry) Close(ctx context.Context) error {
