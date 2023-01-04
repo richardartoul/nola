@@ -175,8 +175,8 @@ func (v *validator) Close(ctx context.Context) error {
 	return v.r.Close(ctx)
 }
 
-func (v *validator) unsafeWipeAll() error {
-	return v.r.unsafeWipeAll()
+func (v *validator) UnsafeWipeAll() error {
+	return v.r.UnsafeWipeAll()
 }
 
 func validateString(name, x string) error {

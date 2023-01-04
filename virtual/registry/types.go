@@ -65,9 +65,9 @@ type Registry interface {
 	// Close closes the registry and releases any resources associated (DB connections, etc).
 	Close(ctx context.Context) error
 
-	// Wipes the entire registry. Only used for tests. Do not make this public or call
-	// it anywhere in production code.
-	unsafeWipeAll() error
+	// UnsafeWipeAll wipes the entire registry. Only used for tests. Do not call it anywhere
+	// in production code.
+	UnsafeWipeAll() error
 }
 
 // ActorStorage contains the methods for interacting with per-actor durable storage.
