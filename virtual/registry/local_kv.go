@@ -35,10 +35,12 @@ func (l *localKV) transact(fn func(transaction) (any, error)) (any, error) {
 	return fn(l)
 }
 
-func (l *localKV) getVersionStamp() (int64, error) {
+func (l *localKV) unsafeWipeAll() error {
 	l.Lock()
 	defer l.Unlock()
-	return time.Since(l.t).Nanoseconds(), nil
+
+	l.b.Clear(false)
+	return nil
 }
 
 func (l *localKV) close(ctx context.Context) error {
@@ -49,6 +51,7 @@ func (l *localKV) close(ctx context.Context) error {
 	return nil
 }
 
+// "transaction" method so no lock because we're already locked.
 func (l *localKV) put(k, v []byte) {
 	if l.closed {
 		panic("KV already closed")
@@ -58,6 +61,7 @@ func (l *localKV) put(k, v []byte) {
 	l.b.ReplaceOrInsert(btreeKV{k, append([]byte(nil), v...)})
 }
 
+// "transaction" method so no lock because we're already locked.
 func (l *localKV) get(k []byte) ([]byte, bool, error) {
 	if l.closed {
 		panic("KV already closed")
@@ -70,6 +74,7 @@ func (l *localKV) get(k []byte) ([]byte, bool, error) {
 	return v.v, true, nil
 }
 
+// "transaction" method so no lock because we're already locked.
 func (l *localKV) iterPrefix(prefix []byte, fn func(k, v []byte) error) error {
 	if l.closed {
 		panic("KV already closed")
@@ -89,12 +94,9 @@ func (l *localKV) iterPrefix(prefix []byte, fn func(k, v []byte) error) error {
 	return globalErr
 }
 
-func (l *localKV) unsafeWipeAll() error {
-	l.Lock()
-	defer l.Unlock()
-
-	l.b.Clear(false)
-	return nil
+// "transaction" method so no lock because we're already locked.
+func (l *localKV) getVersionStamp() (int64, error) {
+	return time.Since(l.t).Nanoseconds(), nil
 }
 
 type btreeKV struct {
