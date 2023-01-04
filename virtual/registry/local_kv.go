@@ -96,7 +96,9 @@ func (l *localKV) iterPrefix(prefix []byte, fn func(k, v []byte) error) error {
 
 // "transaction" method so no lock because we're already locked.
 func (l *localKV) getVersionStamp() (int64, error) {
-	return time.Since(l.t).Nanoseconds(), nil
+	// Return microseconds since l.t since that will automatically increase at
+	// a rate of ~ 1 million/s just like FDB's versionstamp.
+	return time.Since(l.t).Microseconds(), nil
 }
 
 type btreeKV struct {

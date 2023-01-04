@@ -16,5 +16,7 @@ type transaction interface {
 	put([]byte, []byte)
 	get([]byte) ([]byte, bool, error)
 	iterPrefix(prefix []byte, fn func(k, v []byte) error) error
+	// Monotonically increase number that should increase at a rate of ~ 1 million
+	// per second.
 	getVersionStamp() (int64, error)
 }
