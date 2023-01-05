@@ -51,7 +51,11 @@ func testBenchFoundationDBKVGetVersionStamp(
 		}
 		ticker = time.NewTicker(invokeEvery)
 	)
+
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		for i := 1; ; i++ {
 			i := i // Capture for async goroutine.
 			select {
