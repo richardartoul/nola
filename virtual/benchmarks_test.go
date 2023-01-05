@@ -178,7 +178,10 @@ func testSimpleBench(
 		}
 		invokeTicker = time.NewTicker(invokeEvery)
 	)
+
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		rand := rand.New(rand.NewSource(time.Now().UnixNano()))
 		for i := 1; ; i++ {
 			i := i // Capture for async goroutine.
