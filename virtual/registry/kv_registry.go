@@ -23,7 +23,7 @@ const (
 type kvRegistry struct {
 	// Guards the cache, not the KV.
 	cache struct {
-		sync.Mutex
+		sync.RWMutex
 		versionStamp int64
 		cachedAt     time.Time
 	}
@@ -323,14 +323,19 @@ func (k *kvRegistry) EnsureActivation(
 func (k *kvRegistry) GetVersionStamp(
 	ctx context.Context,
 ) (int64, error) {
-	// Locking could be more efficient with more code and an RWLock
-	// etc, but good enough for now.
-	k.cache.Lock()
-	defer k.cache.Unlock()
-
+	k.cache.RLock()
 	if time.Since(k.cache.cachedAt) < 1*time.Millisecond {
+		k.cache.RUnlock()
 		return k.cache.versionStamp, nil
 	}
+
+	k.cache.RUnlock()
+	k.cache.Lock()
+	if time.Since(k.cache.cachedAt) < 1*time.Millisecond {
+		k.cache.Unlock()
+		return k.cache.versionStamp, nil
+	}
+	defer k.cache.Unlock()
 
 	v, err := k.kv.transact(func(tr transaction) (any, error) {
 		return tr.getVersionStamp()

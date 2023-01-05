@@ -121,6 +121,12 @@ func NewEnvironment(
 	return env, nil
 }
 
+var bufPool = sync.Pool{
+	New: func() any {
+		return make([]byte, 0, 128)
+	},
+}
+
 func (r *environment) Invoke(
 	ctx context.Context,
 	namespace string,
@@ -133,8 +139,13 @@ func (r *environment) Invoke(
 		return nil, fmt.Errorf("error getting version stamp: %w", err)
 	}
 
+	bufIface := bufPool.Get()
+	defer bufPool.Put(bufIface)
+	cacheKey := bufPool.Get().([]byte)[:0]
+	cacheKey = append(cacheKey, []byte(namespace)...)
+	cacheKey = append(cacheKey, []byte(actorID)...)
+
 	var (
-		cacheKey    = fmt.Sprintf("%s::%s", namespace, actorID)
 		references  []types.ActorReference
 		referencesI any = nil
 		ok              = false
@@ -153,11 +164,16 @@ func (r *environment) Invoke(
 				"error ensuring activation of actor: %s in registry: %w",
 				actorID, err)
 		}
+
+		// Note that we need to copy the cache key before we call Set() since it will be
+		// returned to the pool when this function returns.
+		cacheKeyClone := append([]byte(nil), cacheKey...)
+
 		// Set a TTL on the cache entry so that if the generation count increases
 		// it will eventually get reflected in the system even if its not immediate.
 		// Note that the purpose the generation count is is for code/setting upgrades
 		// so it does not need to take effect immediately.
-		r.activationCache.SetWithTTL(cacheKey, references, 1, r.opts.ActivationCacheTTL)
+		r.activationCache.SetWithTTL(cacheKeyClone, references, 1, r.opts.ActivationCacheTTL)
 	}
 	if len(references) == 0 {
 		return nil, fmt.Errorf(
