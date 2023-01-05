@@ -28,6 +28,7 @@ type Environment interface {
 	// inconsistencies may be introduced into the system.
 	InvokeLocal(
 		ctx context.Context,
+		versionStamp int64,
 		serverID string,
 		reference types.ActorReference,
 		operation string,

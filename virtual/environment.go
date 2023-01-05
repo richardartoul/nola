@@ -149,14 +149,19 @@ func (r *environment) Invoke(
 	}
 	if len(references) == 0 {
 		return nil, fmt.Errorf(
-			"[invariant violated] ensureActivation() success with 0 references for actor ID: %s", actorID)
+			"ensureActivation() success with 0 references for actor ID: %s", actorID)
 	}
 
-	return r.invokeReferences(ctx, references, operation, payload)
+	vs, err := r.registry.GetVersionStamp(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error getting version stamp: %w", err)
+	}
+	return r.invokeReferences(ctx, vs, references, operation, payload)
 }
 
 func (r *environment) InvokeLocal(
 	ctx context.Context,
+	versionStamp int64,
 	serverID string,
 	reference types.ActorReference,
 	operation string,
@@ -167,6 +172,8 @@ func (r *environment) InvokeLocal(
 			"request for serverID: %s received by server: %s, cannot fullfil",
 			serverID, r.serverID)
 	}
+
+	// TODO: if versionStamp > heartbeat blah blah.
 
 	return r.activations.invoke(ctx, reference, operation, payload)
 }
@@ -209,6 +216,7 @@ var (
 
 func (r *environment) invokeReferences(
 	ctx context.Context,
+	versionStamp int64,
 	references []types.ActorReference,
 	operation string,
 	payload []byte,
@@ -225,7 +233,7 @@ func (r *environment) invokeReferences(
 				"unable to route invocation for server: %s at path: %s, does not exist in global routing map",
 				reference.ServerID(), reference.Address())
 		}
-		return localEnv.InvokeLocal(ctx, reference.ServerID(), reference, operation, payload)
+		return localEnv.InvokeLocal(ctx, versionStamp, reference.ServerID(), reference, operation, payload)
 	case types.ReferenceTypeRemoteHTTP:
 		fallthrough
 	default:
