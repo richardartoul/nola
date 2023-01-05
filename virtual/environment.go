@@ -179,10 +179,11 @@ func (r *environment) InvokeLocal(
 	}
 
 	r.heartbeatState.RLock()
-	heartbeatResult := r.heartbeatState
+	heartbeatResult := r.heartbeatState.HeartbeatResult
 	r.heartbeatState.RUnlock()
 
 	if heartbeatResult.VersionStamp+heartbeatResult.HeartbeatTTL < versionStamp {
+		// TODO: How do I test this?
 		return nil, fmt.Errorf(
 			"InvokeLocal: server heartbeat(%d) + TTL(%d) < versionStamp(%d)",
 			heartbeatResult.VersionStamp, heartbeatResult.HeartbeatTTL, versionStamp)
