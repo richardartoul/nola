@@ -84,6 +84,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	})
 	require.NoError(t, err)
 	require.True(t, heartbeatResult.VersionStamp > 0)
+	require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 
 	// Should succeed now that we have a server to activate on.
 	activations, err := registry.EnsureActivation(ctx, "ns1", "a")
@@ -120,6 +121,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	})
 	require.NoError(t, err)
 	require.True(t, newHeartbeatResult.VersionStamp > heartbeatResult.VersionStamp)
+	require.Equal(t, newHeartbeatResult.HeartbeatTTL, heartbeatResult.HeartbeatTTL)
 
 	// Keep checking the activation of the existing actor, it should remain sticky to
 	// server 1.
@@ -184,7 +186,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	//
 	// TODO: Sleeps in tests are bad, but I'm lazy to inject a clock right now and deal
 	//       with all of that.
-	time.Sleep(MaxHeartbeatDelay + time.Second)
+	time.Sleep(HeartbeatTTL + time.Second)
 
 	// Heartbeat server2. After this, the Registry should only consider server2 to be alive.
 	_, err = registry.Heartbeat(ctx, "server2", HeartbeatState{

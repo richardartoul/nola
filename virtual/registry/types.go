@@ -139,5 +139,9 @@ type HeartbeatState struct {
 
 // HeartbeatResult is the result returned by the Heartbeat() method.
 type HeartbeatResult struct {
+	// VersionStamp associated with the successful heartbeat.
 	VersionStamp int64
+	// TTL of the successful heartbeat in the same unit as the
+	// VerisionStamp.
+	HeartbeatTTL int64
 }

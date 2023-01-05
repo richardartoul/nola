@@ -421,7 +421,7 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	//       with all of that.
 	require.NoError(t, env1.Close())
 	require.NoError(t, env2.Close())
-	time.Sleep(registry.MaxHeartbeatDelay + time.Second)
+	time.Sleep(registry.HeartbeatTTL + time.Second)
 
 	// env1 and env2 have been closed (and not heartbeating) for longer than the maximum
 	// heartbeat delay which means that the registry should view them as "dead". Therefore, we

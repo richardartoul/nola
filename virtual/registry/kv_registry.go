@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	// MaxHeartbeatDelay is the maximum amount of time between server heartbeats before
+	// HeartbeatTTL is the maximum amount of time between server heartbeats before
 	// the registry will consider a server as dead.
 	//
 	// TODO: Should be configurable.
-	MaxHeartbeatDelay = 5 * time.Second
+	HeartbeatTTL = 5 * time.Second
 )
 
 type kvRegistry struct {
@@ -262,7 +262,7 @@ func (k *kvRegistry) EnsureActivation(
 			serverID                         string
 			serverAddress                    string
 		)
-		if activationExists && serverExists && timeSinceLastHeartbeat < MaxHeartbeatDelay {
+		if activationExists && serverExists && timeSinceLastHeartbeat < HeartbeatTTL {
 			// We have an existing activation and the server is still alive, so just use that.
 			serverID = currActivation.ServerID
 			serverAddress = server.HeartbeatState.Address
@@ -275,7 +275,7 @@ func (k *kvRegistry) EnsureActivation(
 					return fmt.Errorf("error unmarshaling server state: %w", err)
 				}
 
-				if time.Since(currServer.LastHeartbeatedAt) < MaxHeartbeatDelay {
+				if time.Since(currServer.LastHeartbeatedAt) < HeartbeatTTL {
 					liveServers = append(liveServers, currServer)
 				}
 				return nil
@@ -454,7 +454,11 @@ func (k *kvRegistry) Heartbeat(
 	if err != nil {
 		return HeartbeatResult{}, fmt.Errorf("Heartbeat: error: %w", err)
 	}
-	return HeartbeatResult{VersionStamp: versionStamp.(int64)}, nil
+	return HeartbeatResult{
+		VersionStamp: versionStamp.(int64),
+		// VersionStamp corresponds to ~ 1 million increments per second.
+		HeartbeatTTL: int64(HeartbeatTTL.Microseconds()),
+	}, nil
 }
 
 func (k *kvRegistry) Close(ctx context.Context) error {

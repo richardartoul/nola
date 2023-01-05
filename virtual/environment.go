@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	heartbeatTimeout           = registry.MaxHeartbeatDelay
+	heartbeatTimeout           = registry.HeartbeatTTL
 	defaultActivationsCacheTTL = heartbeatTimeout
 	maxNumActivationsToCache   = 1e6 // 1 Million.
 )
@@ -23,6 +23,11 @@ type environment struct {
 	// State.
 	activations     *activations // Internally synchronized.
 	activationCache *ristretto.Cache
+
+	heartbeatState struct {
+		sync.RWMutex
+		registry.HeartbeatResult
+	}
 
 	// Closed when the background heartbeating goroutine should be shut down.
 	closeCh chan struct{}
@@ -100,7 +105,7 @@ func NewEnvironment(
 			select {
 			case <-ticker.C:
 				if err := env.heartbeat(); err != nil {
-					log.Printf("error heartbeating: %v\n", err)
+					log.Printf("error performing background heartbeat: %v\n", err)
 				}
 			case <-env.closeCh:
 				log.Printf(
@@ -173,7 +178,15 @@ func (r *environment) InvokeLocal(
 			serverID, r.serverID)
 	}
 
-	// TODO: if versionStamp > heartbeat blah blah.
+	r.heartbeatState.RLock()
+	heartbeatResult := r.heartbeatState
+	r.heartbeatState.RUnlock()
+
+	if heartbeatResult.VersionStamp+heartbeatResult.HeartbeatTTL < versionStamp {
+		return nil, fmt.Errorf(
+			"InvokeLocal: server heartbeat(%d) + TTL(%d) < versionStamp(%d)",
+			heartbeatResult.VersionStamp, heartbeatResult.HeartbeatTTL, versionStamp)
+	}
 
 	return r.activations.invoke(ctx, reference, operation, payload)
 }
@@ -198,11 +211,18 @@ func (r *environment) numActivatedActors() int {
 func (r *environment) heartbeat() error {
 	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
 	defer cc()
-	_, err := r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
+	result, err := r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
 		NumActivatedActors: r.numActivatedActors(),
 		Address:            r.address,
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("error heartbeating: %w", err)
+	}
+
+	r.heartbeatState.Lock()
+	r.heartbeatState.HeartbeatResult = result
+	r.heartbeatState.Unlock()
+	return nil
 }
 
 // TODO: This is kind of a giant hack, but it's really only used for testing. The idea is that
