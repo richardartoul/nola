@@ -62,6 +62,10 @@ type Registry interface {
 		actorID string,
 	) ([]types.ActorReference, error)
 
+	// GetVersionStamp() returns a monotonically increasing integer that should increase
+	// at a rate of ~ 1 million/s.
+	GetVersionStamp(ctx context.Context) (int64, error)
+
 	// Close closes the registry and releases any resources associated (DB connections, etc).
 	Close(ctx context.Context) error
 

@@ -114,6 +114,12 @@ func (v *validator) EnsureActivation(
 	return v.r.EnsureActivation(ctx, namespace, actorID)
 }
 
+func (v *validator) GetVersionStamp(
+	ctx context.Context,
+) (int64, error) {
+	return v.r.GetVersionStamp(ctx)
+}
+
 func (v *validator) ActorKVPut(
 	ctx context.Context,
 	namespace string,

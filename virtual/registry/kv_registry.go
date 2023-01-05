@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -20,6 +21,13 @@ const (
 )
 
 type kvRegistry struct {
+	// Guards the cache, not the KV.
+	cache struct {
+		sync.Mutex
+		versionStamp int64
+		cachedAt     time.Time
+	}
+
 	// State.
 	kv kv
 }
@@ -310,6 +318,30 @@ func (k *kvRegistry) EnsureActivation(
 	}
 
 	return references.([]types.ActorReference), nil
+}
+
+func (k *kvRegistry) GetVersionStamp(
+	ctx context.Context,
+) (int64, error) {
+	// Locking could be more efficient with more code and an RWLock
+	// etc, but good enough for now.
+	k.cache.Lock()
+	defer k.cache.Unlock()
+
+	if time.Since(k.cache.cachedAt) < 1*time.Millisecond {
+		return k.cache.versionStamp, nil
+	}
+
+	v, err := k.kv.transact(func(tr transaction) (any, error) {
+		return tr.getVersionStamp()
+	})
+	if err != nil {
+		return -1, fmt.Errorf("GetVersionStamp: error: %w", err)
+	}
+
+	k.cache.versionStamp = v.(int64)
+	k.cache.cachedAt = time.Now()
+	return k.cache.versionStamp, nil
 }
 
 func (k *kvRegistry) ActorKVPut(
