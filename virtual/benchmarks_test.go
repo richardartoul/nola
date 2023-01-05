@@ -145,7 +145,7 @@ func testSimpleBench(
 	benchDuration time.Duration,
 ) {
 	// Uncomment to run.
-	t.Skip()
+	// t.Skip()
 
 	reg, err := registry.NewFoundationDBRegistry("")
 	require.NoError(t, err)
@@ -178,17 +178,17 @@ func testSimpleBench(
 		}
 		invokeTicker = time.NewTicker(invokeEvery)
 	)
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		rand := rand.New(rand.NewSource(time.Now().UnixNano()))
 		for i := 1; ; i++ {
 			i := i // Capture for async goroutine.
 			actorID := fmt.Sprintf("%d", rand.Intn(numActors))
 			select {
 			case <-invokeTicker.C:
-				wg.Add(1)
 				go func() {
-					defer wg.Done()
-
 					start := time.Now()
 					_, err = env.Invoke(ctx, "bench-ns", actorID, "incFast", nil)
 					if err != nil {
