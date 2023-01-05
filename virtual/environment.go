@@ -7,18 +7,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dgraph-io/ristretto"
 	"github.com/google/uuid"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 )
 
 const (
-	heartbeatTimeout = registry.MaxHeartbeatDelay
+	heartbeatTimeout         = registry.MaxHeartbeatDelay
+	maxNumActivationsToCache = 1e6 // 1 Million.
 )
 
 type environment struct {
 	// State.
-	activations *activations // Internally synchronized.
+	activations     *activations // Internally synchronized.
+	activationCache *ristretto.Cache
+
 	// Closed when the background heartbeating goroutine should be shut down.
 	closeCh chan struct{}
 	// Closed when the background heartbeating goroutine completes shutting down.
@@ -35,21 +39,38 @@ func NewEnvironment(
 	serverID string,
 	reg registry.Registry,
 ) (Environment, error) {
+	activationCache, err := ristretto.NewCache(&ristretto.Config{
+		NumCounters: maxNumActivationsToCache * 10, // * 10 per the docs.
+		// Maximum number of entries in cache (~1million). Note that
+		// technically this is a measure in bytes, but we pass a cost of 1
+		// always to make it behave as a limit on number of activations.
+		MaxCost: 1e6,
+		// Recommended default.
+		BufferItems: 64,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error creating activationCache: %w", err)
+	}
+	if err != nil {
+		panic(err)
+	}
+
 	// TODO: Eventually we need to support discovering our own IP here or having this
 	//       passed in.
 	address := uuid.New().String()
 	env := &environment{
-		closeCh:  make(chan struct{}),
-		closedCh: make(chan struct{}),
-		registry: reg,
-		address:  address,
-		serverID: serverID,
+		activationCache: activationCache,
+		closeCh:         make(chan struct{}),
+		closedCh:        make(chan struct{}),
+		registry:        reg,
+		address:         address,
+		serverID:        serverID,
 	}
 	activations := newActivations(reg, env)
 	env.activations = activations
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
-	err := env.heartbeat()
+	err = env.heartbeat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform initial heartbeat: %w", err)
 	}
@@ -86,13 +107,27 @@ func (r *environment) Invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	references, err := r.registry.EnsureActivation(ctx, namespace, actorID)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"error ensuring activation of actor: %s in registry: %w",
-			actorID, err)
+	var (
+		cacheKey        = fmt.Sprintf("%s::%s", namespace, actorID)
+		references      []types.ActorReference
+		referencesI, ok = r.activationCache.Get(cacheKey)
+	)
+	if ok {
+		references = referencesI.([]types.ActorReference)
+	} else {
+		var err error
+		references, err = r.registry.EnsureActivation(ctx, namespace, actorID)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"error ensuring activation of actor: %s in registry: %w",
+				actorID, err)
+		}
+		// Set a TTL on the cache entry so that if the generation count increases
+		// it will eventually get reflected in the system even if its not immediate.
+		// Note that the purpose the generation count is is for code/setting upgrades
+		// so it does not need to take effect immediately.
+		r.activationCache.SetWithTTL(cacheKey, references, 1, time.Minute)
 	}
-
 	if len(references) == 0 {
 		return nil, fmt.Errorf(
 			"[invariant violated] ensureActivation() success with 0 references for actor ID: %s", actorID)
