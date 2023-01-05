@@ -28,6 +28,7 @@ type environment struct {
 	heartbeatState struct {
 		sync.RWMutex
 		registry.HeartbeatResult
+		frozen bool
 	}
 
 	// Closed when the background heartbeating goroutine should be shut down.
@@ -185,7 +186,6 @@ func (r *environment) InvokeLocal(
 	r.heartbeatState.RUnlock()
 
 	if heartbeatResult.VersionStamp+heartbeatResult.HeartbeatTTL < versionStamp {
-		// TODO: How do I test this?
 		return nil, fmt.Errorf(
 			"InvokeLocal: server heartbeat(%d) + TTL(%d) < versionStamp(%d)",
 			heartbeatResult.VersionStamp, heartbeatResult.HeartbeatTTL, versionStamp)
@@ -223,7 +223,9 @@ func (r *environment) heartbeat() error {
 	}
 
 	r.heartbeatState.Lock()
-	r.heartbeatState.HeartbeatResult = result
+	if !r.heartbeatState.frozen {
+		r.heartbeatState.HeartbeatResult = result
+	}
 	r.heartbeatState.Unlock()
 	return nil
 }
@@ -263,4 +265,10 @@ func (r *environment) invokeReferences(
 		return nil, fmt.Errorf(
 			"reference for actor: %s has unhandled type: %v", reference.ActorID(), reference.Type())
 	}
+}
+
+func (r *environment) freezeHeartbeatState() {
+	r.heartbeatState.Lock()
+	r.heartbeatState.frozen = true
+	r.heartbeatState.Unlock()
 }

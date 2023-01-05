@@ -461,6 +461,41 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	require.NoError(t, env3.Close())
 }
 
+// TestVersionStampIsHonored ensures that the interaction between the client and server
+// around versionstamp coordination works by preventing the server from updating its
+// internal versionstamp and ensuring that eventually RPCs start to fail because the
+// server can no longer be sure it "owns" the actor and is allowed to run it.
+func TestVersionStampIsHonored(t *testing.T) {
+	var (
+		reg = registry.NewLocalRegistry()
+		ctx = context.Background()
+	)
+	// Create 3 environments backed by the same registry to simulate 3 different servers.
+	env1, err := NewEnvironment(ctx, "serverID1", reg, defaultOpts)
+	require.NoError(t, err)
+
+	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	_, err = reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
+	require.NoError(t, err)
+
+	_, err = env1.Invoke(ctx, "ns-1", "a", "inc", nil)
+	require.NoError(t, err)
+
+	env1.freezeHeartbeatState()
+
+	for {
+		// Eventually RPCs should start to fail because the server's versionstamp will become
+		// stale and it will no longer be confident that it's allowed to run RPCs for the
+		// actor.
+		_, err = env1.Invoke(ctx, "ns-1", "a", "inc", nil)
+		if err != nil {
+			break
+		}
+	}
+}
+
 func getCount(t *testing.T, v []byte) int64 {
 	x, err := strconv.Atoi(string(v))
 	require.NoError(t, err)
