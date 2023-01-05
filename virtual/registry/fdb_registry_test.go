@@ -47,7 +47,7 @@ func testBenchFoundationDBKVGetVersionStamp(
 		ctx, cc    = context.WithCancel(context.Background())
 		wg         sync.WaitGroup
 		benchState = &benchState{
-			invokeLatency: sketch,
+			callLatency: sketch,
 		}
 		ticker = time.NewTicker(invokeEvery)
 	)
@@ -66,7 +66,7 @@ func testBenchFoundationDBKVGetVersionStamp(
 						panic(err)
 					}
 
-					benchState.trackInvokeLatency(time.Since(start))
+					benchState.trackCallLatency(time.Since(start))
 					if i%100 == 0 {
 						benchState.setNumInvokes(i)
 					}
@@ -86,43 +86,42 @@ func testBenchFoundationDBKVGetVersionStamp(
 	fmt.Println("Inputs")
 	fmt.Println("    invokeEvery", invokeEvery)
 	fmt.Println("Results")
-	fmt.Println("    numInvokes", benchState.getNumInvokes())
-	fmt.Println("    invoke/s", float64(benchState.getNumInvokes())/benchDuration.Seconds())
-	fmt.Println("    median latency (puts)", getQuantile(t, benchState.invokeLatency, 0.5))
-	fmt.Println("    p95 latency (puts)", getQuantile(t, benchState.invokeLatency, 0.95), "ms")
-	fmt.Println("    p99 latency (puts)", getQuantile(t, benchState.invokeLatency, 0.99), "ms")
-	fmt.Println("    p99.9 latency (puts)", getQuantile(t, benchState.invokeLatency, 0.999), "ms")
+	fmt.Println("    numInvokes", benchState.getNumCalls())
+	fmt.Println("    invoke/s", float64(benchState.getNumCalls())/benchDuration.Seconds())
+	fmt.Println("    median latency (puts)", getQuantile(t, benchState.callLatency, 0.5))
+	fmt.Println("    p95 latency (puts)", getQuantile(t, benchState.callLatency, 0.95), "ms")
+	fmt.Println("    p99 latency (puts)", getQuantile(t, benchState.callLatency, 0.99), "ms")
+	fmt.Println("    p99.9 latency (puts)", getQuantile(t, benchState.callLatency, 0.999), "ms")
 
 	t.Fail() // Fail so it prints output.
 }
 
-// TODO: Fix field/method names.
 type benchState struct {
 	sync.RWMutex
 
-	numInvokes    int
-	invokeLatency *ddsketch.DDSketch
+	numCalls    int
+	callLatency *ddsketch.DDSketch
 }
 
 func (b *benchState) setNumInvokes(x int) {
 	b.Lock()
 	defer b.Unlock()
 
-	b.numInvokes = x
+	b.numCalls = x
 }
 
-func (b *benchState) getNumInvokes() int {
+func (b *benchState) getNumCalls() int {
 	b.RLock()
 	defer b.RUnlock()
 
-	return b.numInvokes
+	return b.numCalls
 }
 
-func (b *benchState) trackInvokeLatency(x time.Duration) {
+func (b *benchState) trackCallLatency(x time.Duration) {
 	b.Lock()
 	defer b.Unlock()
 
-	b.invokeLatency.Add(float64(x.Milliseconds()))
+	b.callLatency.Add(float64(x.Milliseconds()))
 }
 
 func getQuantile(t *testing.T, sketch *ddsketch.DDSketch, q float64) float64 {
