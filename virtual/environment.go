@@ -7,10 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dgraph-io/ristretto"
-	"github.com/google/uuid"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
+
+	"github.com/dgraph-io/ristretto"
+	"github.com/google/uuid"
 )
 
 const (
