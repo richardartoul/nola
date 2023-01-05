@@ -15,7 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var utilWasmBytes []byte
+var (
+	utilWasmBytes []byte
+	defaultOpts   = EnvironmentOptions{}
+)
 
 func init() {
 	fBytes, err := ioutil.ReadFile("../testdata/tinygo/util/main.wasm")
@@ -31,7 +34,7 @@ func init() {
 // TestSimple is a basic sanity test that verifies the most basic flow.
 func TestSimple(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -68,7 +71,10 @@ func TestSimple(t *testing.T) {
 // them as needed.
 func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, EnvironmentOptions{
+		// Reduce the cache duration so we can see the generation count reflected eventually.
+		ActivationCacheTTL: time.Millisecond,
+	})
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -93,6 +99,17 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 		reg.IncGeneration(ctx, ns, "a")
 
 		for i := 0; i < 100; i++ {
+			if i == 0 {
+				for {
+					// Wait for cache to expire.
+					result, err := env.Invoke(ctx, ns, "a", "inc", nil)
+					require.NoError(t, err)
+					if getCount(t, result) == 1 {
+						break
+					}
+				}
+				continue
+			}
 			result, err := env.Invoke(ctx, ns, "a", "inc", nil)
 			require.NoError(t, err)
 			require.Equal(t, int64(i+1), getCount(t, result))
@@ -112,7 +129,7 @@ func TestKVHostFunctions(t *testing.T) {
 			count++
 		}()
 
-		env, err := NewEnvironment(context.Background(), "serverID1", reg)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 		require.NoError(t, err)
 		defer env.Close()
 
@@ -173,7 +190,7 @@ func TestKVHostFunctions(t *testing.T) {
 // that actors can create new actors.
 func TestCreateActorHostFunction(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -228,7 +245,7 @@ func TestCreateActorHostFunction(t *testing.T) {
 // test ensures that actors can communicate with other actors.
 func TestInvokeActorHostFunction(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -297,7 +314,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 // another actor that is not yet activated without introducing a deadlock.
 func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -333,11 +350,11 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 		ctx = context.Background()
 	)
 	// Create 3 environments backed by the same registry to simulate 3 different servers.
-	env1, err := NewEnvironment(ctx, "serverID1", reg)
+	env1, err := NewEnvironment(ctx, "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
-	env2, err := NewEnvironment(ctx, "serverID2", reg)
+	env2, err := NewEnvironment(ctx, "serverID2", reg, defaultOpts)
 	require.NoError(t, err)
-	env3, err := NewEnvironment(ctx, "serverID3", reg)
+	env3, err := NewEnvironment(ctx, "serverID3", reg, defaultOpts)
 	require.NoError(t, err)
 
 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})

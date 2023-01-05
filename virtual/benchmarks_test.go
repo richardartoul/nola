@@ -19,7 +19,7 @@ import (
 func BenchmarkLocalInvoke(b *testing.B) {
 	reg := registry.NewLocalRegistry()
 
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -46,7 +46,7 @@ func BenchmarkLocalCreateActor(b *testing.B) {
 	b.Skip("Skip this benchmark for now since its not interesting with a fake in-memory registry implementation")
 
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -67,7 +67,7 @@ func BenchmarkLocalCreateActor(b *testing.B) {
 
 func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -93,7 +93,7 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 
 func BenchmarkLocalActorToActorCommunication(b *testing.B) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -151,7 +151,7 @@ func testSimpleBench(
 	require.NoError(t, err)
 	require.NoError(t, reg.UnsafeWipeAll())
 
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 

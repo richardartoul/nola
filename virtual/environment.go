@@ -32,12 +32,23 @@ type environment struct {
 	serverID string
 	address  string
 	registry registry.Registry
+	opts     EnvironmentOptions
 }
 
+// EnvironmentOptions is the settings for the Environment.
+type EnvironmentOptions struct {
+	// ActivationCacheTTL is the TTL of the activation cache.
+	ActivationCacheTTL time.Duration
+	// DisableActivationCache disables the activation cache.
+	DisableActivationCache bool
+}
+
+// NewEnvironment creates a new Environment.
 func NewEnvironment(
 	ctx context.Context,
 	serverID string,
 	reg registry.Registry,
+	opts EnvironmentOptions,
 ) (Environment, error) {
 	activationCache, err := ristretto.NewCache(&ristretto.Config{
 		NumCounters: maxNumActivationsToCache * 10, // * 10 per the docs.
@@ -65,6 +76,8 @@ func NewEnvironment(
 		registry:        reg,
 		address:         address,
 		serverID:        serverID,
+		// TODO: Need to set a default TTL.
+		opts: opts,
 	}
 	activations := newActivations(reg, env)
 	env.activations = activations
@@ -107,15 +120,24 @@ func (r *environment) Invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	// TODO: If a server dies or an actor gets moved to a different server, but this node
+	//       has a cached activation for some of its actors then all requests for those
+	//       actors will fail until the cached activation fails. That's bad and we should
+	//       fix it by invalidating the cache when when we get certain types of errors.
 	var (
-		cacheKey        = fmt.Sprintf("%s::%s", namespace, actorID)
-		references      []types.ActorReference
-		referencesI, ok = r.activationCache.Get(cacheKey)
+		cacheKey    = fmt.Sprintf("%s::%s", namespace, actorID)
+		references  []types.ActorReference
+		referencesI any = nil
+		ok              = false
 	)
+	if !r.opts.DisableActivationCache {
+		referencesI, ok = r.activationCache.Get(cacheKey)
+	}
 	if ok {
 		references = referencesI.([]types.ActorReference)
 	} else {
 		var err error
+		// TODO: Need a concurrency limiter on this thing.
 		references, err = r.registry.EnsureActivation(ctx, namespace, actorID)
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -126,7 +148,7 @@ func (r *environment) Invoke(
 		// it will eventually get reflected in the system even if its not immediate.
 		// Note that the purpose the generation count is is for code/setting upgrades
 		// so it does not need to take effect immediately.
-		r.activationCache.SetWithTTL(cacheKey, references, 1, time.Minute)
+		r.activationCache.SetWithTTL(cacheKey, references, 1, r.opts.ActivationCacheTTL)
 	}
 	if len(references) == 0 {
 		return nil, fmt.Errorf(
