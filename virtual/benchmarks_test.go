@@ -188,7 +188,9 @@ func testSimpleBench(
 			actorID := fmt.Sprintf("%d", rand.Intn(numActors))
 			select {
 			case <-invokeTicker.C:
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					start := time.Now()
 					_, err = env.Invoke(ctx, "bench-ns", actorID, "incFast", nil)
 					if err != nil {
