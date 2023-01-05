@@ -127,6 +127,11 @@ func (r *environment) Invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	vs, err := r.registry.GetVersionStamp(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error getting version stamp: %w", err)
+	}
+
 	var (
 		cacheKey    = fmt.Sprintf("%s::%s", namespace, actorID)
 		references  []types.ActorReference
@@ -158,10 +163,6 @@ func (r *environment) Invoke(
 			"ensureActivation() success with 0 references for actor ID: %s", actorID)
 	}
 
-	vs, err := r.registry.GetVersionStamp(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error getting version stamp: %w", err)
-	}
 	return r.invokeReferences(ctx, vs, references, operation, payload)
 }
 
