@@ -429,6 +429,20 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	// should end up being activated on server3 now since it is the only remaining live actor.
 
 	for i := 0; i < 100; i++ {
+		if i == 0 {
+			for {
+				// Spin loop until there are no more errors as function calls will fail for
+				// a bit until heartbeat + activation cache expire.
+				_, err = env3.Invoke(ctx, "ns-1", "a", "inc", nil)
+				if err != nil {
+					time.Sleep(time.Millisecond)
+					continue
+				}
+				break
+			}
+			continue
+		}
+
 		_, err = env3.Invoke(ctx, "ns-1", "a", "inc", nil)
 		require.NoError(t, err)
 		require.NoError(t, env3.heartbeat())

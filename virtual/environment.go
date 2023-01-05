@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	heartbeatTimeout         = registry.MaxHeartbeatDelay
-	maxNumActivationsToCache = 1e6 // 1 Million.
+	heartbeatTimeout           = registry.MaxHeartbeatDelay
+	defaultActivationsCacheTTL = heartbeatTimeout
+	maxNumActivationsToCache   = 1e6 // 1 Million.
 )
 
 type environment struct {
@@ -50,6 +51,10 @@ func NewEnvironment(
 	reg registry.Registry,
 	opts EnvironmentOptions,
 ) (Environment, error) {
+	if opts.ActivationCacheTTL == 0 {
+		opts.ActivationCacheTTL = defaultActivationsCacheTTL
+	}
+
 	activationCache, err := ristretto.NewCache(&ristretto.Config{
 		NumCounters: maxNumActivationsToCache * 10, // * 10 per the docs.
 		// Maximum number of entries in cache (~1million). Note that
@@ -62,9 +67,6 @@ func NewEnvironment(
 	if err != nil {
 		return nil, fmt.Errorf("error creating activationCache: %w", err)
 	}
-	if err != nil {
-		panic(err)
-	}
 
 	// TODO: Eventually we need to support discovering our own IP here or having this
 	//       passed in.
@@ -76,8 +78,7 @@ func NewEnvironment(
 		registry:        reg,
 		address:         address,
 		serverID:        serverID,
-		// TODO: Need to set a default TTL.
-		opts: opts,
+		opts:            opts,
 	}
 	activations := newActivations(reg, env)
 	env.activations = activations
@@ -120,10 +121,6 @@ func (r *environment) Invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	// TODO: If a server dies or an actor gets moved to a different server, but this node
-	//       has a cached activation for some of its actors then all requests for those
-	//       actors will fail until the cached activation fails. That's bad and we should
-	//       fix it by invalidating the cache when when we get certain types of errors.
 	var (
 		cacheKey    = fmt.Sprintf("%s::%s", namespace, actorID)
 		references  []types.ActorReference
