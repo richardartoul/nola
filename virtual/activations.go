@@ -51,12 +51,20 @@ func (a *activations) invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	a.Lock()
+	a.RLock()
 	actor, ok := a._actors[reference.ActorID()]
+	if ok && actor.generation >= reference.Generation() {
+		a.RUnlock()
+		return actor.o.Invoke(ctx, operation, payload)
+	}
+	a.RUnlock()
+
+	a.Lock()
 	if ok && actor.generation >= reference.Generation() {
 		a.Unlock()
 		return actor.o.Invoke(ctx, operation, payload)
 	}
+
 	if ok && actor.generation < reference.Generation() {
 		// The actor is already activated, however, the generation count has
 		// increased. Therefore we need to pretend like the actor doesn't
