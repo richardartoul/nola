@@ -172,7 +172,7 @@ func testSimpleBench(
 	benchDuration time.Duration,
 ) {
 	// Uncomment to run.
-	// t.Skip()
+	t.Skip()
 
 	reg, err := registry.NewFoundationDBRegistry("")
 	require.NoError(t, err)
