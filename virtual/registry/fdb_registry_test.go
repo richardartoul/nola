@@ -92,10 +92,10 @@ func testBenchFoundationDBKVGetVersionStamp(
 	fmt.Println("Results")
 	fmt.Println("    numInvokes", benchState.getNumCalls())
 	fmt.Println("    invoke/s", float64(benchState.getNumCalls())/benchDuration.Seconds())
-	fmt.Println("    median latency (puts)", getQuantile(t, benchState.callLatency, 0.5))
-	fmt.Println("    p95 latency (puts)", getQuantile(t, benchState.callLatency, 0.95), "ms")
-	fmt.Println("    p99 latency (puts)", getQuantile(t, benchState.callLatency, 0.99), "ms")
-	fmt.Println("    p99.9 latency (puts)", getQuantile(t, benchState.callLatency, 0.999), "ms")
+	fmt.Println("    median latency", getQuantile(t, benchState.callLatency, 0.5))
+	fmt.Println("    p95 latency", getQuantile(t, benchState.callLatency, 0.95), "ms")
+	fmt.Println("    p99 latency", getQuantile(t, benchState.callLatency, 0.99), "ms")
+	fmt.Println("    p99.9 latency", getQuantile(t, benchState.callLatency, 0.999), "ms")
 
 	t.Fail() // Fail so it prints output.
 }

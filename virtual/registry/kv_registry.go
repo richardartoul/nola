@@ -329,7 +329,6 @@ func (k *kvRegistry) GetVersionStamp(
 	// call (or initiates the next one if none is ongoing).
 	//
 	// We pass "" as the key because every call is the same.
-
 	v, err, _ := k.versionStampBatcher.Do("", func() (any, error) {
 		return k.kv.transact(func(tr transaction) (any, error) {
 			return tr.getVersionStamp()
