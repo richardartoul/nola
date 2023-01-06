@@ -162,7 +162,7 @@ func reportOpsPerSecond(b *testing.B) func() {
 
 // Can't use the micro-benchmarking framework because we need concurrency.
 func TestBenchmarkFoundationRegistryInvoke(t *testing.T) {
-	testSimpleBench(t, 1*time.Nanosecond, 10, 15*time.Second)
+	testSimpleBench(t, 2*time.Microsecond, 10, 15*time.Second)
 }
 
 func testSimpleBench(
@@ -172,7 +172,7 @@ func testSimpleBench(
 	benchDuration time.Duration,
 ) {
 	// Uncomment to run.
-	// t.Skip()
+	t.Skip()
 
 	reg, err := registry.NewFoundationDBRegistry("")
 	require.NoError(t, err)
@@ -247,10 +247,11 @@ func testSimpleBench(
 	fmt.Println("Results")
 	fmt.Println("    numInvokes", benchState.getNumInvokes())
 	fmt.Println("    invoke/s", float64(benchState.getNumInvokes())/benchDuration.Seconds())
-	fmt.Println("    median latency (puts)", getQuantile(t, benchState.invokeLatency, 0.5))
-	fmt.Println("    p95 latency (puts)", getQuantile(t, benchState.invokeLatency, 0.95), "ms")
-	fmt.Println("    p99 latency (puts)", getQuantile(t, benchState.invokeLatency, 0.99), "ms")
-	fmt.Println("    p99.9 latency (puts)", getQuantile(t, benchState.invokeLatency, 0.999), "ms")
+	fmt.Println("    median latency", getQuantile(t, benchState.invokeLatency, 0.5))
+	fmt.Println("    p95 latency", getQuantile(t, benchState.invokeLatency, 0.95), "ms")
+	fmt.Println("    p99 latency", getQuantile(t, benchState.invokeLatency, 0.99), "ms")
+	fmt.Println("    p99.9 latency", getQuantile(t, benchState.invokeLatency, 0.999), "ms")
+	fmt.Println("    max latency", getQuantile(t, benchState.invokeLatency, 1.0), "ms")
 
 	t.Fail() // Fail so it prints output.
 }
