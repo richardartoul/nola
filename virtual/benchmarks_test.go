@@ -162,7 +162,7 @@ func reportOpsPerSecond(b *testing.B) func() {
 
 // Can't use the micro-benchmarking framework because we need concurrency.
 func TestBenchmarkFoundationRegistryInvoke(t *testing.T) {
-	testSimpleBench(t, 3*time.Microsecond, 10, 15*time.Second)
+	testSimpleBench(t, 500*time.Nanosecond, 10, 15*time.Second)
 }
 
 func testSimpleBench(
@@ -204,7 +204,6 @@ func testSimpleBench(
 		benchState = &benchState{
 			invokeLatency: sketch,
 		}
-		ticker = time.NewTicker(invokeEvery)
 	)
 
 	outerWg.Add(1)
@@ -214,7 +213,7 @@ func testSimpleBench(
 		for i := 0; ; i++ {
 			i := 1 // Capture for async goroutine.
 			select {
-			case <-ticker.C:
+			default:
 				innerWg.Add(1)
 				go func() {
 					defer innerWg.Done()
@@ -230,6 +229,7 @@ func testSimpleBench(
 
 					benchState.track(time.Since(start))
 				}()
+				time.Sleep(invokeEvery)
 			case <-ctx.Done():
 				return
 			}
