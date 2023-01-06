@@ -22,8 +22,7 @@ const (
 )
 
 type kvRegistry struct {
-	versionStampBatcher1 singleflight.Group
-	versionStampBatcher2 singleflight.Group
+	versionStampBatcher singleflight.Group
 
 	// State.
 	kv kv
@@ -320,7 +319,6 @@ func (k *kvRegistry) EnsureActivation(
 func (k *kvRegistry) GetVersionStamp(
 	ctx context.Context,
 ) (int64, error) {
-	return 2, nil
 	// GetVersionStamp() is in the critical path of the entire system. It is
 	// called extremely frequently. Caching it directly is unsafe and could lead
 	// to correctness issues. Instead, we use a singleflight.Group to debounce/batch
@@ -331,13 +329,8 @@ func (k *kvRegistry) GetVersionStamp(
 	// call (or initiates the next one if none is ongoing).
 	//
 	// We pass "" as the key because every call is the same.
-	var batcher *singleflight.Group
-	if time.Now().UnixNano()%2 == 0 {
-		batcher = &k.versionStampBatcher1
-	} else {
-		batcher = &k.versionStampBatcher2
-	}
-	v, err, _ := batcher.Do("", func() (any, error) {
+
+	v, err, _ := k.versionStampBatcher.Do("", func() (any, error) {
 		return k.kv.transact(func(tr transaction) (any, error) {
 			return tr.getVersionStamp()
 		})
@@ -427,7 +420,7 @@ func (k *kvRegistry) Heartbeat(
 	heartbeatState HeartbeatState,
 ) (HeartbeatResult, error) {
 	key := k.getServerKey(serverID)
-	_, err := k.kv.transact(func(tr transaction) (any, error) {
+	versionStamp, err := k.kv.transact(func(tr transaction) (any, error) {
 		v, ok, err := tr.get(key)
 		if err != nil {
 			return nil, err
@@ -460,7 +453,7 @@ func (k *kvRegistry) Heartbeat(
 		return HeartbeatResult{}, fmt.Errorf("Heartbeat: error: %w", err)
 	}
 	return HeartbeatResult{
-		VersionStamp: 3,
+		VersionStamp: versionStamp.(int64),
 		// VersionStamp corresponds to ~ 1 million increments per second.
 		HeartbeatTTL: int64(HeartbeatTTL.Microseconds()),
 	}, nil

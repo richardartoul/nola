@@ -162,11 +162,12 @@ func reportOpsPerSecond(b *testing.B) func() {
 
 // Can't use the micro-benchmarking framework because we need concurrency.
 func TestBenchmarkFoundationRegistryInvoke(t *testing.T) {
-	testSimpleBench(t, 25, 15*time.Second)
+	testSimpleBench(t, 1*time.Nanosecond, 10, 15*time.Second)
 }
 
 func testSimpleBench(
 	t *testing.T,
+	invokeEvery time.Duration,
 	numActors int,
 	benchDuration time.Duration,
 ) {
@@ -198,53 +199,50 @@ func testSimpleBench(
 
 	var (
 		ctx, cc    = context.WithCancel(context.Background())
-		wg         sync.WaitGroup
+		outerWg    sync.WaitGroup
+		innerWg    sync.WaitGroup
 		benchState = &benchState{
 			invokeLatency: sketch,
 		}
+		ticker = time.NewTicker(invokeEvery)
 	)
 
-	for i := 0; i < numActors; i++ {
-		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	outerWg.Add(1)
+	go func() {
+		defer outerWg.Done()
 
-			sketch, err := ddsketch.NewDefaultDDSketch(0.01)
-			require.NoError(t, err)
+		for i := 0; ; i++ {
+			i := 1 // Capture for async goroutine.
+			select {
+			case <-ticker.C:
+				innerWg.Add(1)
+				go func() {
+					defer innerWg.Done()
 
-			for j := 0; ; j++ {
-				if j%100 == 0 && ctx.Err() != nil {
-					benchState.trackInvokeLatency(sketch)
-					return
-				}
+					var (
+						actorID = fmt.Sprintf("%d", i%numActors)
+						start   = time.Now()
+					)
+					_, err = env.Invoke(ctx, "bench-ns", actorID, "incFast", nil)
+					if err != nil {
+						panic(err)
+					}
 
-				var (
-					actorID = fmt.Sprintf("%d", i)
-					start   = time.Now()
-				)
-				_, err = env.Invoke(ctx, "bench-ns", actorID, "incFast", nil)
-				if err != nil {
-					panic(err)
-				}
-
-				err := sketch.Add(float64(time.Since(start).Milliseconds()))
-				if err != nil {
-					panic(err)
-				}
-
-				if j%100 == 0 {
-					benchState.incNumInvokes(100)
-				}
+					benchState.track(time.Since(start))
+				}()
+			case <-ctx.Done():
+				return
 			}
-		}()
-	}
+		}
+	}()
 
 	time.Sleep(benchDuration)
 	cc()
-	wg.Wait()
+	outerWg.Wait()
+	innerWg.Wait()
 
 	fmt.Println("Inputs")
+	fmt.Println("    invokeEvery", invokeEvery)
 	fmt.Println("    numActors", numActors)
 	fmt.Println("Results")
 	fmt.Println("    numInvokes", benchState.getNumInvokes())
@@ -270,13 +268,6 @@ type benchState struct {
 	invokeLatency *ddsketch.DDSketch
 }
 
-func (b *benchState) incNumInvokes(x int) {
-	b.Lock()
-	defer b.Unlock()
-
-	b.numInvokes += x
-}
-
 func (b *benchState) getNumInvokes() int {
 	b.RLock()
 	defer b.RUnlock()
@@ -284,9 +275,10 @@ func (b *benchState) getNumInvokes() int {
 	return b.numInvokes
 }
 
-func (b *benchState) trackInvokeLatency(sketch *ddsketch.DDSketch) {
+func (b *benchState) track(x time.Duration) {
 	b.Lock()
 	defer b.Unlock()
 
-	b.invokeLatency.MergeWith(sketch)
+	b.invokeLatency.Add(float64(x.Milliseconds()))
+	b.numInvokes++
 }
