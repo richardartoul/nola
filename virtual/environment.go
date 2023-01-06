@@ -7,18 +7,30 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
+
+	"github.com/dgraph-io/ristretto"
+	"github.com/google/uuid"
 )
 
 const (
-	heartbeatTimeout = registry.MaxHeartbeatDelay
+	heartbeatTimeout           = registry.HeartbeatTTL
+	defaultActivationsCacheTTL = heartbeatTimeout
+	maxNumActivationsToCache   = 1e6 // 1 Million.
 )
 
 type environment struct {
 	// State.
-	activations *activations // Internally synchronized.
+	activations     *activations // Internally synchronized.
+	activationCache *ristretto.Cache
+
+	heartbeatState struct {
+		sync.RWMutex
+		registry.HeartbeatResult
+		frozen bool
+	}
+
 	// Closed when the background heartbeating goroutine should be shut down.
 	closeCh chan struct{}
 	// Closed when the background heartbeating goroutine completes shutting down.
@@ -28,28 +40,58 @@ type environment struct {
 	serverID string
 	address  string
 	registry registry.Registry
+	opts     EnvironmentOptions
 }
 
+// EnvironmentOptions is the settings for the Environment.
+type EnvironmentOptions struct {
+	// ActivationCacheTTL is the TTL of the activation cache.
+	ActivationCacheTTL time.Duration
+	// DisableActivationCache disables the activation cache.
+	DisableActivationCache bool
+}
+
+// NewEnvironment creates a new Environment.
 func NewEnvironment(
 	ctx context.Context,
 	serverID string,
 	reg registry.Registry,
+	opts EnvironmentOptions,
 ) (Environment, error) {
+	if opts.ActivationCacheTTL == 0 {
+		opts.ActivationCacheTTL = defaultActivationsCacheTTL
+	}
+
+	activationCache, err := ristretto.NewCache(&ristretto.Config{
+		NumCounters: maxNumActivationsToCache * 10, // * 10 per the docs.
+		// Maximum number of entries in cache (~1million). Note that
+		// technically this is a measure in bytes, but we pass a cost of 1
+		// always to make it behave as a limit on number of activations.
+		MaxCost: 1e6,
+		// Recommended default.
+		BufferItems: 64,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error creating activationCache: %w", err)
+	}
+
 	// TODO: Eventually we need to support discovering our own IP here or having this
 	//       passed in.
 	address := uuid.New().String()
 	env := &environment{
-		closeCh:  make(chan struct{}),
-		closedCh: make(chan struct{}),
-		registry: reg,
-		address:  address,
-		serverID: serverID,
+		activationCache: activationCache,
+		closeCh:         make(chan struct{}),
+		closedCh:        make(chan struct{}),
+		registry:        reg,
+		address:         address,
+		serverID:        serverID,
+		opts:            opts,
 	}
 	activations := newActivations(reg, env)
 	env.activations = activations
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
-	err := env.heartbeat()
+	err = env.heartbeat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform initial heartbeat: %w", err)
 	}
@@ -65,7 +107,7 @@ func NewEnvironment(
 			select {
 			case <-ticker.C:
 				if err := env.heartbeat(); err != nil {
-					log.Printf("error heartbeating: %v\n", err)
+					log.Printf("error performing background heartbeat: %v\n", err)
 				}
 			case <-env.closeCh:
 				log.Printf(
@@ -79,6 +121,12 @@ func NewEnvironment(
 	return env, nil
 }
 
+var bufPool = sync.Pool{
+	New: func() any {
+		return make([]byte, 0, 128)
+	},
+}
+
 func (r *environment) Invoke(
 	ctx context.Context,
 	namespace string,
@@ -86,23 +134,58 @@ func (r *environment) Invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	references, err := r.registry.EnsureActivation(ctx, namespace, actorID)
+	vs, err := r.registry.GetVersionStamp(ctx)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"error ensuring activation of actor: %s in registry: %w",
-			actorID, err)
+		return nil, fmt.Errorf("error getting version stamp: %w", err)
 	}
 
+	bufIface := bufPool.Get()
+	defer bufPool.Put(bufIface)
+	cacheKey := bufPool.Get().([]byte)[:0]
+	cacheKey = append(cacheKey, []byte(namespace)...)
+	cacheKey = append(cacheKey, []byte(actorID)...)
+
+	var (
+		references  []types.ActorReference
+		referencesI any = nil
+		ok              = false
+	)
+	if !r.opts.DisableActivationCache {
+		referencesI, ok = r.activationCache.Get(cacheKey)
+	}
+	if ok {
+		references = referencesI.([]types.ActorReference)
+	} else {
+		var err error
+		// TODO: Need a concurrency limiter on this thing.
+		references, err = r.registry.EnsureActivation(ctx, namespace, actorID)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"error ensuring activation of actor: %s in registry: %w",
+				actorID, err)
+		}
+
+		// Note that we need to copy the cache key before we call Set() since it will be
+		// returned to the pool when this function returns.
+		cacheKeyClone := append([]byte(nil), cacheKey...)
+
+		// Set a TTL on the cache entry so that if the generation count increases
+		// it will eventually get reflected in the system even if its not immediate.
+		// Note that the purpose the generation count is is for code/setting upgrades
+		// so it does not need to take effect immediately.
+		r.activationCache.SetWithTTL(cacheKeyClone, references, 1, r.opts.ActivationCacheTTL)
+	}
 	if len(references) == 0 {
 		return nil, fmt.Errorf(
-			"[invariant violated] ensureActivation() success with 0 references for actor ID: %s", actorID)
+			"ensureActivation() success with 0 references for actor ID: %s", actorID)
 	}
 
-	return r.invokeReferences(ctx, references, operation, payload)
+	return r.invokeReferences(ctx, vs, references, operation, payload)
 }
 
 func (r *environment) InvokeLocal(
 	ctx context.Context,
+	versionStamp int64,
 	serverID string,
 	reference types.ActorReference,
 	operation string,
@@ -112,6 +195,16 @@ func (r *environment) InvokeLocal(
 		return nil, fmt.Errorf(
 			"request for serverID: %s received by server: %s, cannot fullfil",
 			serverID, r.serverID)
+	}
+
+	r.heartbeatState.RLock()
+	heartbeatResult := r.heartbeatState.HeartbeatResult
+	r.heartbeatState.RUnlock()
+
+	if heartbeatResult.VersionStamp+heartbeatResult.HeartbeatTTL < versionStamp {
+		return nil, fmt.Errorf(
+			"InvokeLocal: server heartbeat(%d) + TTL(%d) < versionStamp(%d)",
+			heartbeatResult.VersionStamp, heartbeatResult.HeartbeatTTL, versionStamp)
 	}
 
 	return r.activations.invoke(ctx, reference, operation, payload)
@@ -137,10 +230,20 @@ func (r *environment) numActivatedActors() int {
 func (r *environment) heartbeat() error {
 	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
 	defer cc()
-	return r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
+	result, err := r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
 		NumActivatedActors: r.numActivatedActors(),
 		Address:            r.address,
 	})
+	if err != nil {
+		return fmt.Errorf("error heartbeating: %w", err)
+	}
+
+	r.heartbeatState.Lock()
+	if !r.heartbeatState.frozen {
+		r.heartbeatState.HeartbeatResult = result
+	}
+	r.heartbeatState.Unlock()
+	return nil
 }
 
 // TODO: This is kind of a giant hack, but it's really only used for testing. The idea is that
@@ -154,6 +257,7 @@ var (
 
 func (r *environment) invokeReferences(
 	ctx context.Context,
+	versionStamp int64,
 	references []types.ActorReference,
 	operation string,
 	payload []byte,
@@ -170,11 +274,17 @@ func (r *environment) invokeReferences(
 				"unable to route invocation for server: %s at path: %s, does not exist in global routing map",
 				reference.ServerID(), reference.Address())
 		}
-		return localEnv.InvokeLocal(ctx, reference.ServerID(), reference, operation, payload)
+		return localEnv.InvokeLocal(ctx, versionStamp, reference.ServerID(), reference, operation, payload)
 	case types.ReferenceTypeRemoteHTTP:
 		fallthrough
 	default:
 		return nil, fmt.Errorf(
 			"reference for actor: %s has unhandled type: %v", reference.ActorID(), reference.Type())
 	}
+}
+
+func (r *environment) freezeHeartbeatState() {
+	r.heartbeatState.Lock()
+	r.heartbeatState.frozen = true
+	r.heartbeatState.Unlock()
 }

@@ -62,6 +62,10 @@ type Registry interface {
 		actorID string,
 	) ([]types.ActorReference, error)
 
+	// GetVersionStamp() returns a monotonically increasing integer that should increase
+	// at a rate of ~ 1 million/s.
+	GetVersionStamp(ctx context.Context) (int64, error)
+
 	// Close closes the registry and releases any resources associated (DB connections, etc).
 	Close(ctx context.Context) error
 
@@ -101,7 +105,7 @@ type ServiceDiscovery interface {
 		ctx context.Context,
 		serverID string,
 		state HeartbeatState,
-	) error
+	) (HeartbeatResult, error)
 }
 
 // ActorOptions contains the options for a given actor.
@@ -131,4 +135,13 @@ type HeartbeatState struct {
 	NumActivatedActors int
 	// Address is the address at which the server can be reached.
 	Address string
+}
+
+// HeartbeatResult is the result returned by the Heartbeat() method.
+type HeartbeatResult struct {
+	// VersionStamp associated with the successful heartbeat.
+	VersionStamp int64
+	// TTL of the successful heartbeat in the same unit as the
+	// VerisionStamp.
+	HeartbeatTTL int64
 }

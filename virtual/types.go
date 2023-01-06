@@ -28,6 +28,7 @@ type Environment interface {
 	// inconsistencies may be introduced into the system.
 	InvokeLocal(
 		ctx context.Context,
+		versionStamp int64,
 		serverID string,
 		reference types.ActorReference,
 		operation string,
@@ -44,4 +45,10 @@ type Environment interface {
 	// heartbeat forces the environment to heartbeat the Registry immediately. It is primarily
 	// used for tests.
 	heartbeat() error
+
+	// freezeHeartbeatState allows the environment to keep heartbeating the registry, but
+	// prevents it from updating its internal heartbeat state. This keeps the server registered
+	// in the registry, but allows us to test interaction between the client versionstamp
+	// and the serverion heartbeat versionstamp.
+	freezeHeartbeatState()
 }

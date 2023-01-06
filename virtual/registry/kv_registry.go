@@ -7,19 +7,23 @@ import (
 	"sort"
 	"time"
 
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/richardartoul/nola/virtual/types"
+
+	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
-	// MaxHeartbeatDelay is the maximum amount of time between server heartbeats before
+	// HeartbeatTTL is the maximum amount of time between server heartbeats before
 	// the registry will consider a server as dead.
 	//
 	// TODO: Should be configurable.
-	MaxHeartbeatDelay = 5 * time.Second
+	HeartbeatTTL = 5 * time.Second
 )
 
 type kvRegistry struct {
+	versionStampBatcher singleflight.Group
+
 	// State.
 	kv kv
 }
@@ -59,7 +63,7 @@ func (k *kvRegistry) RegisterModule(
 		}
 
 		for i := 0; len(marshaled) > 0; i++ {
-			// Maximum valeu size in FoundationDB is 100_000, so split anything larger
+			// Maximum value size in FoundationDB is 100_000, so split anything larger
 			// over multiple KV pairs.
 			numBytes := 99_999
 			if len(marshaled) < numBytes {
@@ -254,7 +258,7 @@ func (k *kvRegistry) EnsureActivation(
 			serverID                         string
 			serverAddress                    string
 		)
-		if activationExists && serverExists && timeSinceLastHeartbeat < MaxHeartbeatDelay {
+		if activationExists && serverExists && timeSinceLastHeartbeat < HeartbeatTTL {
 			// We have an existing activation and the server is still alive, so just use that.
 			serverID = currActivation.ServerID
 			serverAddress = server.HeartbeatState.Address
@@ -267,7 +271,7 @@ func (k *kvRegistry) EnsureActivation(
 					return fmt.Errorf("error unmarshaling server state: %w", err)
 				}
 
-				if time.Since(currServer.LastHeartbeatedAt) < MaxHeartbeatDelay {
+				if time.Since(currServer.LastHeartbeatedAt) < HeartbeatTTL {
 					liveServers = append(liveServers, currServer)
 				}
 				return nil
@@ -310,6 +314,31 @@ func (k *kvRegistry) EnsureActivation(
 	}
 
 	return references.([]types.ActorReference), nil
+}
+
+func (k *kvRegistry) GetVersionStamp(
+	ctx context.Context,
+) (int64, error) {
+	// GetVersionStamp() is in the critical path of the entire system. It is
+	// called extremely frequently. Caching it directly is unsafe and could lead
+	// to correctness issues. Instead, we use a singleflight.Group to debounce/batch
+	// calls to the underlying storage. This has the same effect as an extremely
+	// short TTL cache, but with none of the correctness issues. In effect, the
+	// system calls getVersionStamp() in a *single-threaded* loop as fast as it
+	// can and each GetVersionStamp() call "gloms on" to the current outstanding
+	// call (or initiates the next one if none is ongoing).
+	//
+	// We pass "" as the key because every call is the same.
+	v, err, _ := k.versionStampBatcher.Do("", func() (any, error) {
+		return k.kv.transact(func(tr transaction) (any, error) {
+			return tr.getVersionStamp()
+		})
+	})
+	if err != nil {
+		return -1, fmt.Errorf("GetVersionStamp: error: %w", err)
+	}
+
+	return v.(int64), nil
 }
 
 func (k *kvRegistry) ActorKVPut(
@@ -388,9 +417,9 @@ func (k *kvRegistry) Heartbeat(
 	ctx context.Context,
 	serverID string,
 	heartbeatState HeartbeatState,
-) error {
+) (HeartbeatResult, error) {
 	key := k.getServerKey(serverID)
-	_, err := k.kv.transact(func(tr transaction) (any, error) {
+	versionStamp, err := k.kv.transact(func(tr transaction) (any, error) {
 		v, ok, err := tr.get(key)
 		if err != nil {
 			return nil, err
@@ -417,12 +446,16 @@ func (k *kvRegistry) Heartbeat(
 
 		tr.put(key, marshaled)
 
-		return nil, nil
+		return tr.getVersionStamp()
 	})
 	if err != nil {
-		return fmt.Errorf("Heartbeat: error: %w", err)
+		return HeartbeatResult{}, fmt.Errorf("Heartbeat: error: %w", err)
 	}
-	return nil
+	return HeartbeatResult{
+		VersionStamp: versionStamp.(int64),
+		// VersionStamp corresponds to ~ 1 million increments per second.
+		HeartbeatTTL: int64(HeartbeatTTL.Microseconds()),
+	}, nil
 }
 
 func (k *kvRegistry) Close(ctx context.Context) error {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +18,35 @@ import (
 func BenchmarkLocalInvoke(b *testing.B) {
 	reg := registry.NewLocalRegistry()
 
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
+	require.NoError(b, err)
+	defer env.Close()
+
+	ctx := context.Background()
+
+	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(b, err)
+
+	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", registry.ActorOptions{})
+	require.NoError(b, err)
+
+	defer reportOpsPerSecond(b)()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, err = env.Invoke(ctx, "bench-ns", "a", "incFast", nil)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func BenchmarkFoundationDBRegistry(b *testing.B) {
+	reg, err := registry.NewFoundationDBRegistry("")
+	require.NoError(b, err)
+	require.NoError(b, reg.UnsafeWipeAll())
+
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -46,7 +73,7 @@ func BenchmarkLocalCreateActor(b *testing.B) {
 	b.Skip("Skip this benchmark for now since its not interesting with a fake in-memory registry implementation")
 
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -67,7 +94,7 @@ func BenchmarkLocalCreateActor(b *testing.B) {
 
 func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -93,7 +120,7 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 
 func BenchmarkLocalActorToActorCommunication(b *testing.B) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -135,13 +162,13 @@ func reportOpsPerSecond(b *testing.B) func() {
 
 // Can't use the micro-benchmarking framework because we need concurrency.
 func TestBenchmarkFoundationRegistryInvoke(t *testing.T) {
-	testSimpleBench(t, 10, 25*time.Microsecond, 15*time.Second)
+	testSimpleBench(t, 500*time.Nanosecond, 10, 15*time.Second)
 }
 
 func testSimpleBench(
 	t *testing.T,
-	numActors int,
 	invokeEvery time.Duration,
+	numActors int,
 	benchDuration time.Duration,
 ) {
 	// Uncomment to run.
@@ -151,7 +178,7 @@ func testSimpleBench(
 	require.NoError(t, err)
 	require.NoError(t, reg.UnsafeWipeAll())
 
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -172,55 +199,59 @@ func testSimpleBench(
 
 	var (
 		ctx, cc    = context.WithCancel(context.Background())
-		wg         sync.WaitGroup
+		outerWg    sync.WaitGroup
+		innerWg    sync.WaitGroup
 		benchState = &benchState{
 			invokeLatency: sketch,
 		}
-		invokeTicker = time.NewTicker(invokeEvery)
 	)
-	go func() {
-		rand := rand.New(rand.NewSource(time.Now().UnixNano()))
-		for i := 1; ; i++ {
-			i := i // Capture for async goroutine.
-			actorID := fmt.Sprintf("%d", rand.Intn(numActors))
-			select {
-			case <-invokeTicker.C:
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
 
-					start := time.Now()
+	outerWg.Add(1)
+	go func() {
+		defer outerWg.Done()
+
+		for i := 0; ; i++ {
+			i := 1 // Capture for async goroutine.
+			select {
+			default:
+				innerWg.Add(1)
+				go func() {
+					defer innerWg.Done()
+
+					var (
+						actorID = fmt.Sprintf("%d", i%numActors)
+						start   = time.Now()
+					)
 					_, err = env.Invoke(ctx, "bench-ns", actorID, "incFast", nil)
 					if err != nil {
 						panic(err)
 					}
 
-					benchState.trackInvokeLatency(time.Since(start))
-					if i%100 == 0 {
-						benchState.setNumInvokes(i)
-					}
+					benchState.track(time.Since(start))
 				}()
+				time.Sleep(invokeEvery)
 			case <-ctx.Done():
-				benchState.setNumInvokes(i)
 				return
 			}
 		}
 	}()
 
 	time.Sleep(benchDuration)
-	invokeTicker.Stop()
 	cc()
-	wg.Wait()
+	outerWg.Wait()
+	innerWg.Wait()
 
 	fmt.Println("Inputs")
 	fmt.Println("    invokeEvery", invokeEvery)
+	fmt.Println("    numActors", numActors)
 	fmt.Println("Results")
 	fmt.Println("    numInvokes", benchState.getNumInvokes())
 	fmt.Println("    invoke/s", float64(benchState.getNumInvokes())/benchDuration.Seconds())
-	fmt.Println("    median latency (puts)", getQuantile(t, benchState.invokeLatency, 0.5))
-	fmt.Println("    p95 latency (puts)", getQuantile(t, benchState.invokeLatency, 0.95), "ms")
-	fmt.Println("    p99 latency (puts)", getQuantile(t, benchState.invokeLatency, 0.99), "ms")
-	fmt.Println("    p99.9 latency (puts)", getQuantile(t, benchState.invokeLatency, 0.999), "ms")
+	fmt.Println("    median latency", getQuantile(t, benchState.invokeLatency, 0.5))
+	fmt.Println("    p95 latency", getQuantile(t, benchState.invokeLatency, 0.95), "ms")
+	fmt.Println("    p99 latency", getQuantile(t, benchState.invokeLatency, 0.99), "ms")
+	fmt.Println("    p99.9 latency", getQuantile(t, benchState.invokeLatency, 0.999), "ms")
+	fmt.Println("    max latency", getQuantile(t, benchState.invokeLatency, 1.0), "ms")
 
 	t.Fail() // Fail so it prints output.
 }
@@ -238,13 +269,6 @@ type benchState struct {
 	invokeLatency *ddsketch.DDSketch
 }
 
-func (b *benchState) setNumInvokes(x int) {
-	b.Lock()
-	defer b.Unlock()
-
-	b.numInvokes = x
-}
-
 func (b *benchState) getNumInvokes() int {
 	b.RLock()
 	defer b.RUnlock()
@@ -252,9 +276,10 @@ func (b *benchState) getNumInvokes() int {
 	return b.numInvokes
 }
 
-func (b *benchState) trackInvokeLatency(x time.Duration) {
+func (b *benchState) track(x time.Duration) {
 	b.Lock()
 	defer b.Unlock()
 
 	b.invokeLatency.Add(float64(x.Milliseconds()))
+	b.numInvokes++
 }

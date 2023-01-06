@@ -23,7 +23,7 @@ func main() {
 	registry := registry.NewLocalRegistry()
 
 	ctx, cc := context.WithTimeout(context.Background(), 10*time.Second)
-	environment, err := virtual.NewEnvironment(ctx, *serverID, registry)
+	environment, err := virtual.NewEnvironment(ctx, *serverID, registry, virtual.EnvironmentOptions{})
 	cc()
 	if err != nil {
 		log.Fatal(err)

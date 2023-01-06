@@ -79,3 +79,11 @@ func (tr *fdbTransaction) iterPrefix(prefix []byte, fn func(k, v []byte) error) 
 	}
 	return nil
 }
+
+func (tr *fdbTransaction) getVersionStamp() (int64, error) {
+	readV, err := tr.tr.GetReadVersion().Get()
+	if err != nil {
+		return -1, err
+	}
+	return readV, nil
+}

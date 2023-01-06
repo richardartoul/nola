@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"sync"
+	"time"
 
 	"github.com/google/btree"
 )
@@ -11,12 +12,14 @@ import (
 // localKV is an implementation of kv backed by local memory.
 type localKV struct {
 	sync.Mutex
+	t      time.Time
 	b      *btree.BTreeG[btreeKV]
 	closed bool
 }
 
 func newLocalKV() kv {
 	return &localKV{
+		t: time.Now(),
 		b: btree.NewG(16, func(a, b btreeKV) bool {
 			return bytes.Compare(a.k, b.k) < 0
 		}),
@@ -32,6 +35,14 @@ func (l *localKV) transact(fn func(transaction) (any, error)) (any, error) {
 	return fn(l)
 }
 
+func (l *localKV) unsafeWipeAll() error {
+	l.Lock()
+	defer l.Unlock()
+
+	l.b.Clear(false)
+	return nil
+}
+
 func (l *localKV) close(ctx context.Context) error {
 	l.Lock()
 	defer l.Unlock()
@@ -40,6 +51,7 @@ func (l *localKV) close(ctx context.Context) error {
 	return nil
 }
 
+// "transaction" method so no lock because we're already locked.
 func (l *localKV) put(k, v []byte) {
 	if l.closed {
 		panic("KV already closed")
@@ -49,6 +61,7 @@ func (l *localKV) put(k, v []byte) {
 	l.b.ReplaceOrInsert(btreeKV{k, append([]byte(nil), v...)})
 }
 
+// "transaction" method so no lock because we're already locked.
 func (l *localKV) get(k []byte) ([]byte, bool, error) {
 	if l.closed {
 		panic("KV already closed")
@@ -61,6 +74,7 @@ func (l *localKV) get(k []byte) ([]byte, bool, error) {
 	return v.v, true, nil
 }
 
+// "transaction" method so no lock because we're already locked.
 func (l *localKV) iterPrefix(prefix []byte, fn func(k, v []byte) error) error {
 	if l.closed {
 		panic("KV already closed")
@@ -80,12 +94,11 @@ func (l *localKV) iterPrefix(prefix []byte, fn func(k, v []byte) error) error {
 	return globalErr
 }
 
-func (l *localKV) unsafeWipeAll() error {
-	l.Lock()
-	defer l.Unlock()
-
-	l.b.Clear(false)
-	return nil
+// "transaction" method so no lock because we're already locked.
+func (l *localKV) getVersionStamp() (int64, error) {
+	// Return microseconds since l.t since that will automatically increase at
+	// a rate of ~ 1 million/s just like FDB's versionstamp.
+	return time.Since(l.t).Microseconds(), nil
 }
 
 type btreeKV struct {

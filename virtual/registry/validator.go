@@ -114,6 +114,12 @@ func (v *validator) EnsureActivation(
 	return v.r.EnsureActivation(ctx, namespace, actorID)
 }
 
+func (v *validator) GetVersionStamp(
+	ctx context.Context,
+) (int64, error) {
+	return v.r.GetVersionStamp(ctx)
+}
+
 func (v *validator) ActorKVPut(
 	ctx context.Context,
 	namespace string,
@@ -161,12 +167,12 @@ func (v *validator) Heartbeat(
 	ctx context.Context,
 	serverID string,
 	state HeartbeatState,
-) error {
+) (HeartbeatResult, error) {
 	if err := validateString("serverID", serverID); err != nil {
-		return err
+		return HeartbeatResult{}, err
 	}
 	if err := validateString("address", state.Address); err != nil {
-		return err
+		return HeartbeatResult{}, err
 	}
 	return v.r.Heartbeat(ctx, serverID, state)
 }

@@ -78,11 +78,13 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	_, err = registry.EnsureActivation(ctx, "ns1", "a")
 	require.Error(t, err)
 
-	err = registry.Heartbeat(ctx, "server1", HeartbeatState{
+	heartbeatResult, err := registry.Heartbeat(ctx, "server1", HeartbeatState{
 		NumActivatedActors: 10,
 		Address:            "server1_address",
 	})
 	require.NoError(t, err)
+	require.True(t, heartbeatResult.VersionStamp > 0)
+	require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 
 	// Should succeed now that we have a server to activate on.
 	activations, err := registry.EnsureActivation(ctx, "ns1", "a")
@@ -113,11 +115,13 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, uint64(1), activations[0].Generation())
 
 	// Add another server, this one with no existing activations.
-	err = registry.Heartbeat(ctx, "server2", HeartbeatState{
+	newHeartbeatResult, err := registry.Heartbeat(ctx, "server2", HeartbeatState{
 		NumActivatedActors: 0,
 		Address:            "server2_address",
 	})
 	require.NoError(t, err)
+	require.True(t, newHeartbeatResult.VersionStamp > heartbeatResult.VersionStamp)
+	require.Equal(t, newHeartbeatResult.HeartbeatTTL, heartbeatResult.HeartbeatTTL)
 
 	// Keep checking the activation of the existing actor, it should remain sticky to
 	// server 1.
@@ -146,7 +150,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "server2", activations[0].ServerID())
 
-		err = registry.Heartbeat(ctx, "server2", HeartbeatState{
+		_, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
 			NumActivatedActors: i + 1,
 			Address:            "server2_address",
 		})
@@ -170,7 +174,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		} else {
 			require.Equal(t, "server1", activations[0].ServerID())
 		}
-		err = registry.Heartbeat(ctx, activations[0].ServerID(), HeartbeatState{
+		_, err = registry.Heartbeat(ctx, activations[0].ServerID(), HeartbeatState{
 			NumActivatedActors: 10 + i + 1,
 			Address:            fmt.Sprintf("%s_address", activations[0].ServerID()),
 		})
@@ -182,10 +186,10 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	//
 	// TODO: Sleeps in tests are bad, but I'm lazy to inject a clock right now and deal
 	//       with all of that.
-	time.Sleep(MaxHeartbeatDelay + time.Second)
+	time.Sleep(HeartbeatTTL + time.Second)
 
 	// Heartbeat server2. After this, the Registry should only consider server2 to be alive.
-	err = registry.Heartbeat(ctx, "server2", HeartbeatState{
+	_, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
 		NumActivatedActors: 9999999,
 		Address:            "server2_address",
 	})

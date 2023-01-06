@@ -15,7 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var utilWasmBytes []byte
+var (
+	utilWasmBytes []byte
+	defaultOpts   = EnvironmentOptions{}
+)
 
 func init() {
 	fBytes, err := ioutil.ReadFile("../testdata/tinygo/util/main.wasm")
@@ -31,7 +34,7 @@ func init() {
 // TestSimple is a basic sanity test that verifies the most basic flow.
 func TestSimple(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -68,7 +71,10 @@ func TestSimple(t *testing.T) {
 // them as needed.
 func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, EnvironmentOptions{
+		// Reduce the cache duration so we can see the generation count reflected eventually.
+		ActivationCacheTTL: time.Millisecond,
+	})
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -93,6 +99,17 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 		reg.IncGeneration(ctx, ns, "a")
 
 		for i := 0; i < 100; i++ {
+			if i == 0 {
+				for {
+					// Wait for cache to expire.
+					result, err := env.Invoke(ctx, ns, "a", "inc", nil)
+					require.NoError(t, err)
+					if getCount(t, result) == 1 {
+						break
+					}
+				}
+				continue
+			}
 			result, err := env.Invoke(ctx, ns, "a", "inc", nil)
 			require.NoError(t, err)
 			require.Equal(t, int64(i+1), getCount(t, result))
@@ -112,7 +129,7 @@ func TestKVHostFunctions(t *testing.T) {
 			count++
 		}()
 
-		env, err := NewEnvironment(context.Background(), "serverID1", reg)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 		require.NoError(t, err)
 		defer env.Close()
 
@@ -173,7 +190,7 @@ func TestKVHostFunctions(t *testing.T) {
 // that actors can create new actors.
 func TestCreateActorHostFunction(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -228,7 +245,7 @@ func TestCreateActorHostFunction(t *testing.T) {
 // test ensures that actors can communicate with other actors.
 func TestInvokeActorHostFunction(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -297,7 +314,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 // another actor that is not yet activated without introducing a deadlock.
 func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -333,11 +350,11 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 		ctx = context.Background()
 	)
 	// Create 3 environments backed by the same registry to simulate 3 different servers.
-	env1, err := NewEnvironment(ctx, "serverID1", reg)
+	env1, err := NewEnvironment(ctx, "serverID1", reg, defaultOpts)
 	require.NoError(t, err)
-	env2, err := NewEnvironment(ctx, "serverID2", reg)
+	env2, err := NewEnvironment(ctx, "serverID2", reg, defaultOpts)
 	require.NoError(t, err)
-	env3, err := NewEnvironment(ctx, "serverID3", reg)
+	env3, err := NewEnvironment(ctx, "serverID3", reg, defaultOpts)
 	require.NoError(t, err)
 
 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
@@ -404,7 +421,7 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	//       with all of that.
 	require.NoError(t, env1.Close())
 	require.NoError(t, env2.Close())
-	time.Sleep(registry.MaxHeartbeatDelay + time.Second)
+	time.Sleep(registry.HeartbeatTTL + time.Second)
 
 	// env1 and env2 have been closed (and not heartbeating) for longer than the maximum
 	// heartbeat delay which means that the registry should view them as "dead". Therefore, we
@@ -412,6 +429,20 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	// should end up being activated on server3 now since it is the only remaining live actor.
 
 	for i := 0; i < 100; i++ {
+		if i == 0 {
+			for {
+				// Spin loop until there are no more errors as function calls will fail for
+				// a bit until heartbeat + activation cache expire.
+				_, err = env3.Invoke(ctx, "ns-1", "a", "inc", nil)
+				if err != nil {
+					time.Sleep(time.Millisecond)
+					continue
+				}
+				break
+			}
+			continue
+		}
+
 		_, err = env3.Invoke(ctx, "ns-1", "a", "inc", nil)
 		require.NoError(t, err)
 		require.NoError(t, env3.heartbeat())
@@ -428,6 +459,41 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 
 	// Finally, make sure environment 3 is closed.
 	require.NoError(t, env3.Close())
+}
+
+// TestVersionStampIsHonored ensures that the interaction between the client and server
+// around versionstamp coordination works by preventing the server from updating its
+// internal versionstamp and ensuring that eventually RPCs start to fail because the
+// server can no longer be sure it "owns" the actor and is allowed to run it.
+func TestVersionStampIsHonored(t *testing.T) {
+	var (
+		reg = registry.NewLocalRegistry()
+		ctx = context.Background()
+	)
+	// Create 3 environments backed by the same registry to simulate 3 different servers.
+	env1, err := NewEnvironment(ctx, "serverID1", reg, defaultOpts)
+	require.NoError(t, err)
+
+	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	_, err = reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
+	require.NoError(t, err)
+
+	_, err = env1.Invoke(ctx, "ns-1", "a", "inc", nil)
+	require.NoError(t, err)
+
+	env1.freezeHeartbeatState()
+
+	for {
+		// Eventually RPCs should start to fail because the server's versionstamp will become
+		// stale and it will no longer be confident that it's allowed to run RPCs for the
+		// actor.
+		_, err = env1.Invoke(ctx, "ns-1", "a", "inc", nil)
+		if err != nil {
+			break
+		}
+	}
 }
 
 func getCount(t *testing.T, v []byte) int64 {
