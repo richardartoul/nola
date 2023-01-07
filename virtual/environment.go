@@ -46,9 +46,9 @@ type environment struct {
 }
 
 const (
-	// DiscoveryTypeLocal indicates that the environment should advertise its IP
+	// DiscoveryTypeLocalHost indicates that the environment should advertise its IP
 	// address as localhost to the discovery service.
-	DiscoveryTypeLocal = "local"
+	DiscoveryTypeLocalHost = "localhost"
 	// DiscoveryTypeRemote indicates that the environment should advertise its
 	// actual IP to the discovery service.
 	DiscoveryTypeRemote = "remote"
@@ -56,7 +56,7 @@ const (
 
 // DiscoveryOptions contains the discovery-related options.
 type DiscoveryOptions struct {
-	// DiscoveryType is one of DiscoveryTypeLocal or DiscoveryTypeRemote.
+	// DiscoveryType is one of DiscoveryTypeLocalHost or DiscoveryTypeRemote.
 	DiscoveryType string
 	// Port is the port that the environment should advertise to the discovery
 	// service.
@@ -64,11 +64,11 @@ type DiscoveryOptions struct {
 }
 
 func (d *DiscoveryOptions) Validate() error {
-	if d.DiscoveryType != DiscoveryTypeLocal &&
+	if d.DiscoveryType != DiscoveryTypeLocalHost &&
 		d.DiscoveryType != DiscoveryTypeRemote {
 		return fmt.Errorf("unknown discovery type: %v", d.DiscoveryType)
 	}
-	if d.Port == 0 && d.DiscoveryType != DiscoveryTypeLocal {
+	if d.Port == 0 && d.DiscoveryType != DiscoveryTypeLocalHost {
 		return errors.New("port cannot be zero")
 	}
 
@@ -133,7 +133,7 @@ func NewEnvironment(
 	activations := newActivations(reg, env)
 	env.activations = activations
 
-	log.Printf("register self with address: %s", address)
+	log.Printf("registering self with address: %s", address)
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
 	err = env.heartbeat()
@@ -251,7 +251,8 @@ func (r *environment) InvokeDirect(
 		return nil, fmt.Errorf("versionStamp must be >= 0, but was: %d", versionStamp)
 	}
 
-	fmt.Printf("%d::%s:%s::%s::%s\n", versionStamp, serverID, reference.ModuleID().ID, reference.ActorID().ID, operation)
+	// TODO: Delete me, but useful for now.
+	log.Printf("%d::%s:%s::%s::%s\n", versionStamp, serverID, reference.ModuleID().ID, reference.ActorID().ID, operation)
 
 	r.heartbeatState.RLock()
 	heartbeatResult := r.heartbeatState.HeartbeatResult

@@ -17,9 +17,9 @@ import (
 
 var (
 	port                        = flag.Int("port", 9090, "TCP port for HTTP server to bind")
-	serverID                    = flag.String("serverID", uuid.New().String(), "ID to identify the server. Must be globally unique within the cluster.")
-	discoveryType               = flag.String("discoveryType", virtual.DiscoveryTypeLocal, "how the server should register itself with the discovery serice. Valid options: local|remote. Use local for local testing, use remote for multi-server setups.")
-	registryType                = flag.String("registryBackend", "local", "backend to use for the Registry. Validation options: local|foundationdb.")
+	serverID                    = flag.String("serverID", uuid.New().String(), "ID to identify the server. Must be globally unique within the cluster")
+	discoveryType               = flag.String("discoveryType", virtual.DiscoveryTypeLocalHost, "how the server should register itself with the discovery serice. Valid options: localhost|remote. Use localhost for local testing, use remote for multi-node setups")
+	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb")
 	foundationDBClusterFilePath = flag.String("foundationDBClusterFilePath", "", "path to use for the FoundationDB cluster file")
 )
 
@@ -32,7 +32,7 @@ func main() {
 
 	var reg registry.Registry
 	switch *registryType {
-	case "local":
+	case "memory":
 		reg = registry.NewLocalRegistry()
 	case "foundationdb":
 		var err error
