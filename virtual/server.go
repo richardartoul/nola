@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/virtual/types"
 )
 
 type server struct {
@@ -34,6 +35,7 @@ func (s *server) Start(port int) error {
 	http.HandleFunc("/api/v1/register-module", s.registerModule)
 	http.HandleFunc("/api/v1/create-actor", s.createActor)
 	http.HandleFunc("/api/v1/invoke", s.invoke)
+	http.HandleFunc("/api/v1/invoke-direct", s.invokeDirect)
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
 		return err
@@ -146,6 +148,54 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
 	result, err := s.environment.Invoke(ctx, req.Namespace, req.ActorID, req.Operation, req.Payload)
+	if err != nil {
+		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	w.WriteHeader(200)
+	w.Write(result)
+}
+
+type invokeDirectRequest struct {
+	VersionStamp int64  `json:"version_stamp"`
+	ServerID     string `json:"server_id"`
+	Namespace    string `json:"namespace"`
+	ModuleID     string `json:"module_id"`
+	ActorID      string `json:"actor_id"`
+	Generation   uint64 `json:"generation"`
+	Operation    string `json:"operation"`
+	Payload      []byte `json:"payload"`
+}
+
+func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
+	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
+	if err != nil {
+		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	var req invokeDirectRequest
+	if err := json.Unmarshal(jsonBytes, &req); err != nil {
+		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	// TODO: This should be configurable, probably in a header with some maximum.
+	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cc()
+
+	ref, err := types.NewVirtualActorReference(req.Namespace, req.ModuleID, req.ActorID, uint64(req.Generation))
+	if err != nil {
+		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	result, err := s.environment.InvokeDirect(ctx, req.VersionStamp, req.ServerID, ref, req.Operation, req.Payload)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))

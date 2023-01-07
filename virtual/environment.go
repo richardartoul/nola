@@ -231,18 +231,24 @@ func (r *environment) Invoke(
 	return r.invokeReferences(ctx, vs, references, operation, payload)
 }
 
-func (r *environment) InvokeLocal(
+func (r *environment) InvokeDirect(
 	ctx context.Context,
 	versionStamp int64,
 	serverID string,
-	reference types.ActorReference,
+	reference types.ActorReferenceVirtual,
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	if serverID == "" {
+		return nil, errors.New("serverID cannot be empty")
+	}
 	if serverID != r.serverID {
 		return nil, fmt.Errorf(
 			"request for serverID: %s received by server: %s, cannot fullfil",
 			serverID, r.serverID)
+	}
+	if versionStamp <= 0 {
+		return nil, fmt.Errorf("versionStamp must be >= 0, but was: %d", versionStamp)
 	}
 
 	r.heartbeatState.RLock()
@@ -316,7 +322,7 @@ func (r *environment) invokeReferences(
 	localEnv, ok := localEnvironmentsRouter[ref.Address()]
 	localEnvironmentsRouterLock.RUnlock()
 	if ok {
-		return localEnv.InvokeLocal(ctx, versionStamp, ref.ServerID(), ref, operation, payload)
+		return localEnv.InvokeDirect(ctx, versionStamp, ref.ServerID(), ref, operation, payload)
 	}
 	return nil, fmt.Errorf("remote RPC not implemented")
 	// // TODO: Load balancing or some other strategy if the number of references is > 1?

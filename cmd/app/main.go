@@ -29,7 +29,7 @@ func main() {
 		reg = registry.NewLocalRegistry()
 	case "foundationdb":
 		var err error
-		reg, err = registry.NewFoundationDBRegistry("")
+		reg, err = registry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
 		if err != nil {
 			log.Fatalf("error creating FoundationDB registry: %w\n", err)
 		}

@@ -47,7 +47,7 @@ func newActivations(
 // when one actor ends up invoking a function on another actor running in the same environment.
 func (a *activations) invoke(
 	ctx context.Context,
-	reference types.ActorReference,
+	reference types.ActorReferenceVirtual,
 	operation string,
 	payload []byte,
 ) ([]byte, error) {

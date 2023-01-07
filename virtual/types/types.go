@@ -30,6 +30,10 @@ type ActorReferenceVirtual interface {
 	ModuleID() NamespacedID
 	// The ID of the referenced actor.
 	ActorID() NamespacedID
+	// Generation represents the generation count for the actor's activation. This value
+	// may be bumped by the registry at any time to signal to the rest of the system that
+	// all outstanding activations should be recreated for whatever reason.
+	Generation() uint64
 }
 
 // ActorReferencePhysical is the subset of data in ActorReference that is "physical" and
@@ -41,8 +45,4 @@ type ActorReferencePhysical interface {
 	ServerID() string
 	// The address of the referenced actor.
 	Address() string
-	// Generation represents the generation count for the actor's activation. This value
-	// may be bumped by the registry at any time to signal to the rest of the system that
-	// all outstanding activations should be recreated for whatever reason.
-	Generation() uint64
 }

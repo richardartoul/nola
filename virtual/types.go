@@ -12,15 +12,14 @@ import (
 type Environment interface {
 	RemoteClient
 
-	// InvokeLocal is the same as Invoke, however, it performs the invocation locally.
-	// This method should only be called if the Registry has indicated that the specified
-	// actorID should be activated in this process. If this constraint is violated then
-	// inconsistencies may be introduced into the system.
-	InvokeLocal(
+	// Invoke invokes the specified operation on the specified actorID with the
+	// provided payload. If the actor is already activated somewhere in the system,
+	// the invocation will be routed appropriately. Otherwise, the request will
+	// activate the actor somewhere in the system and then perform the invocation.
+	Invoke(
 		ctx context.Context,
-		versionStamp int64,
-		serverID string,
-		reference types.ActorReference,
+		namespace string,
+		actorID string,
 		operation string,
 		payload []byte,
 	) ([]byte, error)
@@ -46,14 +45,15 @@ type Environment interface {
 // RemoteClient is the interface implemented by a client that is capable of communicating with
 // remote nodes in the system.
 type RemoteClient interface {
-	// Invoke invokes the specified operation on the specified actorID with the
-	// provided payload. If the actor is already activated somewhere in the system,
-	// the invocation will be routed appropriately. Otherwise, the request will
-	// activate the actor somewhere in the system and then perform the invocation.
-	Invoke(
+	// InvokeDirect is the same as Invoke, however, it performs the invocation "directly".
+	// This method should only be called if the Registry has indicated that the specified
+	// actorID should be activated in this process. If this constraint is violated then
+	// inconsistencies may be introduced into the system.
+	InvokeDirect(
 		ctx context.Context,
-		namespace string,
-		actorID string,
+		versionStamp int64,
+		serverID string,
+		reference types.ActorReferenceVirtual,
 		operation string,
 		payload []byte,
 	) ([]byte, error)
