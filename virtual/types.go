@@ -10,17 +10,7 @@ import (
 // actor. If the actor is not currently activated in the environment, it will take
 // care of activating it.
 type Environment interface {
-	// Invoke invokes the specified operation on the specified actorID with the
-	// provided payload. If the actor is already activated somewhere in the system,
-	// the invocation will be routed appropriately. Otherwise, the request will
-	// activate the actor somewhere in the system and then perform the invocation.
-	Invoke(
-		ctx context.Context,
-		namespace string,
-		actorID string,
-		operation string,
-		payload []byte,
-	) ([]byte, error)
+	RemoteClient
 
 	// InvokeLocal is the same as Invoke, however, it performs the invocation locally.
 	// This method should only be called if the Registry has indicated that the specified
@@ -51,4 +41,20 @@ type Environment interface {
 	// in the registry, but allows us to test interaction between the client versionstamp
 	// and the serverion heartbeat versionstamp.
 	freezeHeartbeatState()
+}
+
+// RemoteClient is the interface implemented by a client that is capable of communicating with
+// remote nodes in the system.
+type RemoteClient interface {
+	// Invoke invokes the specified operation on the specified actorID with the
+	// provided payload. If the actor is already activated somewhere in the system,
+	// the invocation will be routed appropriately. Otherwise, the request will
+	// activate the actor somewhere in the system and then perform the invocation.
+	Invoke(
+		ctx context.Context,
+		namespace string,
+		actorID string,
+		operation string,
+		payload []byte,
+	) ([]byte, error)
 }
