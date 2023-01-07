@@ -10,8 +10,6 @@ import (
 // actor. If the actor is not currently activated in the environment, it will take
 // care of activating it.
 type Environment interface {
-	RemoteClient
-
 	// Invoke invokes the specified operation on the specified actorID with the
 	// provided payload. If the actor is already activated somewhere in the system,
 	// the invocation will be routed appropriately. Otherwise, the request will
@@ -20,6 +18,19 @@ type Environment interface {
 		ctx context.Context,
 		namespace string,
 		actorID string,
+		operation string,
+		payload []byte,
+	) ([]byte, error)
+
+	// InvokeDirect is the same as Invoke, however, it performs the invocation "directly".
+	// This method should only be called if the Registry has indicated that the specified
+	// actorID should be activated in this process. If this constraint is violated then
+	// inconsistencies may be introduced into the system.
+	InvokeDirect(
+		ctx context.Context,
+		versionStamp int64,
+		serverID string,
+		reference types.ActorReferenceVirtual,
 		operation string,
 		payload []byte,
 	) ([]byte, error)
@@ -45,15 +56,12 @@ type Environment interface {
 // RemoteClient is the interface implemented by a client that is capable of communicating with
 // remote nodes in the system.
 type RemoteClient interface {
-	// InvokeDirect is the same as Invoke, however, it performs the invocation "directly".
-	// This method should only be called if the Registry has indicated that the specified
-	// actorID should be activated in this process. If this constraint is violated then
-	// inconsistencies may be introduced into the system.
-	InvokeDirect(
+	// InvokeRemote is the same as Invoke, however, it performs the invocation on a specific
+	// remote server.
+	InvokeRemote(
 		ctx context.Context,
 		versionStamp int64,
-		serverID string,
-		reference types.ActorReferenceVirtual,
+		reference types.ActorReference,
 		operation string,
 		payload []byte,
 	) ([]byte, error)

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"sync"
 	"time"
 
@@ -42,7 +41,7 @@ type environment struct {
 	serverID string
 	address  string
 	registry registry.Registry
-	client   http.Client
+	client   RemoteClient
 	opts     EnvironmentOptions
 }
 
@@ -126,6 +125,7 @@ func NewEnvironment(
 		closeCh:         make(chan struct{}),
 		closedCh:        make(chan struct{}),
 		registry:        reg,
+		client:          client,
 		address:         address,
 		serverID:        serverID,
 		opts:            opts,
@@ -251,6 +251,8 @@ func (r *environment) InvokeDirect(
 		return nil, fmt.Errorf("versionStamp must be >= 0, but was: %d", versionStamp)
 	}
 
+	fmt.Printf("%d::%s:%s::%s::%s\n", versionStamp, serverID, reference.ModuleID().ID, reference.ActorID().ID, operation)
+
 	r.heartbeatState.RLock()
 	heartbeatResult := r.heartbeatState.HeartbeatResult
 	r.heartbeatState.RUnlock()
@@ -324,26 +326,7 @@ func (r *environment) invokeReferences(
 	if ok {
 		return localEnv.InvokeDirect(ctx, versionStamp, ref.ServerID(), ref, operation, payload)
 	}
-	return nil, fmt.Errorf("remote RPC not implemented")
-	// // TODO: Load balancing or some other strategy if the number of references is > 1?
-	// reference := references[0]
-	// switch reference.Type() {
-	// case types.ReferenceTypeLocal:
-	// 	localEnvironmentsRouterLock.RLock()
-	// 	localEnv, ok := localEnvironmentsRouter[reference.Address()]
-	// 	localEnvironmentsRouterLock.RUnlock()
-	// 	if !ok {
-	// 		return nil, fmt.Errorf(
-	// 			"unable to route invocation for server: %s at path: %s, does not exist in global routing map",
-	// 			reference.ServerID(), reference.Address())
-	// 	}
-	// 	return localEnv.InvokeLocal(ctx, versionStamp, reference.ServerID(), reference, operation, payload)
-	// case types.ReferenceTypeRemoteHTTP:
-	// 	fallthrough
-	// default:
-	// 	return nil, fmt.Errorf(
-	// 		"reference for actor: %s has unhandled type: %v", reference.ActorID(), reference.Type())
-	// }
+	return r.client.InvokeRemote(ctx, versionStamp, ref, operation, payload)
 }
 
 func (r *environment) freezeHeartbeatState() {

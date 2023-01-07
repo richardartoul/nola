@@ -39,8 +39,6 @@ type ActorReferenceVirtual interface {
 // ActorReferencePhysical is the subset of data in ActorReference that is "physical" and
 // that is used to actually find and communicate with the actor's current activation.
 type ActorReferencePhysical interface {
-	// Type is the ReferenceType of the current ActorReference.
-	Type() ReferenceType
 	// ServerID is the ID of the physical server that this reference targets.
 	ServerID() string
 	// The address of the referenced actor.

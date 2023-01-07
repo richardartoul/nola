@@ -10,7 +10,6 @@ func TestNewLocalReference(t *testing.T) {
 	ref, err := NewActorReferences("server1", "server1path", "a", "b", "c", 1)
 	require.NoError(t, err)
 
-	require.Equal(t, ReferenceTypeLocal, ref.Type())
 	require.Equal(t, "server1", ref.ServerID())
 	require.Equal(t, "server1path", ref.Address())
 	require.Equal(t, "a", ref.Namespace())

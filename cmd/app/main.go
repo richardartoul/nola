@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"time"
 
@@ -23,6 +24,12 @@ var (
 )
 
 func main() {
+	flag.Parse()
+
+	flag.VisitAll(func(f *flag.Flag) {
+		fmt.Printf(" --%s=%s\n", f.Name, f.Value.String())
+	})
+
 	var reg registry.Registry
 	switch *registryType {
 	case "local":
@@ -31,12 +38,16 @@ func main() {
 		var err error
 		reg, err = registry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
 		if err != nil {
-			log.Fatalf("error creating FoundationDB registry: %w\n", err)
+			log.Fatalf("error creating FoundationDB registry: %v\n", err)
 		}
+	default:
+		log.Fatalf("unknown registry type: %v", *registryType)
 	}
 
+	client := virtual.NewHTTPClient()
+
 	ctx, cc := context.WithTimeout(context.Background(), 10*time.Second)
-	environment, err := virtual.NewEnvironment(ctx, *serverID, reg, nil, virtual.EnvironmentOptions{
+	environment, err := virtual.NewEnvironment(ctx, *serverID, reg, client, virtual.EnvironmentOptions{
 		Discovery: virtual.DiscoveryOptions{
 			DiscoveryType: *discoveryType,
 			Port:          *port,
