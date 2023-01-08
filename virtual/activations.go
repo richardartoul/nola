@@ -91,7 +91,11 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s",
 				reference.ActorID(), reference.ModuleID())
 		}
-		actor = newActivatedActor(iActor, reference.Generation())
+		actor, err = newActivatedActor(ctx, iActor, reference.Generation())
+		if err != nil {
+			a.Unlock()
+			return nil, fmt.Errorf("error activating actor: %w", err)
+		}
 		a._actors[reference.ActorID()] = actor
 	}
 
@@ -147,7 +151,11 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s",
 				reference.ActorID(), reference.ModuleID())
 		}
-		actor = newActivatedActor(iActor, reference.Generation())
+		actor, err = newActivatedActor(ctx, iActor, reference.Generation())
+		if err != nil {
+			a.Unlock()
+			return nil, fmt.Errorf("error activating actor: %w", err)
+		}
 		a._actors[reference.ActorID()] = actor
 	}
 
@@ -244,9 +252,16 @@ type activatedActor struct {
 	generation uint64
 }
 
-func newActivatedActor(o durable.Object, generation uint64) activatedActor {
+func newActivatedActor(ctx context.Context, o durable.Object, generation uint64) (activatedActor, error) {
+	_, err := o.Invoke(ctx, wapcutils.StartupOperationName, nil)
+	// The assert on the "Could not find function" string sucks / is hacky, but I don't think there is
+	// any other way to do this with WAPC right now. That said,
+	if err != nil {
+		return activatedActor{}, fmt.Errorf("newActivatedActor: error invoking startup function: %w", err)
+	}
+
 	return activatedActor{
 		o:          o,
 		generation: generation,
-	}
+	}, nil
 }
