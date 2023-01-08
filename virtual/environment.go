@@ -284,6 +284,9 @@ func (r *environment) InvokeWorker(
 	if err != nil {
 		return nil, fmt.Errorf("InvokeWorker: error creating actor reference: %w", err)
 	}
+
+	// Workers provide none of the consistency / linearizability guarantees that actor's do, so we
+	// can bypass the registry entirely and just immediately invoke the function.
 	return r.activations.invoke(ctx, ref, operation, payload)
 }
 
