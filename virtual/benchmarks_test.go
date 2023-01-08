@@ -17,7 +17,31 @@ import (
 
 func BenchmarkLocalInvokeActor(b *testing.B) {
 	reg := registry.NewLocalRegistry()
+	benchmarkInvokeActor(b, reg)
+}
 
+func BenchmarkLocalInvokeWorker(b *testing.B) {
+	reg := registry.NewLocalRegistry()
+	benchmarkInvokeWorker(b, reg)
+}
+
+func BenchmarkFoundationDBRegistryInvokeActor(b *testing.B) {
+	reg, err := registry.NewFoundationDBRegistry("")
+	require.NoError(b, err)
+	require.NoError(b, reg.UnsafeWipeAll())
+
+	benchmarkInvokeActor(b, reg)
+}
+
+func BenchmarkFoundationDBRegistryInvokeWorker(b *testing.B) {
+	reg, err := registry.NewFoundationDBRegistry("")
+	require.NoError(b, err)
+	require.NoError(b, reg.UnsafeWipeAll())
+
+	benchmarkInvokeWorker(b, reg)
+}
+
+func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
@@ -41,11 +65,7 @@ func BenchmarkLocalInvokeActor(b *testing.B) {
 	}
 }
 
-func BenchmarkFoundationDBRegistry(b *testing.B) {
-	reg, err := registry.NewFoundationDBRegistry("")
-	require.NoError(b, err)
-	require.NoError(b, reg.UnsafeWipeAll())
-
+func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
 	require.NoError(b, err)
 	defer env.Close()
@@ -55,14 +75,11 @@ func BenchmarkFoundationDBRegistry(b *testing.B) {
 	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(b, err)
 
-	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", registry.ActorOptions{})
-	require.NoError(b, err)
-
 	defer reportOpsPerSecond(b)()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_, err = env.InvokeActor(ctx, "bench-ns", "a", "incFast", nil)
+		_, err = env.InvokeWorker(ctx, "bench-ns", "test-module", "incFast", nil)
 		if err != nil {
 			panic(err)
 		}
@@ -161,8 +178,13 @@ func reportOpsPerSecond(b *testing.B) func() {
 }
 
 // Can't use the micro-benchmarking framework because we need concurrency.
-func TestBenchmarkFoundationRegistryInvokeActor(t *testing.T) {
-	testSimpleBench(t, 500*time.Nanosecond, 10, 15*time.Second)
+func TestBenchmarkFoundationDBRegistryInvokeActor(t *testing.T) {
+	testSimpleBench(t, 2*time.Microsecond, 10, 15*time.Second, false)
+}
+
+// Can't use the micro-benchmarking framework because we need concurrency.
+func TestBenchmarkFoundationDBRegistryInvokeWorker(t *testing.T) {
+	testSimpleBench(t, 1*time.Microsecond, 10, 15*time.Second, true)
 }
 
 func testSimpleBench(
@@ -170,6 +192,7 @@ func testSimpleBench(
 	invokeEvery time.Duration,
 	numActors int,
 	benchDuration time.Duration,
+	useWorker bool,
 ) {
 	// Uncomment to run.
 	t.Skip()
@@ -218,13 +241,18 @@ func testSimpleBench(
 				go func() {
 					defer innerWg.Done()
 
-					var (
-						actorID = fmt.Sprintf("%d", i%numActors)
-						start   = time.Now()
-					)
-					_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil)
-					if err != nil {
-						panic(err)
+					start := time.Now()
+					if !useWorker {
+						actorID := fmt.Sprintf("%d", i%numActors)
+						_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil)
+						if err != nil {
+							panic(err)
+						}
+					} else {
+						_, err = env.InvokeWorker(ctx, "bench-ns", "test-module", "incFast", nil)
+						if err != nil {
+							panic(err)
+						}
 					}
 
 					benchState.track(time.Since(start))
