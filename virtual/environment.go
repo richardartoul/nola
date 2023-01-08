@@ -2,8 +2,10 @@ package virtual
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"sync"
 	"time"
 
@@ -11,7 +13,6 @@ import (
 	"github.com/richardartoul/nola/virtual/types"
 
 	"github.com/dgraph-io/ristretto"
-	"github.com/google/uuid"
 )
 
 const (
@@ -40,7 +41,38 @@ type environment struct {
 	serverID string
 	address  string
 	registry registry.Registry
+	client   RemoteClient
 	opts     EnvironmentOptions
+}
+
+const (
+	// DiscoveryTypeLocalHost indicates that the environment should advertise its IP
+	// address as localhost to the discovery service.
+	DiscoveryTypeLocalHost = "localhost"
+	// DiscoveryTypeRemote indicates that the environment should advertise its
+	// actual IP to the discovery service.
+	DiscoveryTypeRemote = "remote"
+)
+
+// DiscoveryOptions contains the discovery-related options.
+type DiscoveryOptions struct {
+	// DiscoveryType is one of DiscoveryTypeLocalHost or DiscoveryTypeRemote.
+	DiscoveryType string
+	// Port is the port that the environment should advertise to the discovery
+	// service.
+	Port int
+}
+
+func (d *DiscoveryOptions) Validate() error {
+	if d.DiscoveryType != DiscoveryTypeLocalHost &&
+		d.DiscoveryType != DiscoveryTypeRemote {
+		return fmt.Errorf("unknown discovery type: %v", d.DiscoveryType)
+	}
+	if d.Port == 0 && d.DiscoveryType != DiscoveryTypeLocalHost {
+		return errors.New("port cannot be zero")
+	}
+
+	return nil
 }
 
 // EnvironmentOptions is the settings for the Environment.
@@ -49,6 +81,8 @@ type EnvironmentOptions struct {
 	ActivationCacheTTL time.Duration
 	// DisableActivationCache disables the activation cache.
 	DisableActivationCache bool
+	// Discovery contains the discovery options.
+	Discovery DiscoveryOptions
 }
 
 // NewEnvironment creates a new Environment.
@@ -56,6 +90,7 @@ func NewEnvironment(
 	ctx context.Context,
 	serverID string,
 	reg registry.Registry,
+	client RemoteClient,
 	opts EnvironmentOptions,
 ) (Environment, error) {
 	if opts.ActivationCacheTTL == 0 {
@@ -75,20 +110,30 @@ func NewEnvironment(
 		return nil, fmt.Errorf("error creating activationCache: %w", err)
 	}
 
-	// TODO: Eventually we need to support discovering our own IP here or having this
-	//       passed in.
-	address := uuid.New().String()
+	host := "localhost"
+	if opts.Discovery.DiscoveryType == DiscoveryTypeRemote {
+		selfIP, err := getSelfIP()
+		if err != nil {
+			return nil, fmt.Errorf("error discovering self IP: %w", err)
+		}
+		host = selfIP.To4().String()
+	}
+	address := fmt.Sprintf("%s:%d", host, opts.Discovery.Port)
+
 	env := &environment{
 		activationCache: activationCache,
 		closeCh:         make(chan struct{}),
 		closedCh:        make(chan struct{}),
 		registry:        reg,
+		client:          client,
 		address:         address,
 		serverID:        serverID,
 		opts:            opts,
 	}
 	activations := newActivations(reg, env)
 	env.activations = activations
+
+	log.Printf("registering self with address: %s", address)
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
 	err = env.heartbeat()
@@ -97,8 +142,11 @@ func NewEnvironment(
 	}
 
 	localEnvironmentsRouterLock.Lock()
+	defer localEnvironmentsRouterLock.Unlock()
+	if _, ok := localEnvironmentsRouter[address]; ok {
+		return nil, fmt.Errorf("tried to register: %s to local environemnt router twice", address)
+	}
 	localEnvironmentsRouter[address] = env
-	localEnvironmentsRouterLock.Unlock()
 
 	go func() {
 		defer close(env.closedCh)
@@ -183,19 +231,28 @@ func (r *environment) Invoke(
 	return r.invokeReferences(ctx, vs, references, operation, payload)
 }
 
-func (r *environment) InvokeLocal(
+func (r *environment) InvokeDirect(
 	ctx context.Context,
 	versionStamp int64,
 	serverID string,
-	reference types.ActorReference,
+	reference types.ActorReferenceVirtual,
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	if serverID == "" {
+		return nil, errors.New("serverID cannot be empty")
+	}
 	if serverID != r.serverID {
 		return nil, fmt.Errorf(
 			"request for serverID: %s received by server: %s, cannot fullfil",
 			serverID, r.serverID)
 	}
+	if versionStamp <= 0 {
+		return nil, fmt.Errorf("versionStamp must be >= 0, but was: %d", versionStamp)
+	}
+
+	// TODO: Delete me, but useful for now.
+	log.Printf("%d::%s:%s::%s::%s\n", versionStamp, serverID, reference.ModuleID().ID, reference.ActorID().ID, operation)
 
 	r.heartbeatState.RLock()
 	heartbeatResult := r.heartbeatState.HeartbeatResult
@@ -263,28 +320,47 @@ func (r *environment) invokeReferences(
 	payload []byte,
 ) ([]byte, error) {
 	// TODO: Load balancing or some other strategy if the number of references is > 1?
-	reference := references[0]
-	switch reference.Type() {
-	case types.ReferenceTypeLocal:
-		localEnvironmentsRouterLock.RLock()
-		localEnv, ok := localEnvironmentsRouter[reference.Address()]
-		localEnvironmentsRouterLock.RUnlock()
-		if !ok {
-			return nil, fmt.Errorf(
-				"unable to route invocation for server: %s at path: %s, does not exist in global routing map",
-				reference.ServerID(), reference.Address())
-		}
-		return localEnv.InvokeLocal(ctx, versionStamp, reference.ServerID(), reference, operation, payload)
-	case types.ReferenceTypeRemoteHTTP:
-		fallthrough
-	default:
-		return nil, fmt.Errorf(
-			"reference for actor: %s has unhandled type: %v", reference.ActorID(), reference.Type())
+	ref := references[0]
+	localEnvironmentsRouterLock.RLock()
+	localEnv, ok := localEnvironmentsRouter[ref.Address()]
+	localEnvironmentsRouterLock.RUnlock()
+	if ok {
+		return localEnv.InvokeDirect(ctx, versionStamp, ref.ServerID(), ref, operation, payload)
 	}
+	return r.client.InvokeRemote(ctx, versionStamp, ref, operation, payload)
 }
 
 func (r *environment) freezeHeartbeatState() {
 	r.heartbeatState.Lock()
 	r.heartbeatState.frozen = true
 	r.heartbeatState.Unlock()
+}
+
+func getSelfIP() (net.IP, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, address := range addrs {
+		var ip net.IP
+		switch v := address.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			continue // loopback and IsLinkLocalUnicast interface
+		}
+
+		ip = ip.To4()
+		if ip == nil {
+			continue // not an ipv4 address
+		}
+
+		return ip, nil
+	}
+
+	return nil, errors.New("could not discovery self IPV4")
 }

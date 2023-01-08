@@ -22,15 +22,15 @@ type Environment interface {
 		payload []byte,
 	) ([]byte, error)
 
-	// InvokeLocal is the same as Invoke, however, it performs the invocation locally.
+	// InvokeDirect is the same as Invoke, however, it performs the invocation "directly".
 	// This method should only be called if the Registry has indicated that the specified
 	// actorID should be activated in this process. If this constraint is violated then
 	// inconsistencies may be introduced into the system.
-	InvokeLocal(
+	InvokeDirect(
 		ctx context.Context,
 		versionStamp int64,
 		serverID string,
-		reference types.ActorReference,
+		reference types.ActorReferenceVirtual,
 		operation string,
 		payload []byte,
 	) ([]byte, error)
@@ -51,4 +51,18 @@ type Environment interface {
 	// in the registry, but allows us to test interaction between the client versionstamp
 	// and the serverion heartbeat versionstamp.
 	freezeHeartbeatState()
+}
+
+// RemoteClient is the interface implemented by a client that is capable of communicating with
+// remote nodes in the system.
+type RemoteClient interface {
+	// InvokeRemote is the same as Invoke, however, it performs the invocation on a specific
+	// remote server.
+	InvokeRemote(
+		ctx context.Context,
+		versionStamp int64,
+		reference types.ActorReference,
+		operation string,
+		payload []byte,
+	) ([]byte, error)
 }

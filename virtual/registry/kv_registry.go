@@ -155,8 +155,9 @@ func (k *kvRegistry) CreateActor(
 		}
 
 		ra := registeredActor{
-			Opts:     opts,
-			ModuleID: moduleID,
+			Opts:       opts,
+			ModuleID:   moduleID,
+			Generation: 1,
 		}
 		marshaled, err := json.Marshal(&ra)
 		if err != nil {
@@ -304,9 +305,12 @@ func (k *kvRegistry) EnsureActivation(
 			tr.put(actorKey, marshaled)
 		}
 
-		return []types.ActorReference{
-			types.NewLocalReference(serverID, serverAddress, namespace, actorID, ra.ModuleID, ra.Generation),
-		}, nil
+		ref, err := types.NewActorReferences(serverID, serverAddress, namespace, ra.ModuleID, actorID, ra.Generation)
+		if err != nil {
+			return nil, fmt.Errorf("error creating new actor reference: %w", err)
+		}
+
+		return []types.ActorReference{ref}, nil
 
 	})
 	if err != nil {
