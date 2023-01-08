@@ -11,8 +11,8 @@ type actorRef struct {
 	address    string
 }
 
-// NewActorReferences creates an ActorReference.
-func NewActorReferences(
+// NewActorReference creates an ActorReference.
+func NewActorReference(
 	serverID,
 	address,
 	namespace,
@@ -22,7 +22,7 @@ func NewActorReferences(
 ) (ActorReference, error) {
 	virtual, err := NewVirtualActorReference(namespace, moduleID, actorID, generation)
 	if err != nil {
-		return nil, fmt.Errorf("NewActorReferences: error creating new virtual reference: %w", err)
+		return nil, fmt.Errorf("NewActorReference: error creating new virtual reference: %w", err)
 	}
 
 	if serverID == "" {

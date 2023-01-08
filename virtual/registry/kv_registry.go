@@ -305,7 +305,7 @@ func (k *kvRegistry) EnsureActivation(
 			tr.put(actorKey, marshaled)
 		}
 
-		ref, err := types.NewActorReferences(serverID, serverAddress, namespace, ra.ModuleID, actorID, ra.Generation)
+		ref, err := types.NewActorReference(serverID, serverAddress, namespace, ra.ModuleID, actorID, ra.Generation)
 		if err != nil {
 			return nil, fmt.Errorf("error creating new actor reference: %w", err)
 		}

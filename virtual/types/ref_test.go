@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewLocalReference(t *testing.T) {
-	ref, err := NewActorReferences("server1", "server1path", "a", "b", "c", 1)
+func TestNewActorReference(t *testing.T) {
+	ref, err := NewActorReference("server1", "server1path", "a", "b", "c", 1)
 	require.NoError(t, err)
 
 	require.Equal(t, "server1", ref.ServerID())
