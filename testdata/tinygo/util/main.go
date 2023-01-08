@@ -9,17 +9,20 @@ import (
 
 func main() {
 	wapc.RegisterFunctions(wapc.Functions{
-		"inc":         inc,
-		"incFast":     incFast,
-		"dec":         dec,
-		"getCount":    getCount,
-		"echo":        echo,
-		"log":         log,
-		"fail":        fail,
-		"kvPutCount":  putCount,
-		"kvGet":       kvGet,
-		"fork":        fork,
-		"invokeActor": invokeActor,
+		wapcutils.StartupOperationName:  startup,
+		wapcutils.ShutdownOperationName: shutdown,
+		"getStartupWasCalled":           getStartupWasCalled,
+		"inc":                           inc,
+		"incFast":                       incFast,
+		"dec":                           dec,
+		"getCount":                      getCount,
+		"echo":                          echo,
+		"log":                           log,
+		"fail":                          fail,
+		"kvPutCount":                    putCount,
+		"kvGet":                         kvGet,
+		"fork":                          fork,
+		"invokeActor":                   invokeActor,
 	})
 }
 
@@ -101,4 +104,22 @@ func fork(payload []byte) ([]byte, error) {
 // communicate with other actors by invoking their operations/functions.
 func invokeActor(payload []byte) ([]byte, error) {
 	return wapc.HostCall("wapc", "nola", wapcutils.InvokeActorOperationName, payload)
+}
+
+var startupWasCalled = false
+
+func startup(payload []byte) ([]byte, error) {
+	startupWasCalled = true
+	return nil, nil
+}
+
+func getStartupWasCalled(payload []byte) ([]byte, error) {
+	if startupWasCalled {
+		return []byte("true"), nil
+	}
+	return []byte("false"), nil
+}
+
+func shutdown(payload []byte) ([]byte, error) {
+	return nil, nil
 }

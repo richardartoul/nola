@@ -62,6 +62,12 @@ func TestSimpleActor(t *testing.T) {
 			result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
 			require.NoError(t, err)
 			require.Equal(t, int64(i+1), getCount(t, result))
+
+			if i == 0 {
+				result, err = env.InvokeActor(ctx, ns, "a", "getStartupWasCalled", nil)
+				require.NoError(t, err)
+				require.Equal(t, []byte("true"), result)
+			}
 		}
 	}
 }
@@ -96,6 +102,12 @@ func TestSimpleWorker(t *testing.T) {
 			result, err := env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
 			require.NoError(t, err)
 			require.Equal(t, int64(i+2), getCount(t, result))
+
+			if i == 0 {
+				result, err = env.InvokeWorker(ctx, ns, "test-module", "getStartupWasCalled", nil)
+				require.NoError(t, err)
+				require.Equal(t, []byte("true"), result)
+			}
 		}
 	}
 }
