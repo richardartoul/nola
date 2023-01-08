@@ -231,7 +231,7 @@ func newHostFnRouter(
 				return nil, fmt.Errorf("error unmarshaling InvokeActorRequest: %w", err)
 			}
 
-			return environment.Invoke(ctx, actorNamespace, req.ActorID, req.Operation, req.Payload)
+			return environment.InvokeActor(ctx, actorNamespace, req.ActorID, req.Operation, req.Payload)
 		default:
 			return nil, fmt.Errorf(
 				"unknown host function: %s::%s::%s::%s",

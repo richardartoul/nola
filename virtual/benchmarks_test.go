@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func BenchmarkLocalInvoke(b *testing.B) {
+func BenchmarkLocalInvokeActor(b *testing.B) {
 	reg := registry.NewLocalRegistry()
 
 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
@@ -34,7 +34,7 @@ func BenchmarkLocalInvoke(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_, err = env.Invoke(ctx, "bench-ns", "a", "incFast", nil)
+		_, err = env.InvokeActor(ctx, "bench-ns", "a", "incFast", nil)
 		if err != nil {
 			panic(err)
 		}
@@ -62,7 +62,7 @@ func BenchmarkFoundationDBRegistry(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_, err = env.Invoke(ctx, "bench-ns", "a", "incFast", nil)
+		_, err = env.InvokeActor(ctx, "bench-ns", "a", "incFast", nil)
 		if err != nil {
 			panic(err)
 		}
@@ -111,7 +111,7 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 		if err != nil {
 			panic(err)
 		}
-		_, err = env.Invoke(ctx, "bench-ns", actorID, "incFast", nil)
+		_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil)
 		if err != nil {
 			panic(err)
 		}
@@ -145,7 +145,7 @@ func BenchmarkLocalActorToActorCommunication(b *testing.B) {
 	defer reportOpsPerSecond(b)()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err = env.Invoke(ctx, "bench-ns", "a", "invokeActor", marshaled)
+		_, err = env.InvokeActor(ctx, "bench-ns", "a", "invokeActor", marshaled)
 		if err != nil {
 			panic(err)
 		}
@@ -161,7 +161,7 @@ func reportOpsPerSecond(b *testing.B) func() {
 }
 
 // Can't use the micro-benchmarking framework because we need concurrency.
-func TestBenchmarkFoundationRegistryInvoke(t *testing.T) {
+func TestBenchmarkFoundationRegistryInvokeActor(t *testing.T) {
 	testSimpleBench(t, 500*time.Nanosecond, 10, 15*time.Second)
 }
 
@@ -190,7 +190,7 @@ func testSimpleBench(
 		_, err = reg.CreateActor(context.Background(), "bench-ns", actorID, "test-module", registry.ActorOptions{})
 		require.NoError(t, err)
 
-		_, err = env.Invoke(context.Background(), "bench-ns", actorID, "incFast", nil)
+		_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "incFast", nil)
 		require.NoError(t, err)
 	}
 
@@ -222,7 +222,7 @@ func testSimpleBench(
 						actorID = fmt.Sprintf("%d", i%numActors)
 						start   = time.Now()
 					)
-					_, err = env.Invoke(ctx, "bench-ns", actorID, "incFast", nil)
+					_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil)
 					if err != nil {
 						panic(err)
 					}

@@ -175,7 +175,7 @@ var bufPool = sync.Pool{
 	},
 }
 
-func (r *environment) Invoke(
+func (r *environment) InvokeActor(
 	ctx context.Context,
 	namespace string,
 	actorID string,
@@ -231,7 +231,7 @@ func (r *environment) Invoke(
 	return r.invokeReferences(ctx, vs, references, operation, payload)
 }
 
-func (r *environment) InvokeDirect(
+func (r *environment) InvokeActorDirect(
 	ctx context.Context,
 	versionStamp int64,
 	serverID string,
@@ -325,9 +325,9 @@ func (r *environment) invokeReferences(
 	localEnv, ok := localEnvironmentsRouter[ref.Address()]
 	localEnvironmentsRouterLock.RUnlock()
 	if ok {
-		return localEnv.InvokeDirect(ctx, versionStamp, ref.ServerID(), ref, operation, payload)
+		return localEnv.InvokeActorDirect(ctx, versionStamp, ref.ServerID(), ref, operation, payload)
 	}
-	return r.client.InvokeRemote(ctx, versionStamp, ref, operation, payload)
+	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload)
 }
 
 func (r *environment) freezeHeartbeatState() {

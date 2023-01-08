@@ -147,7 +147,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	// TODO: This should be configurable, probably in a header with some maximum.
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
-	result, err := s.environment.Invoke(ctx, req.Namespace, req.ActorID, req.Operation, req.Payload)
+	result, err := s.environment.InvokeActor(ctx, req.Namespace, req.ActorID, req.Operation, req.Payload)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -195,7 +195,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.environment.InvokeDirect(ctx, req.VersionStamp, req.ServerID, ref, req.Operation, req.Payload)
+	result, err := s.environment.InvokeActorDirect(ctx, req.VersionStamp, req.ServerID, ref, req.Operation, req.Payload)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))

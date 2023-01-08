@@ -97,7 +97,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, "test-module", activations[0].ModuleID().ID)
 	require.Equal(t, "ns1", activations[0].ActorID().Namespace)
 	require.Equal(t, "a", activations[0].ActorID().ID)
-	require.Equal(t, uint64(0), activations[0].Generation())
+	require.Equal(t, uint64(1), activations[0].Generation())
 
 	// Ensure we get back all the same information but with the generation
 	// bumped now.
@@ -112,7 +112,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, "test-module", activations[0].ModuleID().ID)
 	require.Equal(t, "ns1", activations[0].ActorID().Namespace)
 	require.Equal(t, "a", activations[0].ActorID().ID)
-	require.Equal(t, uint64(1), activations[0].Generation())
+	require.Equal(t, uint64(2), activations[0].Generation())
 
 	// Add another server, this one with no existing activations.
 	newHeartbeatResult, err := registry.Heartbeat(ctx, "server2", HeartbeatState{

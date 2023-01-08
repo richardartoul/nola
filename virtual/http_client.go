@@ -18,7 +18,7 @@ type httpClient struct {
 	c *http.Client
 }
 
-func (h *httpClient) InvokeRemote(
+func (h *httpClient) InvokeActorRemote(
 	ctx context.Context,
 	versionStamp int64,
 	reference types.ActorReference,
