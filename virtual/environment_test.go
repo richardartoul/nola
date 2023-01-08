@@ -104,7 +104,7 @@ func TestSimpleWorker(t *testing.T) {
 			require.Equal(t, int64(i+2), getCount(t, result))
 
 			if i == 0 {
-				result, err = env.InvokeActor(ctx, ns, "a", "getStartupWasCalled", nil)
+				result, err = env.InvokeWorker(ctx, ns, "test-module", "getStartupWasCalled", nil)
 				require.NoError(t, err)
 				require.Equal(t, []byte("true"), result)
 			}
