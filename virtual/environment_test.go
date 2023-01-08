@@ -31,8 +31,8 @@ func init() {
 // TODO: Need a good concurrency test that spans a bunch of goroutine and
 //       spams registry operations + invocations.
 
-// TestSimple is a basic sanity test that verifies the most basic flow.
-func TestSimple(t *testing.T) {
+// TestSimpleActor is a basic sanity test that verifies the most basic flow for actors.
+func TestSimpleActor(t *testing.T) {
 	reg := registry.NewLocalRegistry()
 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
 	require.NoError(t, err)
@@ -62,6 +62,40 @@ func TestSimple(t *testing.T) {
 			result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
 			require.NoError(t, err)
 			require.Equal(t, int64(i+1), getCount(t, result))
+		}
+	}
+}
+
+// TestSimpleWorker is a basic sanity test that verifies the most basic flow for workers.
+func TestSimpleWorker(t *testing.T) {
+	reg := registry.NewLocalRegistry()
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
+	require.NoError(t, err)
+	defer env.Close()
+
+	ctx := context.Background()
+
+	for _, ns := range []string{"ns-1", "ns-2"} {
+		// Can't invoke because neither module nor actor exist.
+		_, err = env.InvokeWorker(ctx, ns, "a", "inc", nil)
+		require.Error(t, err)
+
+		// Create module.
+		_, err = reg.RegisterModule(ctx, ns, "test-module", utilWasmBytes, registry.ModuleOptions{})
+		require.NoError(t, err)
+
+		// Can invoke immediately once module exists, no need to "create" a worker or anything
+		// like we do for actors.
+		_, err = env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
+		require.NoError(t, err)
+
+		// Workers can still "accumulate" in-memory state like actors do, but the state may vary
+		// depending on which server/environment the call is executed on (unlike actors where the
+		// request is always routed to the single active "global" instance).
+		for i := 0; i < 100; i++ {
+			result, err := env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
+			require.NoError(t, err)
+			require.Equal(t, int64(i+2), getCount(t, result))
 		}
 	}
 }

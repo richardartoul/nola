@@ -6,13 +6,19 @@ package types
 type NamespacedID struct {
 	Namespace string
 	ID        string
+	IDType    string
 }
 
 // NewNamespacedID creates a NamespacedID from the provided namespace
 // and and ID.
-func NewNamespacedID(namespace string, id string) NamespacedID {
+func NewNamespacedID(
+	namespace string,
+	id string,
+	idType string,
+) NamespacedID {
 	return NamespacedID{
 		Namespace: namespace,
 		ID:        id,
+		IDType:    idType,
 	}
 }

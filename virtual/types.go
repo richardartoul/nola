@@ -37,6 +37,24 @@ type Environment interface {
 		payload []byte,
 	) ([]byte, error)
 
+	// InvokeWorker invokes the specified operation from the specified module. Unlike
+	// actors, workers provide no guarantees about single-threaded execution or only
+	// a single instance running at a time. This makes them easier to scale than
+	// actors. They're especially useful for large workloads that don't require the
+	// same guarantees actors provide.
+	//
+	// Also keep in mind that actor's can still "accumulate" in-memory state, just like
+	// actors. However, there is no guarantee of linearizability like with Actors so
+	// callers may see "inconsistent" memory state depending on which server/environment
+	// their worker invocation is routed to.
+	InvokeWorker(
+		ctx context.Context,
+		namespace string,
+		moduleID string,
+		operation string,
+		payload []byte,
+	) ([]byte, error)
+
 	// Close closes the Environment and all of its associated resources.
 	Close() error
 

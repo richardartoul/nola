@@ -267,6 +267,26 @@ func (r *environment) InvokeActorDirect(
 	return r.activations.invoke(ctx, reference, operation, payload)
 }
 
+func (r *environment) InvokeWorker(
+	ctx context.Context,
+	namespace string,
+	moduleID string,
+	operation string,
+	payload []byte,
+) ([]byte, error) {
+	// TODO: The implementation of this function is nice because it just reusees a bunch of the
+	//       actor logic. However, it's also less performant than it could be because it still
+	//       effectively makes worker execution single-threaded per-server. We should add the
+	//       ability for multiple workers of the same module ID to execute in parallel on a
+	//       single server. This should be relatively straightforward to do with a few modications
+	//       to activations.go.
+	ref, err := types.NewVirtualWorkerReference(namespace, moduleID, moduleID)
+	if err != nil {
+		return nil, fmt.Errorf("InvokeWorker: error creating actor reference: %w", err)
+	}
+	return r.activations.invoke(ctx, ref, operation, payload)
+}
+
 func (r *environment) Close() error {
 	// TODO: This should call Close on the activations field (which needs to be implemented).
 
