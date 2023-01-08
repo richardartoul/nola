@@ -34,8 +34,9 @@ func NewServer(
 func (s *server) Start(port int) error {
 	http.HandleFunc("/api/v1/register-module", s.registerModule)
 	http.HandleFunc("/api/v1/create-actor", s.createActor)
-	http.HandleFunc("/api/v1/invoke", s.invoke)
-	http.HandleFunc("/api/v1/invoke-direct", s.invokeDirect)
+	http.HandleFunc("/api/v1/invoke-actor", s.invoke)
+	http.HandleFunc("/api/v1/invoke-actor-direct", s.invokeDirect)
+	http.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
 		return err
@@ -121,7 +122,7 @@ func (s *server) createActor(w http.ResponseWriter, r *http.Request) {
 	w.Write(marshaled)
 }
 
-type invokeRequest struct {
+type invokeActorRequest struct {
 	ServerID  string `json:"server_id"`
 	Namespace string `json:"namespace"`
 	ActorID   string `json:"actor_id"`
@@ -137,7 +138,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req invokeRequest
+	var req invokeActorRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -158,7 +159,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	w.Write(result)
 }
 
-type invokeDirectRequest struct {
+type invokeActorDirectRequest struct {
 	VersionStamp int64  `json:"version_stamp"`
 	ServerID     string `json:"server_id"`
 	Namespace    string `json:"namespace"`
@@ -177,7 +178,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req invokeDirectRequest
+	var req invokeActorDirectRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -196,6 +197,45 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := s.environment.InvokeActorDirect(ctx, req.VersionStamp, req.ServerID, ref, req.Operation, req.Payload)
+	if err != nil {
+		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	w.WriteHeader(200)
+	w.Write(result)
+}
+
+type invokeWorkerRequest struct {
+	Namespace string `json:"namespace"`
+	// TODO: Allow ModuleID to be omitted if the caller provides a WASMExecutable field which contains the
+	//       actual WASM program that should be executed.
+	ModuleID  string `json:"module_id"`
+	Operation string `json:"operation"`
+	Payload   []byte `json:"payload"`
+}
+
+func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
+	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
+	if err != nil {
+		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	var req invokeWorkerRequest
+	if err := json.Unmarshal(jsonBytes, &req); err != nil {
+		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	// TODO: This should be configurable, probably in a header with some maximum.
+	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cc()
+
+	result, err := s.environment.InvokeWorker(ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))

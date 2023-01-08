@@ -25,7 +25,7 @@ func (h *httpClient) InvokeActorRemote(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	ir := invokeDirectRequest{
+	ir := invokeActorDirectRequest{
 		VersionStamp: versionStamp,
 		ServerID:     reference.ServerID(),
 		Namespace:    reference.Namespace(),
@@ -37,12 +37,12 @@ func (h *httpClient) InvokeActorRemote(
 	}
 	marshaled, err := json.Marshal(&ir)
 	if err != nil {
-		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error marshaling invokeDirectRequest: %w", err)
+		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error marshaling invokeActorDirectRequest: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(
 		ctx, "POST",
-		fmt.Sprintf("http://%s/api/v1/invoke-direct", reference.Address()),
+		fmt.Sprintf("http://%s/api/v1/invoke-actor-direct", reference.Address()),
 		bytes.NewReader(marshaled))
 	if err != nil {
 		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error constructing request: %w", err)

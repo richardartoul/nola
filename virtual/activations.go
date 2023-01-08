@@ -69,7 +69,6 @@ func (a *activations) invoke(
 		// The actor is already activated, however, the generation count has
 		// increased. Therefore we need to pretend like the actor doesn't
 		// already exist and reactivate it.
-
 		if err := actor.o.Close(ctx); err != nil {
 			// TODO: This should probably be a warning, but if this happens
 			//       I want to understand why.
