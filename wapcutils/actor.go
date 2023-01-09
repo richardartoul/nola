@@ -1,5 +1,7 @@
 package wapcutils
 
+import "time"
+
 // CreateActorRequest is the JSON struct that represents a request from an existing
 // actor to create a new one.
 type CreateActorRequest struct {
@@ -22,4 +24,12 @@ type InvokeActorRequest struct {
 	// Payload is the []byte payload to provide to the invoked function on the
 	// target actor.
 	Payload []byte `json:"payload"`
+}
+
+// ScheduleInvocationRequest is the JSON struct that represents a request from an
+// existing actor to invoke an operation on another one (or its self) at a later
+// time.
+type ScheduleInvocationRequest struct {
+	Invoke InvokeActorRequest `json:"invocation"`
+	After  time.Duration
 }
