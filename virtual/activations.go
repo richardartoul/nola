@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
+	"time"
 
 	"github.com/richardartoul/nola/durable"
 	"github.com/richardartoul/nola/durable/durablewazero"
@@ -239,6 +241,30 @@ func newHostFnRouter(
 			}
 
 			return environment.InvokeActor(ctx, actorNamespace, req.ActorID, req.Operation, req.Payload)
+
+		case wapcutils.ScheduleInvocationOperationName:
+			var req wapcutils.ScheduleInvocationRequest
+			if err := json.Unmarshal(wapcPayload, &req); err != nil {
+				return nil, fmt.Errorf("error unmarshaling InvokeActorRequest: %w", err)
+			}
+
+			// TODO: When the actor gets GC'd (which is not currently implemented), this
+			//       timer won't get GC'd with it. We should keep track of all outstanding
+			//       timers with the instantiation and terminate them if the actor is
+			//       killed.
+			time.AfterFunc(req.After, func() {
+				// Copy the payload to make sure its safe to retain across invocations.
+				payloadCopy := make([]byte, len(req.Invoke.Payload))
+				copy(payloadCopy, req.Invoke.Payload)
+				_, err := environment.InvokeActor(ctx, actorNamespace, req.Invoke.ActorID, req.Invoke.Operation, payloadCopy)
+				if err != nil {
+					log.Printf(
+						"error performing scheduled invocation from actor: %s to actor: %s for operation: %s\n",
+						actorID, req.Invoke.ActorID, req.Invoke.Operation)
+				}
+			})
+
+			return nil, nil
 		default:
 			return nil, fmt.Errorf(
 				"unknown host function: %s::%s::%s::%s",
@@ -254,7 +280,6 @@ type activatedActor struct {
 
 func newActivatedActor(ctx context.Context, o durable.Object, generation uint64) (activatedActor, error) {
 	_, err := o.Invoke(ctx, wapcutils.StartupOperationName, nil)
-
 	if err != nil {
 		return activatedActor{}, fmt.Errorf("newActivatedActor: error invoking startup function: %w", err)
 	}

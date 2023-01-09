@@ -356,6 +356,92 @@ func TestInvokeActorHostFunction(t *testing.T) {
 	}
 }
 
+// TestScheduleInvocationHostFunction tests whether actors can schedule invocations to run
+// sometime in the future as a way to implement timers.
+func TestScheduleInvocationHostFunction(t *testing.T) {
+	reg := registry.NewLocalRegistry()
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
+	require.NoError(t, err)
+	defer env.Close()
+
+	ctx := context.Background()
+
+	for _, ns := range []string{"ns-1", "ns-2"} {
+		_, err = reg.RegisterModule(ctx, ns, "test-module", utilWasmBytes, registry.ModuleOptions{})
+		require.NoError(t, err)
+
+		// Create an actor, then immediately fork it so we have two actors.
+		_, err = reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
+		require.NoError(t, err)
+
+		_, err = env.InvokeActor(ctx, ns, "a", "fork", []byte("b"))
+		require.NoError(t, err)
+
+		// A bit meta, but tell a to schedule an invocation on b to schedule an invocation
+		// back on a. This ensures that actor's can schedule invocations on other actors.
+		bScheduleA := wapcutils.ScheduleInvocationRequest{
+			Invoke: wapcutils.InvokeActorRequest{
+				ActorID:   "a",
+				Operation: "inc",
+				Payload:   nil,
+			},
+			After: time.Second,
+		}
+		marshaledBScheduleA, err := json.Marshal(bScheduleA)
+		require.NoError(t, err)
+		aScheduleB := wapcutils.ScheduleInvocationRequest{
+			Invoke: wapcutils.InvokeActorRequest{
+				ActorID:   "b",
+				Operation: "scheduleInvocation",
+				Payload:   marshaledBScheduleA,
+			},
+			After: time.Second,
+		}
+		marshaledAScheduleB, err := json.Marshal(aScheduleB)
+		require.NoError(t, err)
+
+		// In addition, tell a to schedule an invocation on itself to ensure we
+		// can support "self timers".
+		aScheduleA := wapcutils.ScheduleInvocationRequest{
+			Invoke: wapcutils.InvokeActorRequest{
+				ActorID:   "a",
+				Operation: "inc",
+				Payload:   nil,
+			},
+			After: time.Second,
+		}
+		marshaledAScheduleA, err := json.Marshal(aScheduleA)
+		require.NoError(t, err)
+
+		// Schedule both the a::a invocation and the a::b::a invocation.
+		_, err = env.InvokeActor(ctx, ns, "a", "scheduleInvocation", marshaledAScheduleB)
+		require.NoError(t, err)
+		_, err = env.InvokeActor(ctx, ns, "a", "scheduleInvocation", marshaledAScheduleA)
+		require.NoError(t, err)
+
+		// Make sure a is 0 immediately after scheduling.
+		result, err := env.InvokeActor(ctx, ns, "a", "getCount", nil)
+		require.NoError(t, err)
+		require.Equal(t, int64(0), getCount(t, result))
+
+		// Wait for both the a::a and a::b::a invocations to run.
+		for {
+			result, err := env.InvokeActor(ctx, ns, "a", "getCount", nil)
+			require.NoError(t, err)
+			if getCount(t, result) != int64(2) {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// We didn't ever schedule an inc for b so it should remain zero.
+			result, err = env.InvokeActor(ctx, ns, "b", "getCount", nil)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), getCount(t, result))
+			break
+		}
+	}
+}
+
 // TestInvokeActorHostFunctionDeadlockRegression is a regression test to ensure that an actor can invoke
 // another actor that is not yet activated without introducing a deadlock.
 func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
