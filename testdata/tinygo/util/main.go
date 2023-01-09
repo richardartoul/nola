@@ -108,7 +108,7 @@ func invokeActor(payload []byte) ([]byte, error) {
 }
 
 // scheduleInvocation is a "passthrough" method which just passes through the provided
-// []byte payload to the host schedule invocation function. This helps us test that
+// []byte payload to the host's schedule invocation function. This helps us test that
 // actor's can schedule invocations by calling the host function.
 func scheduleInvocation(payload []byte) ([]byte, error) {
 	return wapc.HostCall("wapc", "nola", wapcutils.ScheduleInvocationOperationName, payload)

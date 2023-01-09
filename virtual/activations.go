@@ -248,9 +248,10 @@ func newHostFnRouter(
 				return nil, fmt.Errorf("error unmarshaling InvokeActorRequest: %w", err)
 			}
 
-			// TODO: When the actor gets GC'd (which is not currently implemented), this timer won't get GC'd
-			//       with it. We should keep track of all outstanding timers with the instantiation and
-			//       terminate them if the actor is killed.
+			// TODO: When the actor gets GC'd (which is not currently implemented), this
+			//       timer won't get GC'd with it. We should keep track of all outstanding
+			//       timers with the instantiation and terminate them if the actor is
+			//       killed.
 			time.AfterFunc(req.After, func() {
 				// Copy the payload to make sure its safe to retain across invocations.
 				payloadCopy := make([]byte, len(req.Invoke.Payload))

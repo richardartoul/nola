@@ -378,7 +378,7 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 		require.NoError(t, err)
 
 		// A bit meta, but tell a to schedule an invocation on b to schedule an invocation
-		// back on a.
+		// back on a. This ensures that actor's can schedule invocations on other actors.
 		bScheduleA := wapcutils.ScheduleInvocationRequest{
 			Invoke: wapcutils.InvokeActorRequest{
 				ActorID:   "a",
@@ -395,12 +395,28 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 				Operation: "scheduleInvocation",
 				Payload:   marshaledBScheduleA,
 			},
-			After: 100 * time.Millisecond,
+			After: time.Second,
 		}
 		marshaledAScheduleB, err := json.Marshal(aScheduleB)
 		require.NoError(t, err)
 
+		// In addition, tell a to schedule an invocation on itself to ensure we
+		// can support "self timers".
+		aScheduleA := wapcutils.ScheduleInvocationRequest{
+			Invoke: wapcutils.InvokeActorRequest{
+				ActorID:   "a",
+				Operation: "inc",
+				Payload:   nil,
+			},
+			After: time.Second,
+		}
+		marshaledAScheduleA, err := json.Marshal(aScheduleA)
+		require.NoError(t, err)
+
+		// Schedule both the a::a invocation and the a::b::a invocation.
 		_, err = env.InvokeActor(ctx, ns, "a", "scheduleInvocation", marshaledAScheduleB)
+		require.NoError(t, err)
+		_, err = env.InvokeActor(ctx, ns, "a", "scheduleInvocation", marshaledAScheduleA)
 		require.NoError(t, err)
 
 		// Make sure a is 0 immediately after scheduling.
@@ -408,11 +424,11 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(0), getCount(t, result))
 
-		// Wait for a to schedule on b to schedule an inc back on a.
+		// Wait for both the a::a and a::b::a invocations to run.
 		for {
 			result, err := env.InvokeActor(ctx, ns, "a", "getCount", nil)
 			require.NoError(t, err)
-			if getCount(t, result) != int64(1) {
+			if getCount(t, result) != int64(2) {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
