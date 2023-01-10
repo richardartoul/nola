@@ -385,7 +385,7 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 				Operation: "inc",
 				Payload:   nil,
 			},
-			After: time.Second,
+			AfterMillis: 1000,
 		}
 		marshaledBScheduleA, err := json.Marshal(bScheduleA)
 		require.NoError(t, err)
@@ -395,7 +395,7 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 				Operation: "scheduleInvocation",
 				Payload:   marshaledBScheduleA,
 			},
-			After: time.Second,
+			AfterMillis: 1000,
 		}
 		marshaledAScheduleB, err := json.Marshal(aScheduleB)
 		require.NoError(t, err)
@@ -408,7 +408,7 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 				Operation: "inc",
 				Payload:   nil,
 			},
-			After: time.Second,
+			AfterMillis: 1000,
 		}
 		marshaledAScheduleA, err := json.Marshal(aScheduleA)
 		require.NoError(t, err)

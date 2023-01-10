@@ -90,8 +90,8 @@ func (a *activations) invoke(
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf(
-				"error instantiating actor: %s from module: %s",
-				reference.ActorID(), reference.ModuleID())
+				"error instantiating actor: %s from module: %s, err: %w",
+				reference.ActorID(), reference.ModuleID(), err)
 		}
 		actor, err = newActivatedActor(ctx, iActor, reference.Generation())
 		if err != nil {
@@ -245,22 +245,29 @@ func newHostFnRouter(
 		case wapcutils.ScheduleInvocationOperationName:
 			var req wapcutils.ScheduleInvocationRequest
 			if err := json.Unmarshal(wapcPayload, &req); err != nil {
-				return nil, fmt.Errorf("error unmarshaling InvokeActorRequest: %w", err)
+				return nil, fmt.Errorf(
+					"error unmarshaling ScheduleInvocationRequest: %w, payload: %s",
+					err, string(wapcPayload))
+			}
+
+			if req.Invoke.ActorID == "" {
+				// Omitted if the actor wants to schedule a delayed invocation (timer) for itself.
+				req.Invoke.ActorID = actorID
 			}
 
 			// TODO: When the actor gets GC'd (which is not currently implemented), this
 			//       timer won't get GC'd with it. We should keep track of all outstanding
 			//       timers with the instantiation and terminate them if the actor is
 			//       killed.
-			time.AfterFunc(req.After, func() {
+			time.AfterFunc(time.Duration(req.AfterMillis)*time.Millisecond, func() {
 				// Copy the payload to make sure its safe to retain across invocations.
 				payloadCopy := make([]byte, len(req.Invoke.Payload))
 				copy(payloadCopy, req.Invoke.Payload)
 				_, err := environment.InvokeActor(ctx, actorNamespace, req.Invoke.ActorID, req.Invoke.Operation, payloadCopy)
 				if err != nil {
 					log.Printf(
-						"error performing scheduled invocation from actor: %s to actor: %s for operation: %s\n",
-						actorID, req.Invoke.ActorID, req.Invoke.Operation)
+						"error performing scheduled invocation from actor: %s to actor: %s for operation: %s, err: %v\n",
+						actorID, req.Invoke.ActorID, req.Invoke.Operation, err)
 				}
 			})
 

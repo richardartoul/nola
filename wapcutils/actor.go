@@ -1,7 +1,5 @@
 package wapcutils
 
-import "time"
-
 // CreateActorRequest is the JSON struct that represents a request from an existing
 // actor to create a new one.
 type CreateActorRequest struct {
@@ -17,7 +15,8 @@ type CreateActorRequest struct {
 // InvokeActorRequest is the JSON struct that represents a request from an existing
 // actor to invoke an operation on another one.
 type InvokeActorRequest struct {
-	// ActorID is the ID of the target actor.
+	// ActorID is the ID of the target actor. Omit when being used inside of
+	// ScheduleInvocationRequest to target self.
 	ActorID string `json:"actor_id"`
 	// Operation is the name of the operation to invoke on the target actor.
 	Operation string `json:"operation"`
@@ -30,6 +29,6 @@ type InvokeActorRequest struct {
 // existing actor to invoke an operation on another one (or its self) at a later
 // time.
 type ScheduleInvocationRequest struct {
-	Invoke InvokeActorRequest `json:"invocation"`
-	After  time.Duration
+	Invoke      InvokeActorRequest `json:"invocation"`
+	AfterMillis int                `json:"after_millis"`
 }
