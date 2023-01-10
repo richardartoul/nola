@@ -16,6 +16,7 @@ require (
 require (
 	github.com/DataDog/sketches-go v1.4.1 // indirect
 	github.com/Workiva/go-datastructures v1.0.53 // indirect
+	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect

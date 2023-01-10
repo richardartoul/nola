@@ -128,6 +128,9 @@ type invokeActorRequest struct {
 	ActorID   string `json:"actor_id"`
 	Operation string `json:"operation"`
 	Payload   []byte `json:"payload"`
+	// Same data as Payload, but different field so it doesn't have to be encoded
+	// as base64.
+	PayloadJSON interface{} `json:"payload_json"`
 }
 
 func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +146,16 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
 		return
+	}
+
+	if len(req.Payload) == 0 && req.PayloadJSON != nil {
+		marshaled, err := json.Marshal(req.PayloadJSON)
+		if err != nil {
+			w.WriteHeader(500)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		req.Payload = marshaled
 	}
 
 	// TODO: This should be configurable, probably in a header with some maximum.
