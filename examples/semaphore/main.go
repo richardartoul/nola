@@ -208,6 +208,7 @@ func scheduleNextHouseclean() error {
 	return nil
 }
 
+// Manually implement JSON unmarshaling because tinygo doesn't support reflection.
 func unmarshalAcquireRequest(payload []byte) (acquireRequest, error) {
 	var req acquireRequest
 	err := jsonparser.ObjectEach(payload, func(key, value []byte, dataType jsonparser.ValueType, offset int) error {
