@@ -40,7 +40,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("error creating FoundationDB registry: %v\n", err)
 		}
-		reg.UnsafeWipeAll()
 	default:
 		log.Fatalf("unknown registry type: %v", *registryType)
 	}
