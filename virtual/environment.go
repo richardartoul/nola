@@ -243,6 +243,16 @@ func (r *environment) InvokeActorDirect(
 		return nil, errors.New("serverID cannot be empty")
 	}
 	if serverID != r.serverID {
+		// Make sure the client has reached the server it intended. This is an important
+		// check due to the limitations of I.P-based network addressing. For example, if
+		// two pods of NOLA were running in k8s on a shared set of VMs and get
+		// rescheduled such that they switch I.P addresses, clients may temporarily route
+		// requests for server A to server B and vice versa.
+		//
+		// TODO: Technically the server should return its identity in the response and the
+		//       client should assert on that as well to avoid issues where the request
+		//       reaches the wrong application entirely and that application just returns
+		//       OK to everything.
 		return nil, fmt.Errorf(
 			"request for serverID: %s received by server: %s, cannot fullfil",
 			serverID, r.serverID)

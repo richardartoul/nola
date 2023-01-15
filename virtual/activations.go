@@ -21,7 +21,7 @@ type activations struct {
 	sync.RWMutex
 
 	// State.
-	_modules map[types.NamespacedID]durable.Module
+	_modules map[types.NamespacedID]Module
 	_actors  map[types.NamespacedID]activatedActor
 
 	// Dependencies.
@@ -34,7 +34,7 @@ func newActivations(
 	environment Environment,
 ) *activations {
 	return &activations{
-		_modules: make(map[types.NamespacedID]durable.Module),
+		_modules: make(map[types.NamespacedID]Module),
 		_actors:  make(map[types.NamespacedID]activatedActor),
 
 		registry:    registry,
@@ -57,21 +57,21 @@ func (a *activations) invoke(
 	actor, ok := a._actors[reference.ActorID()]
 	if ok && actor.generation >= reference.Generation() {
 		a.RUnlock()
-		return actor.o.Invoke(ctx, operation, payload)
+		return actor.a.Invoke(ctx, operation, payload)
 	}
 	a.RUnlock()
 
 	a.Lock()
 	if ok && actor.generation >= reference.Generation() {
 		a.Unlock()
-		return actor.o.Invoke(ctx, operation, payload)
+		return actor.a.Invoke(ctx, operation, payload)
 	}
 
 	if ok && actor.generation < reference.Generation() {
 		// The actor is already activated, however, the generation count has
 		// increased. Therefore we need to pretend like the actor doesn't
 		// already exist and reactivate it.
-		if err := actor.o.Close(ctx); err != nil {
+		if err := actor.a.Close(ctx); err != nil {
 			// TODO: This should probably be a warning, but if this happens
 			//       I want to understand why.
 			panic(err)
@@ -134,13 +134,17 @@ func (a *activations) invoke(
 		// TODO: Hard-coded for now, but we should support using different runtimes with
 		//       configuration since we've already abstracted away the module/object
 		//       interfaces.
-		module, err = durablewazero.NewModule(ctx, wazero.Engine(), hostFn, moduleBytes)
+		wazeroMod, err := durablewazero.NewModule(ctx, wazero.Engine(), hostFn, moduleBytes)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf(
 				"error constructing module: %s from module bytes, err: %w",
 				reference.ModuleID(), err)
 		}
+
+		// Wrap the wazero module so it implements Module.
+		module = wazeroModule{wazeroMod}
+
 		a._modules[reference.ModuleID()] = module
 	}
 
@@ -162,7 +166,7 @@ func (a *activations) invoke(
 	}
 
 	a.Unlock()
-	return actor.o.Invoke(ctx, operation, payload)
+	return actor.a.Invoke(ctx, operation, payload)
 }
 
 func (a *activations) numActivatedActors() int {
@@ -281,18 +285,41 @@ func newHostFnRouter(
 }
 
 type activatedActor struct {
-	o          durable.Object
+	a          Actor
 	generation uint64
 }
 
-func newActivatedActor(ctx context.Context, o durable.Object, generation uint64) (activatedActor, error) {
-	_, err := o.Invoke(ctx, wapcutils.StartupOperationName, nil)
+func newActivatedActor(
+	ctx context.Context,
+	actor Actor,
+	generation uint64,
+) (activatedActor, error) {
+	_, err := actor.Invoke(ctx, wapcutils.StartupOperationName, nil)
 	if err != nil {
 		return activatedActor{}, fmt.Errorf("newActivatedActor: error invoking startup function: %w", err)
 	}
 
 	return activatedActor{
-		o:          o,
+		a:          actor,
 		generation: generation,
 	}, nil
+}
+
+type wazeroModule struct {
+	m durable.Module
+}
+
+func (w wazeroModule) Instantiate(
+	ctx context.Context,
+	id string,
+) (Actor, error) {
+	obj, err := w.m.Instantiate(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+func (w wazeroModule) Close(ctx context.Context) error {
+	return nil
 }

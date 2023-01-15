@@ -86,3 +86,27 @@ type RemoteClient interface {
 		payload []byte,
 	) ([]byte, error)
 }
+
+// GoModule is the interface that must be implemented by a module written in Go instead of
+// WASM.
+type GoModule interface {
+	// Called when an actor created from this module is first activated in memory.
+	Startup() error
+	// Called when an actor created from this module is evicted from memory.
+	Shutdown() error
+}
+
+// Module represents a "module" / template from which new actors are constructed/instantiated.
+type Module interface {
+	Instantiate(
+		ctx context.Context,
+		id string,
+	) (Actor, error)
+	Close(ctx context.Context) error
+}
+
+// Actor represents an activated actor in memory.
+type Actor interface {
+	Invoke(ctx context.Context, operation string, payload []byte) ([]byte, error)
+	Close(ctx context.Context) error
+}
