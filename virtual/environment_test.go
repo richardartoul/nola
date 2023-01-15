@@ -65,6 +65,7 @@ func TestSimpleActor(t *testing.T) {
 			}
 		}
 	}
+
 	runWithDifferentConfigs(t, testFn)
 }
 
@@ -94,6 +95,7 @@ func TestSimpleWorker(t *testing.T) {
 			}
 		}
 	}
+
 	runWithDifferentConfigs(t, testFn)
 }
 
@@ -136,6 +138,7 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 			}
 		}
 	}
+
 	runWithDifferentConfigs(t, testFn)
 }
 
@@ -212,56 +215,52 @@ func TestKVHostFunctions(t *testing.T) {
 // TestCreateActorHostFunction tests whether the create actor host function can be used
 // by the WASM module to create new actors on demand. In other words, this test ensures
 // that actors can create new actors.
+//
+// TODO: Fix this test.
 func TestCreateActorHostFunction(t *testing.T) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(t, err)
-	defer env.Close()
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		for _, ns := range []string{"ns-1", "ns-2"} {
+			_, err := reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
+			require.NoError(t, err)
 
-	ctx := context.Background()
+			// Succeeds because actor exists.
+			_, err = env.InvokeActor(ctx, ns, "a", "echo", nil)
+			require.NoError(t, err)
 
-	for _, ns := range []string{"ns-1", "ns-2"} {
-		_, err = reg.RegisterModule(ctx, ns, "test-module", utilWasmBytes, registry.ModuleOptions{})
-		require.NoError(t, err)
+			// Fails because actor does not exist.
+			_, err = env.InvokeActor(ctx, ns, "b", "inc", nil)
+			require.Error(t, err)
 
-		_, err = reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
-		require.NoError(t, err)
+			// Create a new actor b by calling fork() on a, not by creating it ourselves.
+			_, err = env.InvokeActor(ctx, ns, "a", "fork", []byte("b"))
+			require.NoError(t, err)
 
-		// Succeeds because actor exists.
-		_, err := env.InvokeActor(ctx, ns, "a", "echo", nil)
-		require.NoError(t, err)
+			// Should succeed now that actor a has created actor b.
+			_, err = env.InvokeActor(ctx, ns, "b", "echo", nil)
+			require.NoError(t, err)
 
-		// Fails because actor does not exist.
-		_, err = env.InvokeActor(ctx, ns, "b", "inc", nil)
-		require.Error(t, err)
+			for _, actor := range []string{"a", "b"} {
+				for i := 0; i < 100; i++ {
+					_, err := env.InvokeActor(ctx, ns, actor, "inc", nil)
+					require.NoError(t, err)
 
-		// Create a new actor b by calling fork() on a, not by creating it ourselves.
-		_, err = env.InvokeActor(ctx, ns, "a", "fork", []byte("b"))
-		require.NoError(t, err)
+					// Write the current count to a key.
+					key := []byte(fmt.Sprintf("key-%d", i))
+					_, err = env.InvokeActor(ctx, ns, actor, "kvPutCount", key)
+					require.NoError(t, err)
 
-		// Should succeed now that actor a has created actor b.
-		_, err = env.InvokeActor(ctx, ns, "b", "echo", nil)
-		require.NoError(t, err)
-
-		for _, actor := range []string{"a", "b"} {
-			for i := 0; i < 100; i++ {
-				_, err := env.InvokeActor(ctx, ns, actor, "inc", nil)
-				require.NoError(t, err)
-
-				// Write the current count to a key.
-				key := []byte(fmt.Sprintf("key-%d", i))
-				_, err = env.InvokeActor(ctx, ns, actor, "kvPutCount", key)
-				require.NoError(t, err)
-
-				// Read the key back and make sure the value is == the count
-				payload, err := env.InvokeActor(ctx, ns, actor, "kvGet", key)
-				require.NoError(t, err)
-				val := getCount(t, payload)
-				require.Equal(t, int64(i+1), val)
+					// Read the key back and make sure the value is == the count
+					payload, err := env.InvokeActor(ctx, ns, actor, "kvGet", key)
+					require.NoError(t, err)
+					val := getCount(t, payload)
+					require.Equal(t, int64(i+1), val)
+				}
 			}
 		}
-
 	}
+
+	runWithDifferentConfigs(t, testFn)
 }
 
 // TestInvokeActorHostFunction tests whether the invoke actor host function can be used
