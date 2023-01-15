@@ -10,14 +10,21 @@ import (
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	utilWasmBytes []byte
-	defaultOpts   = EnvironmentOptions{}
+	utilWasmBytes   []byte
+	defaultOptsWASM = EnvironmentOptions{}
+	defaultOptsGo   = EnvironmentOptions{
+		GoModules: map[types.NamespacedIDNoType]Module{
+			{Namespace: "ns-1", ID: "test-module"}: testModule{},
+			{Namespace: "ns-2", ID: "test-module"}: testModule{},
+		},
+	}
 )
 
 func init() {
@@ -33,138 +40,109 @@ func init() {
 
 // TestSimpleActor is a basic sanity test that verifies the most basic flow for actors.
 func TestSimpleActor(t *testing.T) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
-	require.NoError(t, err)
-	defer env.Close()
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		for _, ns := range []string{"ns-1", "ns-2"} {
+			// Can't invoke because actor doesn't exist yet.
+			_, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
+			require.Error(t, err)
 
-	ctx := context.Background()
-
-	for _, ns := range []string{"ns-1", "ns-2"} {
-		// Can't invoke because neither module nor actor exist.
-		_, err = env.InvokeActor(ctx, ns, "a", "inc", nil)
-		require.Error(t, err)
-
-		// Create module.
-		_, err = reg.RegisterModule(ctx, ns, "test-module", utilWasmBytes, registry.ModuleOptions{})
-		require.NoError(t, err)
-
-		// Can't invoke because actor doesn't exist yet.
-		_, err = env.InvokeActor(ctx, ns, "a", "inc", nil)
-		require.Error(t, err)
-
-		// Create actor.
-		_, err = reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
-		require.NoError(t, err)
-
-		for i := 0; i < 100; i++ {
-			// Invoke should work now.
-			result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
+			// Create actor.
+			_, err = reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
 			require.NoError(t, err)
-			require.Equal(t, int64(i+1), getCount(t, result))
 
-			if i == 0 {
-				result, err = env.InvokeActor(ctx, ns, "a", "getStartupWasCalled", nil)
+			for i := 0; i < 100; i++ {
+				// Invoke should work now.
+				result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
 				require.NoError(t, err)
-				require.Equal(t, []byte("true"), result)
+				require.Equal(t, int64(i+1), getCount(t, result))
+
+				if i == 0 {
+					result, err = env.InvokeActor(ctx, ns, "a", "getStartupWasCalled", nil)
+					require.NoError(t, err)
+					require.Equal(t, []byte("true"), result)
+				}
 			}
 		}
 	}
+	runWithDifferentConfigs(t, testFn)
 }
 
 // TestSimpleWorker is a basic sanity test that verifies the most basic flow for workers.
 func TestSimpleWorker(t *testing.T) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
-	require.NoError(t, err)
-	defer env.Close()
-
-	ctx := context.Background()
-
-	for _, ns := range []string{"ns-1", "ns-2"} {
-		// Can't invoke because neither module nor actor exist.
-		_, err = env.InvokeWorker(ctx, ns, "a", "inc", nil)
-		require.Error(t, err)
-
-		// Create module.
-		_, err = reg.RegisterModule(ctx, ns, "test-module", utilWasmBytes, registry.ModuleOptions{})
-		require.NoError(t, err)
-
-		// Can invoke immediately once module exists, no need to "create" a worker or anything
-		// like we do for actors.
-		_, err = env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
-		require.NoError(t, err)
-
-		// Workers can still "accumulate" in-memory state like actors do, but the state may vary
-		// depending on which server/environment the call is executed on (unlike actors where the
-		// request is always routed to the single active "global" instance).
-		for i := 0; i < 100; i++ {
-			result, err := env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		for _, ns := range []string{"ns-1", "ns-2"} {
+			// Can invoke immediately once module exists, no need to "create" a worker or anything
+			// like we do for actors.
+			_, err := env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
 			require.NoError(t, err)
-			require.Equal(t, int64(i+2), getCount(t, result))
 
-			if i == 0 {
-				result, err = env.InvokeWorker(ctx, ns, "test-module", "getStartupWasCalled", nil)
+			// Workers can still "accumulate" in-memory state like actors do, but the state may vary
+			// depending on which server/environment the call is executed on (unlike actors where the
+			// request is always routed to the single active "global" instance).
+			for i := 0; i < 100; i++ {
+				result, err := env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
 				require.NoError(t, err)
-				require.Equal(t, []byte("true"), result)
+				require.Equal(t, int64(i+2), getCount(t, result))
+
+				if i == 0 {
+					result, err = env.InvokeWorker(ctx, ns, "test-module", "getStartupWasCalled", nil)
+					require.NoError(t, err)
+					require.Equal(t, []byte("true"), result)
+				}
 			}
 		}
 	}
+	runWithDifferentConfigs(t, testFn)
 }
 
 // TestGenerationCountIncInvalidatesActivation ensures that the registry returning a higher
 // generation count will cause the environment to invalidate existing activations and recreate
 // them as needed.
 func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, EnvironmentOptions{
-		// Reduce the cache duration so we can see the generation count reflected eventually.
-		ActivationCacheTTL: time.Millisecond,
-	})
-	require.NoError(t, err)
-	defer env.Close()
-
-	ctx := context.Background()
-
-	for _, ns := range []string{"ns-1", "ns-2"} {
-		_, err = reg.RegisterModule(ctx, ns, "test-module", utilWasmBytes, registry.ModuleOptions{})
-		require.NoError(t, err)
-
-		_, err = reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
-		require.NoError(t, err)
-
-		// Build some state.
-		for i := 0; i < 100; i++ {
-			result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		for _, ns := range []string{"ns-1", "ns-2"} {
+			_, err := reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
 			require.NoError(t, err)
-			require.Equal(t, int64(i+1), getCount(t, result))
-		}
 
-		// Increment the generation which should cause the next invocation to recreate the actor
-		// activation from scratch and reset the internal counter back to 0.
-		reg.IncGeneration(ctx, ns, "a")
-
-		for i := 0; i < 100; i++ {
-			if i == 0 {
-				for {
-					// Wait for cache to expire.
-					result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
-					require.NoError(t, err)
-					if getCount(t, result) == 1 {
-						break
-					}
-				}
-				continue
+			// Build some state.
+			for i := 0; i < 100; i++ {
+				result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
+				require.NoError(t, err)
+				require.Equal(t, int64(i+1), getCount(t, result))
 			}
-			result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
-			require.NoError(t, err)
-			require.Equal(t, int64(i+1), getCount(t, result))
+
+			// Increment the generation which should cause the next invocation to recreate the actor
+			// activation from scratch and reset the internal counter back to 0.
+			reg.IncGeneration(ctx, ns, "a")
+
+			for i := 0; i < 100; i++ {
+				if i == 0 {
+					for {
+						// Wait for cache to expire.
+						result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
+						require.NoError(t, err)
+						if getCount(t, result) == 1 {
+							break
+						}
+					}
+					continue
+				}
+				result, err := env.InvokeActor(ctx, ns, "a", "inc", nil)
+				require.NoError(t, err)
+				require.Equal(t, int64(i+1), getCount(t, result))
+			}
 		}
 	}
+	runWithDifferentConfigs(t, testFn)
 }
 
 // TestKVHostFunctions tests whether the KV interfaces from the registry can be used properly as host functions
 // in the actor WASM module.
+//
+// TODO: Test this with Go library.
 func TestKVHostFunctions(t *testing.T) {
 	var (
 		reg   = registry.NewLocalRegistry()
@@ -175,7 +153,7 @@ func TestKVHostFunctions(t *testing.T) {
 			count++
 		}()
 
-		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 		require.NoError(t, err)
 		defer env.Close()
 
@@ -236,7 +214,7 @@ func TestKVHostFunctions(t *testing.T) {
 // that actors can create new actors.
 func TestCreateActorHostFunction(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -291,7 +269,7 @@ func TestCreateActorHostFunction(t *testing.T) {
 // test ensures that actors can communicate with other actors.
 func TestInvokeActorHostFunction(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -360,7 +338,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 // sometime in the future as a way to implement timers.
 func TestScheduleInvocationHostFunction(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -446,7 +424,7 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 // another actor that is not yet activated without introducing a deadlock.
 func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOpts)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(t, err)
 	defer env.Close()
 
@@ -483,15 +461,15 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	)
 	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
 	// needs its own port so it looks unique.
-	opts1 := defaultOpts
+	opts1 := defaultOptsWASM
 	opts1.Discovery.Port = 1
 	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, opts1)
 	require.NoError(t, err)
-	opts2 := defaultOpts
+	opts2 := defaultOptsWASM
 	opts2.Discovery.Port = 2
 	env2, err := NewEnvironment(ctx, "serverID2", reg, nil, opts2)
 	require.NoError(t, err)
-	opts3 := defaultOpts
+	opts3 := defaultOptsWASM
 	opts3.Discovery.Port = 3
 	env3, err := NewEnvironment(ctx, "serverID3", reg, nil, opts3)
 	require.NoError(t, err)
@@ -610,7 +588,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 		ctx = context.Background()
 	)
 	// Create 3 environments backed by the same registry to simulate 3 different servers.
-	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, defaultOpts)
+	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(t, err)
 
 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
@@ -639,4 +617,78 @@ func getCount(t *testing.T, v []byte) int64 {
 	x, err := strconv.Atoi(string(v))
 	require.NoError(t, err)
 	return int64(x)
+}
+
+func runWithDifferentConfigs(
+	t *testing.T,
+	testFn func(t *testing.T, reg registry.Registry, env Environment),
+) {
+	t.Run("wasm", func(t *testing.T) {
+		reg := registry.NewLocalRegistry()
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+		require.NoError(t, err)
+		defer env.Close()
+
+		_, err = reg.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+		require.NoError(t, err)
+		_, err = reg.RegisterModule(context.Background(), "ns-2", "test-module", utilWasmBytes, registry.ModuleOptions{})
+		require.NoError(t, err)
+
+		testFn(t, reg, env)
+	})
+
+	t.Run("go", func(t *testing.T) {
+		reg := registry.NewLocalRegistry()
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
+		require.NoError(t, err)
+		defer env.Close()
+
+		// _, err = reg.RegisterModule(ctx, ns, "test-module", nil, registry.ModuleOptions{})
+		// require.NoError(t, err)
+
+		testFn(t, reg, env)
+	})
+}
+
+type testModule struct {
+}
+
+func (tm testModule) Instantiate(
+	ctx context.Context,
+	id string,
+) (Actor, error) {
+	return &testActor{}, nil
+}
+
+func (tm testModule) Close(ctx context.Context) error {
+	return nil
+}
+
+type testActor struct {
+	count            int
+	startupWasCalled bool
+}
+
+func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byte) ([]byte, error) {
+	switch operation {
+	case wapcutils.StartupOperationName:
+		ta.startupWasCalled = true
+		return nil, nil
+	case wapcutils.ShutdownOperationName:
+		return nil, nil
+	case "inc":
+		ta.count++
+		return []byte(strconv.Itoa(ta.count)), nil
+	case "getStartupWasCalled":
+		if ta.startupWasCalled {
+			return []byte("true"), nil
+		}
+		return []byte("false"), nil
+	default:
+		return nil, fmt.Errorf("testActor: unhandled operation: %s", operation)
+	}
+}
+
+func (ta testActor) Close(ctx context.Context) error {
+	return nil
 }

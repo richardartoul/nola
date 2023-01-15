@@ -22,3 +22,21 @@ func NewNamespacedID(
 		IDType:    idType,
 	}
 }
+
+// NamespacedIDNoType is the same as NamespacedID, but without the IDType
+// field.
+type NamespacedIDNoType struct {
+	Namespace string
+	ID        string
+}
+
+// NewNamespacedIDNoType creates a new NamespacedIDNoType.
+func NewNamespacedIDNoType(
+	namespace string,
+	id string,
+) NamespacedIDNoType {
+	return NamespacedIDNoType{
+		Namespace: namespace,
+		ID:        id,
+	}
+}

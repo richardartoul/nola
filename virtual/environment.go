@@ -83,6 +83,10 @@ type EnvironmentOptions struct {
 	DisableActivationCache bool
 	// Discovery contains the discovery options.
 	Discovery DiscoveryOptions
+
+	// GoModules contains a set of Modules implemented in Go (instead of
+	// WASM). This is useful when using NOLA as a library.
+	GoModules map[types.NamespacedIDNoType]Module
 }
 
 // NewEnvironment creates a new Environment.
@@ -130,8 +134,21 @@ func NewEnvironment(
 		serverID:        serverID,
 		opts:            opts,
 	}
-	activations := newActivations(reg, env)
+	activations := newActivations(reg, env, env.opts.GoModules)
 	env.activations = activations
+
+	for modID, _ := range env.opts.GoModules {
+		// Register all the GoModules in the registry so they're useable with calls to
+		// CreateActor() and EnsureActivation().
+		//
+		// TODO: Need to handle case where already exists.
+		_, err := reg.RegisterModule(ctx, modID.Namespace, modID.ID, nil, registry.ModuleOptions{
+			AllowEmptyModuleBytes: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to register go module with ID: %v", modID)
+		}
+	}
 
 	log.Printf("registering self with address: %s", address)
 

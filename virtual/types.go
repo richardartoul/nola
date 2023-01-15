@@ -10,6 +10,8 @@ import (
 // actor. If the actor is not currently activated in the environment, it will take
 // care of activating it.
 type Environment interface {
+	debug
+
 	// InvokeActor invokes the specified operation on the specified actorID with the
 	// provided payload. If the actor is already activated somewhere in the system,
 	// the invocation will be routed appropriately. Otherwise, the request will
@@ -57,7 +59,10 @@ type Environment interface {
 
 	// Close closes the Environment and all of its associated resources.
 	Close() error
+}
 
+// debug contains private methods that are only used for debugging / tests.
+type debug interface {
 	// numActivatedActors returns the number of activated actors in the environment. It is
 	// primarily used for tests.
 	numActivatedActors() int
@@ -85,15 +90,6 @@ type RemoteClient interface {
 		operation string,
 		payload []byte,
 	) ([]byte, error)
-}
-
-// GoModule is the interface that must be implemented by a module written in Go instead of
-// WASM.
-type GoModule interface {
-	// Called when an actor created from this module is first activated in memory.
-	Startup() error
-	// Called when an actor created from this module is evicted from memory.
-	Shutdown() error
 }
 
 // Module represents a "module" / template from which new actors are constructed/instantiated.

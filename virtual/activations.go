@@ -13,7 +13,6 @@ import (
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
-
 	"github.com/wapc/wapc-go/engines/wazero"
 )
 
@@ -27,11 +26,13 @@ type activations struct {
 	// Dependencies.
 	registry    registry.Registry
 	environment Environment
+	goModules   map[types.NamespacedIDNoType]Module
 }
 
 func newActivations(
 	registry registry.Registry,
 	environment Environment,
+	goModules map[types.NamespacedIDNoType]Module,
 ) *activations {
 	return &activations{
 		_modules: make(map[types.NamespacedID]Module),
@@ -39,6 +40,7 @@ func newActivations(
 
 		registry:    registry,
 		environment: environment,
+		goModules:   goModules,
 	}
 }
 
@@ -131,21 +133,37 @@ func (a *activations) invoke(
 		hostFn := newHostFnRouter(
 			a.registry, a.environment,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID)
-		// TODO: Hard-coded for now, but we should support using different runtimes with
-		//       configuration since we've already abstracted away the module/object
-		//       interfaces.
-		wazeroMod, err := durablewazero.NewModule(ctx, wazero.Engine(), hostFn, moduleBytes)
-		if err != nil {
-			a.Unlock()
-			return nil, fmt.Errorf(
-				"error constructing module: %s from module bytes, err: %w",
-				reference.ModuleID(), err)
+
+		if len(moduleBytes) > 0 {
+			// WASM byte codes exists for the module so we should just use that.
+			// TODO: Hard-coded for now, but we should support using different runtimes with
+			//       configuration since we've already abstracted away the module/object
+			//       interfaces.
+			wazeroMod, err := durablewazero.NewModule(ctx, wazero.Engine(), hostFn, moduleBytes)
+			if err != nil {
+				a.Unlock()
+				return nil, fmt.Errorf(
+					"error constructing module: %s from module bytes, err: %w",
+					reference.ModuleID(), err)
+			}
+
+			// Wrap the wazero module so it implements Module.
+			module = wazeroModule{wazeroMod}
+			a._modules[reference.ModuleID()] = module
+		} else {
+			// No WASM code, must be a hard-coded Go module.
+			goModID := types.NewNamespacedIDNoType(reference.
+				ModuleID().Namespace, reference.ModuleID().ID)
+			goMod, ok := a.goModules[goModID]
+			if !ok {
+				return nil, fmt.Errorf(
+					"error constructing module: %s, hard-coded Go module does not exist",
+					reference.ModuleID())
+			}
+			module = goMod
+			a._modules[reference.ModuleID()] = module
 		}
 
-		// Wrap the wazero module so it implements Module.
-		module = wazeroModule{wazeroMod}
-
-		a._modules[reference.ModuleID()] = module
 	}
 
 	actor, ok = a._actors[reference.ActorID()]
