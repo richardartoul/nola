@@ -147,26 +147,16 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 //
 // TODO: Test this with Go library.
 func TestKVHostFunctions(t *testing.T) {
-	var (
-		reg   = registry.NewLocalRegistry()
-		count = 0
-	)
-	testFn := func() {
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		count := 0
 		defer func() {
 			count++
 		}()
 
-		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-		require.NoError(t, err)
-		defer env.Close()
-
 		ctx := context.Background()
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			if count == 0 {
-				_, err = reg.RegisterModule(ctx, ns, "test-module", utilWasmBytes, registry.ModuleOptions{})
-				require.NoError(t, err)
-
-				_, err = reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
+				_, err := reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
 				require.NoError(t, err)
 
 				for i := 0; i < 100; i++ {
@@ -208,8 +198,7 @@ func TestKVHostFunctions(t *testing.T) {
 	// Run the test twice with two different environments, but the same registry
 	// to simulate a node restarting and being re-initialized with the same registry
 	// to ensure the KV operations are durable if the KV itself is.
-	testFn()
-	testFn()
+	runWithDifferentConfigs(t, testFn)
 }
 
 // TestCreateActorHostFunction tests whether the create actor host function can be used
@@ -657,7 +646,9 @@ func (tm testModule) Instantiate(
 	id string,
 	host HostCapabilities,
 ) (Actor, error) {
-	return &testActor{}, nil
+	return &testActor{
+		host: host,
+	}, nil
 }
 
 func (tm testModule) Close(ctx context.Context) error {
@@ -665,6 +656,8 @@ func (tm testModule) Close(ctx context.Context) error {
 }
 
 type testActor struct {
+	host HostCapabilities
+
 	count            int
 	startupWasCalled bool
 }
@@ -684,6 +677,12 @@ func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byt
 			return []byte("true"), nil
 		}
 		return []byte("false"), nil
+	case "kvPutCount":
+		value := []byte(fmt.Sprintf("%d", ta.count))
+		return nil, ta.host.Put(ctx, payload, value)
+	case "kvGetCount":
+		value := []byte(fmt.Sprintf("%d", ta.count))
+		return nil, ta.host.Put(ctx, payload, value)
 	default:
 		return nil, fmt.Errorf("testActor: unhandled operation: %s", operation)
 	}
