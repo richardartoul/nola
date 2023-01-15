@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/richardartoul/nola/virtual/types"
+	"github.com/richardartoul/nola/wapcutils"
 )
 
 // Environment is the interface responsible for routing invocations to the appropriate
@@ -97,6 +98,7 @@ type Module interface {
 	Instantiate(
 		ctx context.Context,
 		id string,
+		host HostCapabilities,
 	) (Actor, error)
 	Close(ctx context.Context) error
 }
@@ -105,4 +107,34 @@ type Module interface {
 type Actor interface {
 	Invoke(ctx context.Context, operation string, payload []byte) ([]byte, error)
 	Close(ctx context.Context) error
+}
+
+// HostCapabilities defines the interface of capabilities exposed by the host to the Actor.
+type HostCapabilities interface {
+	KV
+
+	// CreateActor creates a new actor.
+	CreateActor(wapcutils.CreateActorRequest) (CreateActorResult, error)
+
+	// InvokeActor invokes a function on the specified actor.
+	InvokeActor(wapcutils.InvokeActorRequest) ([]byte, error)
+
+	// ScheduleInvokeActor is the same as InvokeActor, except the invocation is scheduled
+	// in memory to be run later.
+	ScheduleInvokeActor(wapcutils.ScheduleInvocationRequest) (ScheduleInvocationResult, error)
+}
+
+// KV is the host KV interface exposed to each actor.
+type KV interface {
+	Put(k, v []byte) error
+	Get(k []byte) ([]byte, bool, error)
+}
+
+type CreateActorResult struct {
+}
+
+type InvokeActorResult struct {
+}
+
+type ScheduleInvocationResult struct {
 }

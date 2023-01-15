@@ -193,6 +193,103 @@ func (a *activations) numActivatedActors() int {
 	return len(a._actors)
 }
 
+// // HostCapabilities defines the interface of capabilities exposed by the host to the Actor.
+// type HostCapabilities interface {
+// 	KV
+
+// 	// CreateActor creates a new actor.
+// 	CreateActor(wapcutils.CreateActorRequest) (CreateActorResult, error)
+
+// 	// InvokeActor invokes a function on the specified actor.
+// 	InvokeActor(wapcutils.InvokeActorRequest) (InvokeActorResult, error)
+
+// 	// ScheduleInvokeActor is the same as InvokeActor, except the invocation is scheduled
+// 	// in memory to be run later.
+// 	ScheduleInvokeActor(wapcutils.ScheduleInvocationRequest) (ScheduleInvocationResult, error)
+// }
+
+// // KV is the host KV interface exposed to each actor.
+// type KV interface {
+// 	Put(k, v []byte) error
+// 	Get(k []byte) ([]byte, error)
+// }
+
+type hostCapabilities struct {
+	reg           registry.Registry
+	env           Environment
+	namespace     string
+	actorID       string
+	actorModuleID string
+}
+
+func (h *hostCapabilities) Put(
+	ctx context.Context,
+	key []byte,
+	value []byte,
+) error {
+	return h.reg.ActorKVPut(ctx, h.namespace, h.actorID, key, value)
+}
+
+func (h *hostCapabilities) Get(
+	ctx context.Context,
+	key []byte,
+) ([]byte, bool, error) {
+	return h.reg.ActorKVGet(ctx, h.namespace, h.actorID, key)
+}
+
+func (h *hostCapabilities) CreateActor(
+	ctx context.Context,
+	req wapcutils.CreateActorRequest,
+) (CreateActorResult, error) {
+	if req.ModuleID == "" {
+		// If no module ID was specified then assume the actor is trying to "fork"
+		// itself and create the new actor using the same module as the existing
+		// actor.
+		req.ModuleID = h.actorModuleID
+	}
+
+	_, err := h.reg.CreateActor(ctx, h.namespace, req.ActorID, req.ModuleID, registry.ActorOptions{})
+	if err != nil {
+		return CreateActorResult{}, err
+	}
+	return CreateActorResult{}, nil
+}
+
+func (h *hostCapabilities) InvokeActor(
+	ctx context.Context,
+	req wapcutils.InvokeActorRequest,
+) ([]byte, error) {
+	return h.env.InvokeActor(ctx, h.namespace, req.ActorID, req.Operation, req.Payload)
+}
+
+func (h *hostCapabilities) ScheduleInvokeActor(
+	ctx context.Context,
+	req wapcutils.ScheduleInvocationRequest,
+) error {
+	if req.Invoke.ActorID == "" {
+		// Omitted if the actor wants to schedule a delayed invocation (timer) for itself.
+		req.Invoke.ActorID = h.actorID
+	}
+
+	// TODO: When the actor gets GC'd (which is not currently implemented), this
+	//       timer won't get GC'd with it. We should keep track of all outstanding
+	//       timers with the instantiation and terminate them if the actor is
+	//       killed.
+	time.AfterFunc(time.Duration(req.AfterMillis)*time.Millisecond, func() {
+		// Copy the payload to make sure its safe to retain across invocations.
+		payloadCopy := make([]byte, len(req.Invoke.Payload))
+		copy(payloadCopy, req.Invoke.Payload)
+		_, err := h.env.InvokeActor(ctx, h.namespace, req.Invoke.ActorID, req.Invoke.Operation, payloadCopy)
+		if err != nil {
+			log.Printf(
+				"error performing scheduled invocation from actor: %s to actor: %s for operation: %s, err: %v\n",
+				h.actorID, req.Invoke.ActorID, req.Invoke.Operation, err)
+		}
+	})
+
+	return nil
+}
+
 // TODO: Should have some kind of ACL enforcement polic here, but for now allow any module to
 //
 //	run any host function.
@@ -330,6 +427,7 @@ type wazeroModule struct {
 func (w wazeroModule) Instantiate(
 	ctx context.Context,
 	id string,
+	host HostCapabilities,
 ) (Actor, error) {
 	obj, err := w.m.Instantiate(ctx, id)
 	if err != nil {
