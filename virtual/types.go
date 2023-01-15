@@ -114,20 +114,20 @@ type HostCapabilities interface {
 	KV
 
 	// CreateActor creates a new actor.
-	CreateActor(wapcutils.CreateActorRequest) (CreateActorResult, error)
+	CreateActor(context.Context, wapcutils.CreateActorRequest) (CreateActorResult, error)
 
 	// InvokeActor invokes a function on the specified actor.
-	InvokeActor(wapcutils.InvokeActorRequest) ([]byte, error)
+	InvokeActor(context.Context, wapcutils.InvokeActorRequest) ([]byte, error)
 
 	// ScheduleInvokeActor is the same as InvokeActor, except the invocation is scheduled
 	// in memory to be run later.
-	ScheduleInvokeActor(wapcutils.ScheduleInvocationRequest) (ScheduleInvocationResult, error)
+	ScheduleInvokeActor(context.Context, wapcutils.ScheduleInvocationRequest) error
 }
 
 // KV is the host KV interface exposed to each actor.
 type KV interface {
-	Put(k, v []byte) error
-	Get(k []byte) ([]byte, bool, error)
+	Put(ctx context.Context, k, v []byte) error
+	Get(ctx context.Context, k []byte) ([]byte, bool, error)
 }
 
 type CreateActorResult struct {

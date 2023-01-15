@@ -88,7 +88,10 @@ func (a *activations) invoke(
 	module, ok := a._modules[reference.ModuleID()]
 	if ok {
 		// Module is cached, instantiate the actor then we're done.
-		iActor, err := module.Instantiate(ctx, reference.ActorID().ID)
+		hostCapabilities := newHostCapabilities(
+			a.registry, a.environment,
+			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID)
+		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf(
@@ -168,7 +171,10 @@ func (a *activations) invoke(
 
 	actor, ok = a._actors[reference.ActorID()]
 	if !ok {
-		iActor, err := module.Instantiate(ctx, reference.ActorID().ID)
+		hostCapabilities := newHostCapabilities(
+			a.registry, a.environment,
+			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID)
+		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf(
@@ -220,6 +226,22 @@ type hostCapabilities struct {
 	namespace     string
 	actorID       string
 	actorModuleID string
+}
+
+func newHostCapabilities(
+	reg registry.Registry,
+	env Environment,
+	namespace string,
+	actorID string,
+	actorModuleID string,
+) HostCapabilities {
+	return &hostCapabilities{
+		reg:           reg,
+		env:           env,
+		namespace:     namespace,
+		actorID:       actorID,
+		actorModuleID: actorModuleID,
+	}
 }
 
 func (h *hostCapabilities) Put(

@@ -655,6 +655,7 @@ type testModule struct {
 func (tm testModule) Instantiate(
 	ctx context.Context,
 	id string,
+	host HostCapabilities,
 ) (Actor, error) {
 	return &testActor{}, nil
 }
