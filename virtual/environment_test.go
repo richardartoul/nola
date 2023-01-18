@@ -684,10 +684,6 @@ func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byt
 		}
 		err := ta.host.ScheduleInvokeActor(ctx, req)
 		return nil, err
-	// case "kvGetCount":
-	// 	return ta.host.Get(ctx, payload)
-	// 	value := []byte(fmt.Sprintf("%d", ta.count))
-	// 	return nil, ta.host.Put(ctx, payload, value)
 	default:
 		return nil, fmt.Errorf("testActor: unhandled operation: %s", operation)
 	}
