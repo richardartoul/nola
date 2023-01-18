@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,8 +145,6 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 
 // TestKVHostFunctions tests whether the KV interfaces from the registry can be used properly as host functions
 // in the actor WASM module.
-//
-// TODO: Test this with Go library.
 func TestKVHostFunctions(t *testing.T) {
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
 		count := 0
@@ -204,8 +203,6 @@ func TestKVHostFunctions(t *testing.T) {
 // TestCreateActorHostFunction tests whether the create actor host function can be used
 // by the WASM module to create new actors on demand. In other words, this test ensures
 // that actors can create new actors.
-//
-// TODO: Fix this test.
 func TestCreateActorHostFunction(t *testing.T) {
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
 		ctx := context.Background()
@@ -214,7 +211,7 @@ func TestCreateActorHostFunction(t *testing.T) {
 			require.NoError(t, err)
 
 			// Succeeds because actor exists.
-			_, err = env.InvokeActor(ctx, ns, "a", "echo", nil)
+			_, err = env.InvokeActor(ctx, ns, "a", "inc", nil)
 			require.NoError(t, err)
 
 			// Fails because actor does not exist.
@@ -226,7 +223,7 @@ func TestCreateActorHostFunction(t *testing.T) {
 			require.NoError(t, err)
 
 			// Should succeed now that actor a has created actor b.
-			_, err = env.InvokeActor(ctx, ns, "b", "echo", nil)
+			_, err = env.InvokeActor(ctx, ns, "b", "inc", nil)
 			require.NoError(t, err)
 
 			for _, actor := range []string{"a", "b"} {
@@ -243,7 +240,7 @@ func TestCreateActorHostFunction(t *testing.T) {
 					payload, err := env.InvokeActor(ctx, ns, actor, "kvGet", key)
 					require.NoError(t, err)
 					val := getCount(t, payload)
-					require.Equal(t, int64(i+1), val)
+					require.Equal(t, int64(i+2), val)
 				}
 			}
 		}
@@ -256,25 +253,158 @@ func TestCreateActorHostFunction(t *testing.T) {
 // by the WASM module to invoke operations on other actors on demand. In other words, this
 // test ensures that actors can communicate with other actors.
 func TestInvokeActorHostFunction(t *testing.T) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(t, err)
-	defer env.Close()
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		for _, ns := range []string{"ns-1", "ns-2"} {
+			// Create an actor, then immediately fork it so we have two actors.
+			_, err := reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
+			require.NoError(t, err)
 
-	ctx := context.Background()
+			_, err = env.InvokeActor(ctx, ns, "a", "fork", []byte("b"))
+			require.NoError(t, err)
 
-	for _, ns := range []string{"ns-1", "ns-2"} {
-		_, err = reg.RegisterModule(ctx, ns, "test-module", utilWasmBytes, registry.ModuleOptions{})
+			// Ensure actor a can communicate with actor b.
+			invokeReq := wapcutils.InvokeActorRequest{
+				ActorID:   "b",
+				Operation: "inc",
+				Payload:   nil,
+			}
+			marshaled, err := json.Marshal(invokeReq)
+			require.NoError(t, err)
+			_, err = env.InvokeActor(ctx, ns, "a", "invokeActor", marshaled)
+			require.NoError(t, err)
+
+			// Ensure actor b can communicate with actor a.
+			invokeReq = wapcutils.InvokeActorRequest{
+				ActorID:   "a",
+				Operation: "inc",
+				Payload:   nil,
+			}
+			marshaled, err = json.Marshal(invokeReq)
+			require.NoError(t, err)
+			_, err = env.InvokeActor(ctx, ns, "b", "invokeActor", marshaled)
+			require.NoError(t, err)
+
+			// Ensure both actor's state was actually updated and they can request
+			// each other's state.
+			invokeReq = wapcutils.InvokeActorRequest{
+				ActorID:   "b",
+				Operation: "getCount",
+				Payload:   nil,
+			}
+			marshaled, err = json.Marshal(invokeReq)
+			require.NoError(t, err)
+			result, err := env.InvokeActor(ctx, ns, "a", "invokeActor", marshaled)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), getCount(t, result))
+
+			invokeReq = wapcutils.InvokeActorRequest{
+				ActorID:   "a",
+				Operation: "getCount",
+				Payload:   nil,
+			}
+			marshaled, err = json.Marshal(invokeReq)
+			require.NoError(t, err)
+			result, err = env.InvokeActor(ctx, ns, "b", "invokeActor", marshaled)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), getCount(t, result))
+		}
+	}
+
+	runWithDifferentConfigs(t, testFn)
+}
+
+// TestScheduleInvocationHostFunction tests whether actors can schedule invocations to run
+// sometime in the future as a way to implement timers.
+func TestScheduleInvocationHostFunction(t *testing.T) {
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		for _, ns := range []string{"ns-1", "ns-2"} {
+			// Create an actor, then immediately fork it so we have two actors.
+			_, err := reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
+			require.NoError(t, err)
+
+			_, err = env.InvokeActor(ctx, ns, "a", "fork", []byte("b"))
+			require.NoError(t, err)
+
+			// A bit meta, but tell a to schedule an invocation on b to schedule an invocation
+			// back on a. This ensures that actor's can schedule invocations on other actors.
+			bScheduleA := wapcutils.ScheduleInvocationRequest{
+				Invoke: wapcutils.InvokeActorRequest{
+					ActorID:   "a",
+					Operation: "inc",
+					Payload:   nil,
+				},
+				AfterMillis: 1000,
+			}
+			marshaledBScheduleA, err := json.Marshal(bScheduleA)
+			require.NoError(t, err)
+			aScheduleB := wapcutils.ScheduleInvocationRequest{
+				Invoke: wapcutils.InvokeActorRequest{
+					ActorID:   "b",
+					Operation: "scheduleInvocation",
+					Payload:   marshaledBScheduleA,
+				},
+				AfterMillis: 1000,
+			}
+			marshaledAScheduleB, err := json.Marshal(aScheduleB)
+			require.NoError(t, err)
+
+			// In addition, tell a to schedule an invocation on itself to ensure we
+			// can support "self timers".
+			aScheduleA := wapcutils.ScheduleInvocationRequest{
+				Invoke: wapcutils.InvokeActorRequest{
+					ActorID:   "a",
+					Operation: "inc",
+					Payload:   nil,
+				},
+				AfterMillis: 1000,
+			}
+			marshaledAScheduleA, err := json.Marshal(aScheduleA)
+			require.NoError(t, err)
+
+			// Schedule both the a::a invocation and the a::b::a invocation.
+			_, err = env.InvokeActor(ctx, ns, "a", "scheduleInvocation", marshaledAScheduleB)
+			require.NoError(t, err)
+			_, err = env.InvokeActor(ctx, ns, "a", "scheduleInvocation", marshaledAScheduleA)
+			require.NoError(t, err)
+
+			// Make sure a is 0 immediately after scheduling.
+			result, err := env.InvokeActor(ctx, ns, "a", "getCount", nil)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), getCount(t, result))
+
+			// Wait for both the a::a and a::b::a invocations to run.
+			for {
+				result, err := env.InvokeActor(ctx, ns, "a", "getCount", nil)
+				require.NoError(t, err)
+				if getCount(t, result) != int64(2) {
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+
+				// We didn't ever schedule an inc for b so it should remain zero.
+				result, err = env.InvokeActor(ctx, ns, "b", "getCount", nil)
+				require.NoError(t, err)
+				require.Equal(t, int64(0), getCount(t, result))
+				break
+			}
+		}
+	}
+
+	runWithDifferentConfigs(t, testFn)
+}
+
+// TestInvokeActorHostFunctionDeadlockRegression is a regression test to ensure that an actor can invoke
+// another actor that is not yet activated without introducing a deadlock.
+func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		_, err := reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
+		require.NoError(t, err)
+		_, err = reg.CreateActor(ctx, "ns-1", "b", "test-module", registry.ActorOptions{})
 		require.NoError(t, err)
 
-		// Create an actor, then immediately fork it so we have two actors.
-		_, err = reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
-		require.NoError(t, err)
-
-		_, err = env.InvokeActor(ctx, ns, "a", "fork", []byte("b"))
-		require.NoError(t, err)
-
-		// Ensure actor a can communicate with actor b.
 		invokeReq := wapcutils.InvokeActorRequest{
 			ActorID:   "b",
 			Operation: "inc",
@@ -282,160 +412,12 @@ func TestInvokeActorHostFunction(t *testing.T) {
 		}
 		marshaled, err := json.Marshal(invokeReq)
 		require.NoError(t, err)
-		_, err = env.InvokeActor(ctx, ns, "a", "invokeActor", marshaled)
-		require.NoError(t, err)
 
-		// Ensure actor b can communicate with actor a.
-		invokeReq = wapcutils.InvokeActorRequest{
-			ActorID:   "a",
-			Operation: "inc",
-			Payload:   nil,
-		}
-		marshaled, err = json.Marshal(invokeReq)
+		_, err = env.InvokeActor(ctx, "ns-1", "a", "invokeActor", marshaled)
 		require.NoError(t, err)
-		_, err = env.InvokeActor(ctx, ns, "b", "invokeActor", marshaled)
-		require.NoError(t, err)
-
-		// Ensure both actor's state was actually updated and they can request
-		// each other's state.
-		invokeReq = wapcutils.InvokeActorRequest{
-			ActorID:   "b",
-			Operation: "getCount",
-			Payload:   nil,
-		}
-		marshaled, err = json.Marshal(invokeReq)
-		require.NoError(t, err)
-		result, err := env.InvokeActor(ctx, ns, "a", "invokeActor", marshaled)
-		require.NoError(t, err)
-		require.Equal(t, int64(1), getCount(t, result))
-
-		invokeReq = wapcutils.InvokeActorRequest{
-			ActorID:   "a",
-			Operation: "getCount",
-			Payload:   nil,
-		}
-		marshaled, err = json.Marshal(invokeReq)
-		require.NoError(t, err)
-		result, err = env.InvokeActor(ctx, ns, "b", "invokeActor", marshaled)
-		require.NoError(t, err)
-		require.Equal(t, int64(1), getCount(t, result))
 	}
-}
 
-// TestScheduleInvocationHostFunction tests whether actors can schedule invocations to run
-// sometime in the future as a way to implement timers.
-func TestScheduleInvocationHostFunction(t *testing.T) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(t, err)
-	defer env.Close()
-
-	ctx := context.Background()
-
-	for _, ns := range []string{"ns-1", "ns-2"} {
-		_, err = reg.RegisterModule(ctx, ns, "test-module", utilWasmBytes, registry.ModuleOptions{})
-		require.NoError(t, err)
-
-		// Create an actor, then immediately fork it so we have two actors.
-		_, err = reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
-		require.NoError(t, err)
-
-		_, err = env.InvokeActor(ctx, ns, "a", "fork", []byte("b"))
-		require.NoError(t, err)
-
-		// A bit meta, but tell a to schedule an invocation on b to schedule an invocation
-		// back on a. This ensures that actor's can schedule invocations on other actors.
-		bScheduleA := wapcutils.ScheduleInvocationRequest{
-			Invoke: wapcutils.InvokeActorRequest{
-				ActorID:   "a",
-				Operation: "inc",
-				Payload:   nil,
-			},
-			AfterMillis: 1000,
-		}
-		marshaledBScheduleA, err := json.Marshal(bScheduleA)
-		require.NoError(t, err)
-		aScheduleB := wapcutils.ScheduleInvocationRequest{
-			Invoke: wapcutils.InvokeActorRequest{
-				ActorID:   "b",
-				Operation: "scheduleInvocation",
-				Payload:   marshaledBScheduleA,
-			},
-			AfterMillis: 1000,
-		}
-		marshaledAScheduleB, err := json.Marshal(aScheduleB)
-		require.NoError(t, err)
-
-		// In addition, tell a to schedule an invocation on itself to ensure we
-		// can support "self timers".
-		aScheduleA := wapcutils.ScheduleInvocationRequest{
-			Invoke: wapcutils.InvokeActorRequest{
-				ActorID:   "a",
-				Operation: "inc",
-				Payload:   nil,
-			},
-			AfterMillis: 1000,
-		}
-		marshaledAScheduleA, err := json.Marshal(aScheduleA)
-		require.NoError(t, err)
-
-		// Schedule both the a::a invocation and the a::b::a invocation.
-		_, err = env.InvokeActor(ctx, ns, "a", "scheduleInvocation", marshaledAScheduleB)
-		require.NoError(t, err)
-		_, err = env.InvokeActor(ctx, ns, "a", "scheduleInvocation", marshaledAScheduleA)
-		require.NoError(t, err)
-
-		// Make sure a is 0 immediately after scheduling.
-		result, err := env.InvokeActor(ctx, ns, "a", "getCount", nil)
-		require.NoError(t, err)
-		require.Equal(t, int64(0), getCount(t, result))
-
-		// Wait for both the a::a and a::b::a invocations to run.
-		for {
-			result, err := env.InvokeActor(ctx, ns, "a", "getCount", nil)
-			require.NoError(t, err)
-			if getCount(t, result) != int64(2) {
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-
-			// We didn't ever schedule an inc for b so it should remain zero.
-			result, err = env.InvokeActor(ctx, ns, "b", "getCount", nil)
-			require.NoError(t, err)
-			require.Equal(t, int64(0), getCount(t, result))
-			break
-		}
-	}
-}
-
-// TestInvokeActorHostFunctionDeadlockRegression is a regression test to ensure that an actor can invoke
-// another actor that is not yet activated without introducing a deadlock.
-func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(t, err)
-	defer env.Close()
-
-	ctx := context.Background()
-
-	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(t, err)
-
-	_, err = reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
-	require.NoError(t, err)
-	_, err = reg.CreateActor(ctx, "ns-1", "b", "test-module", registry.ActorOptions{})
-	require.NoError(t, err)
-
-	invokeReq := wapcutils.InvokeActorRequest{
-		ActorID:   "b",
-		Operation: "inc",
-		Payload:   nil,
-	}
-	marshaled, err := json.Marshal(invokeReq)
-	require.NoError(t, err)
-
-	_, err = env.InvokeActor(ctx, "ns-1", "a", "invokeActor", marshaled)
-	require.NoError(t, err)
+	runWithDifferentConfigs(t, testFn)
 }
 
 // TestHeartbeatAndSelfHealing tests the interaction between the service discovery / heartbeating system
@@ -571,34 +553,29 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 // internal versionstamp and ensuring that eventually RPCs start to fail because the
 // server can no longer be sure it "owns" the actor and is allowed to run it.
 func TestVersionStampIsHonored(t *testing.T) {
-	var (
-		reg = registry.NewLocalRegistry()
-		ctx = context.Background()
-	)
-	// Create 3 environments backed by the same registry to simulate 3 different servers.
-	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(t, err)
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		_, err := reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
+		require.NoError(t, err)
 
-	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(t, err)
+		_, err = env.InvokeActor(ctx, "ns-1", "a", "inc", nil)
+		require.NoError(t, err)
 
-	_, err = reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
-	require.NoError(t, err)
+		env.freezeHeartbeatState()
 
-	_, err = env1.InvokeActor(ctx, "ns-1", "a", "inc", nil)
-	require.NoError(t, err)
-
-	env1.freezeHeartbeatState()
-
-	for {
-		// Eventually RPCs should start to fail because the server's versionstamp will become
-		// stale and it will no longer be confident that it's allowed to run RPCs for the
-		// actor.
-		_, err = env1.InvokeActor(ctx, "ns-1", "a", "inc", nil)
-		if err != nil {
-			break
+		for {
+			// Eventually RPCs should start to fail because the server's versionstamp will become
+			// stale and it will no longer be confident that it's allowed to run RPCs for the
+			// actor.
+			_, err = env.InvokeActor(ctx, "ns-1", "a", "inc", nil)
+			if err != nil && strings.Contains(err.Error(), "server heartbeat") {
+				break
+			}
+			require.NoError(t, err)
 		}
 	}
+
+	runWithDifferentConfigs(t, testFn)
 }
 
 func getCount(t *testing.T, v []byte) int64 {
@@ -672,6 +649,8 @@ func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byt
 	case "inc":
 		ta.count++
 		return []byte(strconv.Itoa(ta.count)), nil
+	case "getCount":
+		return []byte(strconv.Itoa(ta.count)), nil
 	case "getStartupWasCalled":
 		if ta.startupWasCalled {
 			return []byte("true"), nil
@@ -680,9 +659,35 @@ func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byt
 	case "kvPutCount":
 		value := []byte(fmt.Sprintf("%d", ta.count))
 		return nil, ta.host.Put(ctx, payload, value)
-	case "kvGetCount":
-		value := []byte(fmt.Sprintf("%d", ta.count))
-		return nil, ta.host.Put(ctx, payload, value)
+	case "kvGet":
+		v, _, err := ta.host.Get(ctx, payload)
+		if err != nil {
+			return nil, err
+		}
+		return v, nil
+	case "fork":
+		_, err := ta.host.CreateActor(ctx, wapcutils.CreateActorRequest{
+			ActorID:  string(payload),
+			ModuleID: "",
+		})
+		return nil, err
+	case "invokeActor":
+		var req wapcutils.InvokeActorRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, err
+		}
+		return ta.host.InvokeActor(ctx, req)
+	case "scheduleInvocation":
+		var req wapcutils.ScheduleInvocationRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, err
+		}
+		err := ta.host.ScheduleInvokeActor(ctx, req)
+		return nil, err
+	// case "kvGetCount":
+	// 	return ta.host.Get(ctx, payload)
+	// 	value := []byte(fmt.Sprintf("%d", ta.count))
+	// 	return nil, ta.host.Put(ctx, payload, value)
 	default:
 		return nil, fmt.Errorf("testActor: unhandled operation: %s", operation)
 	}
