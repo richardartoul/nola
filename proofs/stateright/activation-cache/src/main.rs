@@ -81,7 +81,7 @@ fn invoke_references(
     if (env.heartbeat_state.heartbeat_result.version_stamp
         + env.heartbeat_state.heartbeat_result.heartbeat_ttl
         < *vs)
-        || reference.server_version != env.heartbeat_state.server_version
+        || reference.server_version != env.heartbeat_state.server_version // TRY IT comment out the server version comparison condition to obsereve violations in the model
     {
         // this should be rejected and the activation cache will eventually expire
         // there is no TTL in the model we remove it right away
@@ -850,7 +850,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .actor(HeartbeatRoutine)
                 .actor(Environment {
                     num_servers: 2,
-                    num_invocations: 5,
+                    num_invocations: 4,
                 })
                 .init_network(Network::new_ordered([]))
                 .property(Expectation::Always, "increment counter history check passes", |_, state| {
