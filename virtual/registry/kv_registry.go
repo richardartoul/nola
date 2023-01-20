@@ -48,6 +48,15 @@ func (k *kvRegistry) RegisterModule(
 			return nil, err
 		}
 		if ok {
+			if opts.AllowEmptyModuleBytes {
+				// If empty module bytes are allowed then the fact that the
+				// module already exists doesn't matter and we can just return
+				// success. This makes it easier to register pure Go modules
+				// on process startup each time without having to explicitly
+				// handle "module already exists" errors.
+				return RegisterModuleResult{}, nil
+			}
+
 			return RegisterModuleResult{}, fmt.Errorf(
 				"error creating module: %s in namespace: %s, already exists",
 				moduleID, namespace)

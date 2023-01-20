@@ -84,6 +84,15 @@ type EnvironmentOptions struct {
 	DisableActivationCache bool
 	// Discovery contains the discovery options.
 	Discovery DiscoveryOptions
+
+	// GoModules contains a set of Modules implemented in Go (instead of
+	// WASM). This is useful when using NOLA as a library.
+	GoModules map[types.NamespacedIDNoType]Module
+	// CustomHostFns contains a set of additional user-defined host
+	// functions that can be exposed to activated actors. This allows
+	// developeres leveraging NOLA as a library to extend the environment
+	// with additional host functionality.
+	CustomHostFns map[string]func([]byte) ([]byte, error)
 }
 
 // NewEnvironment creates a new Environment.
@@ -131,8 +140,21 @@ func NewEnvironment(
 		serverID:        serverID,
 		opts:            opts,
 	}
-	activations := newActivations(reg, env)
+	activations := newActivations(reg, env, env.opts.GoModules, env.opts.CustomHostFns)
 	env.activations = activations
+
+	for modID := range env.opts.GoModules {
+		// Register all the GoModules in the registry so they're useable with calls to
+		// CreateActor() and EnsureActivation().
+		//
+		// TODO: Need to handle case where already exists.
+		_, err := reg.RegisterModule(ctx, modID.Namespace, modID.ID, nil, registry.ModuleOptions{
+			AllowEmptyModuleBytes: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to register go module with ID: %v, err: %w", modID, err)
+		}
+	}
 
 	log.Printf("registering self with address: %s", address)
 
@@ -248,6 +270,16 @@ func (r *environment) InvokeActorDirect(
 		return nil, errors.New("serverID cannot be empty")
 	}
 	if serverID != r.serverID {
+		// Make sure the client has reached the server it intended. This is an important
+		// check due to the limitations of I.P-based network addressing. For example, if
+		// two pods of NOLA were running in k8s on a shared set of VMs and get
+		// rescheduled such that they switch I.P addresses, clients may temporarily route
+		// requests for server A to server B and vice versa.
+		//
+		// TODO: Technically the server should return its identity in the response and the
+		//       client should assert on that as well to avoid issues where the request
+		//       reaches the wrong application entirely and that application just returns
+		//       OK to everything.
 		return nil, fmt.Errorf(
 			"request for serverID: %s received by server: %s, cannot fullfil",
 			serverID, r.serverID)
