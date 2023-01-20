@@ -6,17 +6,19 @@ import (
 )
 
 type actorRef struct {
-	virtualRef ActorReferenceVirtual
-	serverID   string
-	address    string
+	virtualRef    ActorReferenceVirtual
+	serverID      string
+	serverVersion int64
+	address       string
 }
 
 // NewActorReference creates an ActorReference.
 func NewActorReference(
-	serverID,
-	address,
-	namespace,
-	moduleID,
+	serverID string,
+	serverVersion int64,
+	address string,
+	namespace string,
+	moduleID string,
 	actorID string,
 	generation uint64,
 ) (ActorReference, error) {
@@ -33,9 +35,10 @@ func NewActorReference(
 	}
 
 	return actorRef{
-		virtualRef: virtual,
-		serverID:   serverID,
-		address:    address,
+		virtualRef:    virtual,
+		serverID:      serverID,
+		serverVersion: serverVersion,
+		address:       address,
 	}, nil
 }
 
@@ -45,6 +48,10 @@ func (l actorRef) Type() ReferenceType {
 
 func (l actorRef) ServerID() string {
 	return l.serverID
+}
+
+func (l actorRef) ServerVersion() int64 {
+	return l.serverVersion
 }
 
 func (l actorRef) Namespace() string {

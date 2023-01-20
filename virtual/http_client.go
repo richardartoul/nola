@@ -26,14 +26,15 @@ func (h *httpClient) InvokeActorRemote(
 	payload []byte,
 ) ([]byte, error) {
 	ir := invokeActorDirectRequest{
-		VersionStamp: versionStamp,
-		ServerID:     reference.ServerID(),
-		Namespace:    reference.Namespace(),
-		ModuleID:     reference.ModuleID().ID,
-		ActorID:      reference.ActorID().ID,
-		Generation:   reference.Generation(),
-		Operation:    operation,
-		Payload:      payload,
+		VersionStamp:  versionStamp,
+		ServerID:      reference.ServerID(),
+		ServerVersion: reference.ServerVersion(),
+		Namespace:     reference.Namespace(),
+		ModuleID:      reference.ModuleID().ID,
+		ActorID:       reference.ActorID().ID,
+		Generation:    reference.Generation(),
+		Operation:     operation,
+		Payload:       payload,
 	}
 	marshaled, err := json.Marshal(&ir)
 	if err != nil {

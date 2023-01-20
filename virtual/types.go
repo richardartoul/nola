@@ -35,6 +35,7 @@ type Environment interface {
 		ctx context.Context,
 		versionStamp int64,
 		serverID string,
+		serverVersion int64,
 		reference types.ActorReferenceVirtual,
 		operation string,
 		payload []byte,
@@ -77,6 +78,13 @@ type debug interface {
 	// in the registry, but allows us to test interaction between the client versionstamp
 	// and the serverion heartbeat versionstamp.
 	freezeHeartbeatState()
+
+	// pauseHeartbeat prevents the heartbeat goroutine from sending the heartbeat
+	// only used for testing purposes to simulate a server missing (sending a delayed) heartbeat.
+	pauseHeartbeat()
+
+	// resumeHeartbeat function resumes the heartbeat goroutine, used only for testing purposes.
+	resumeHeartbeat()
 }
 
 // RemoteClient is the interface implemented by a client that is capable of communicating with

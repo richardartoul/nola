@@ -173,14 +173,15 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 }
 
 type invokeActorDirectRequest struct {
-	VersionStamp int64  `json:"version_stamp"`
-	ServerID     string `json:"server_id"`
-	Namespace    string `json:"namespace"`
-	ModuleID     string `json:"module_id"`
-	ActorID      string `json:"actor_id"`
-	Generation   uint64 `json:"generation"`
-	Operation    string `json:"operation"`
-	Payload      []byte `json:"payload"`
+	VersionStamp  int64  `json:"version_stamp"`
+	ServerID      string `json:"server_id"`
+	ServerVersion int64  `json:"server_version"`
+	Namespace     string `json:"namespace"`
+	ModuleID      string `json:"module_id"`
+	ActorID       string `json:"actor_id"`
+	Generation    uint64 `json:"generation"`
+	Operation     string `json:"operation"`
+	Payload       []byte `json:"payload"`
 }
 
 func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +210,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.environment.InvokeActorDirect(ctx, req.VersionStamp, req.ServerID, ref, req.Operation, req.Payload)
+	result, err := s.environment.InvokeActorDirect(ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref, req.Operation, req.Payload)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))

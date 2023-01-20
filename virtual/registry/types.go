@@ -149,4 +149,7 @@ type HeartbeatResult struct {
 	// TTL of the successful heartbeat in the same unit as the
 	// VerisionStamp.
 	HeartbeatTTL int64
+	// ServerVersion is incremented every time a server's heartbeat expires and resumes,
+	// guaranteeing the server's ability to identify periods of inactivity/death for correctness purposes.
+	ServerVersion int64
 }

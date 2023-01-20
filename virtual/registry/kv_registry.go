@@ -267,9 +267,15 @@ func (k *kvRegistry) EnsureActivation(
 			timeSinceLastHeartbeat           = time.Since(server.LastHeartbeatedAt)
 			serverID                         string
 			serverAddress                    string
+			serverVersion                    int64
 		)
 		if activationExists && serverExists && timeSinceLastHeartbeat < HeartbeatTTL {
 			// We have an existing activation and the server is still alive, so just use that.
+
+			// It is acceptable to look up the ServerVersion from the server discovery key directly,
+			// as long as the activation is still active, it guarantees that the server's version
+			// has not changed since the activation was first created.
+			serverVersion = server.ServerVersion
 			serverID = currActivation.ServerID
 			serverAddress = server.HeartbeatState.Address
 		} else {
@@ -304,6 +310,7 @@ func (k *kvRegistry) EnsureActivation(
 			serverID = liveServers[0].ServerID
 			serverAddress = liveServers[0].HeartbeatState.Address
 			currActivation = activation{ServerID: serverID}
+			serverVersion = liveServers[0].ServerVersion
 
 			ra.Activation = currActivation
 			marshaled, err := json.Marshal(&ra)
@@ -314,7 +321,7 @@ func (k *kvRegistry) EnsureActivation(
 			tr.put(actorKey, marshaled)
 		}
 
-		ref, err := types.NewActorReference(serverID, serverAddress, namespace, ra.ModuleID, actorID, ra.Generation)
+		ref, err := types.NewActorReference(serverID, serverVersion, serverAddress, namespace, ra.ModuleID, actorID, ra.Generation)
 		if err != nil {
 			return nil, fmt.Errorf("error creating new actor reference: %w", err)
 		}
@@ -432,6 +439,7 @@ func (k *kvRegistry) Heartbeat(
 	heartbeatState HeartbeatState,
 ) (HeartbeatResult, error) {
 	key := k.getServerKey(serverID)
+	var serverVersion int64
 	versionStamp, err := k.kv.transact(func(tr transaction) (any, error) {
 		v, ok, err := tr.get(key)
 		if err != nil {
@@ -440,15 +448,24 @@ func (k *kvRegistry) Heartbeat(
 
 		var state serverState
 		if !ok {
+			serverVersion = 1
 			state = serverState{
-				ServerID: serverID,
+				ServerID:      serverID,
+				ServerVersion: serverVersion,
 			}
+			state.LastHeartbeatedAt = time.Now()
 		} else {
 			if err := json.Unmarshal(v, &state); err != nil {
 				return nil, err
 			}
 		}
 
+		timeSinceLastHeartbeat := time.Since(state.LastHeartbeatedAt)
+		if timeSinceLastHeartbeat >= HeartbeatTTL {
+			state.ServerVersion++
+		}
+
+		serverVersion = state.ServerVersion
 		state.LastHeartbeatedAt = time.Now()
 		state.HeartbeatState = heartbeatState
 
@@ -467,7 +484,8 @@ func (k *kvRegistry) Heartbeat(
 	return HeartbeatResult{
 		VersionStamp: versionStamp.(int64),
 		// VersionStamp corresponds to ~ 1 million increments per second.
-		HeartbeatTTL: int64(HeartbeatTTL.Microseconds()),
+		HeartbeatTTL:  int64(HeartbeatTTL.Microseconds()),
+		ServerVersion: serverVersion,
 	}, nil
 }
 
@@ -519,6 +537,7 @@ type serverState struct {
 	ServerID          string
 	LastHeartbeatedAt time.Time
 	HeartbeatState    HeartbeatState
+	ServerVersion     int64
 }
 
 type activation struct {
