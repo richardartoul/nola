@@ -19,8 +19,19 @@ import (
 
 var (
 	utilWasmBytes   []byte
-	defaultOptsWASM = EnvironmentOptions{}
-	defaultOptsGo   = EnvironmentOptions{
+	defaultOptsWASM = EnvironmentOptions{
+		CustomHostFns: map[string]func([]byte) ([]byte, error){
+			"testCustomFn": func([]byte) ([]byte, error) {
+				return []byte("ok"), nil
+			},
+		},
+	}
+	defaultOptsGo = EnvironmentOptions{
+		CustomHostFns: map[string]func([]byte) ([]byte, error){
+			"testCustomFn": func([]byte) ([]byte, error) {
+				return []byte("ok"), nil
+			},
+		},
 		GoModules: map[types.NamespacedIDNoType]Module{
 			{Namespace: "ns-1", ID: "test-module"}: testModule{},
 			{Namespace: "ns-2", ID: "test-module"}: testModule{},
@@ -578,6 +589,22 @@ func TestVersionStampIsHonored(t *testing.T) {
 	runWithDifferentConfigs(t, testFn)
 }
 
+// TestCustomHostFns tests the ability for users to provide custom host functions that
+// can be invoked by actors.
+func TestCustomHostFns(t *testing.T) {
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		_, err := reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
+		require.NoError(t, err)
+
+		result, err := env.InvokeActor(ctx, "ns-1", "a", "invokeCustomHostFn", []byte("testCustomFn"))
+		require.NoError(t, err)
+		require.Equal(t, []byte("ok"), result)
+	}
+
+	runWithDifferentConfigs(t, testFn)
+}
+
 // TestGoModulesRegisterTwice ensures that writing modules in pure Go and registering
 // them works repeatedly and doesn't fail due to "module already exists" errors from
 // the registry.
@@ -697,6 +724,8 @@ func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byt
 		}
 		err := ta.host.ScheduleInvokeActor(ctx, req)
 		return nil, err
+	case "invokeCustomHostFn":
+		return ta.host.CustomFn(ctx, string(payload), payload)
 	default:
 		return nil, fmt.Errorf("testActor: unhandled operation: %s", operation)
 	}

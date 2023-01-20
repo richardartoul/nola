@@ -24,6 +24,7 @@ func main() {
 		"fork":                          fork,
 		"invokeActor":                   invokeActor,
 		"scheduleInvocation":            scheduleInvocation,
+		"invokeCustomHostFn":            invokeCustomHostFn,
 	})
 }
 
@@ -112,6 +113,10 @@ func invokeActor(payload []byte) ([]byte, error) {
 // actor's can schedule invocations by calling the host function.
 func scheduleInvocation(payload []byte) ([]byte, error) {
 	return wapc.HostCall("wapc", "nola", wapcutils.ScheduleInvocationOperationName, payload)
+}
+
+func invokeCustomHostFn(payload []byte) ([]byte, error) {
+	return wapc.HostCall("wapc", "nola", string(payload), payload)
 }
 
 var startupWasCalled = false

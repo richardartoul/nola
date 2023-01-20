@@ -87,6 +87,11 @@ type EnvironmentOptions struct {
 	// GoModules contains a set of Modules implemented in Go (instead of
 	// WASM). This is useful when using NOLA as a library.
 	GoModules map[types.NamespacedIDNoType]Module
+	// CustomHostFns contains a set of additional user-defined host
+	// functions that can be exposed to activated actors. This allows
+	// developeres leveraging NOLA as a library to extend the environment
+	// with additional host functionality.
+	CustomHostFns map[string]func([]byte) ([]byte, error)
 }
 
 // NewEnvironment creates a new Environment.
@@ -134,7 +139,7 @@ func NewEnvironment(
 		serverID:        serverID,
 		opts:            opts,
 	}
-	activations := newActivations(reg, env, env.opts.GoModules)
+	activations := newActivations(reg, env, env.opts.GoModules, env.opts.CustomHostFns)
 	env.activations = activations
 
 	for modID := range env.opts.GoModules {

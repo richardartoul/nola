@@ -24,23 +24,26 @@ type activations struct {
 	_actors  map[types.NamespacedID]activatedActor
 
 	// Dependencies.
-	registry    registry.Registry
-	environment Environment
-	goModules   map[types.NamespacedIDNoType]Module
+	registry      registry.Registry
+	environment   Environment
+	goModules     map[types.NamespacedIDNoType]Module
+	customHostFns map[string]func([]byte) ([]byte, error)
 }
 
 func newActivations(
 	registry registry.Registry,
 	environment Environment,
 	goModules map[types.NamespacedIDNoType]Module,
+	customHostFns map[string]func([]byte) ([]byte, error),
 ) *activations {
 	return &activations{
 		_modules: make(map[types.NamespacedID]Module),
 		_actors:  make(map[types.NamespacedID]activatedActor),
 
-		registry:    registry,
-		environment: environment,
-		goModules:   goModules,
+		registry:      registry,
+		environment:   environment,
+		goModules:     goModules,
+		customHostFns: customHostFns,
 	}
 }
 
@@ -89,7 +92,7 @@ func (a *activations) invoke(
 	if ok {
 		// Module is cached, instantiate the actor then we're done.
 		hostCapabilities := newHostCapabilities(
-			a.registry, a.environment,
+			a.registry, a.environment, a.customHostFns,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID)
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
@@ -134,7 +137,7 @@ func (a *activations) invoke(
 	module, ok = a._modules[reference.ModuleID()]
 	if !ok {
 		hostFn := newHostFnRouter(
-			a.registry, a.environment,
+			a.registry, a.environment, a.customHostFns,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID)
 
 		if len(moduleBytes) > 0 {
@@ -172,7 +175,7 @@ func (a *activations) invoke(
 	actor, ok = a._actors[reference.ActorID()]
 	if !ok {
 		hostCapabilities := newHostCapabilities(
-			a.registry, a.environment,
+			a.registry, a.environment, a.customHostFns,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID)
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
@@ -202,6 +205,7 @@ func (a *activations) numActivatedActors() int {
 type hostCapabilities struct {
 	reg           registry.Registry
 	env           Environment
+	customHostFns map[string]func([]byte) ([]byte, error)
 	namespace     string
 	actorID       string
 	actorModuleID string
@@ -210,6 +214,7 @@ type hostCapabilities struct {
 func newHostCapabilities(
 	reg registry.Registry,
 	env Environment,
+	customHostFns map[string]func([]byte) ([]byte, error),
 	namespace string,
 	actorID string,
 	actorModuleID string,
@@ -217,6 +222,7 @@ func newHostCapabilities(
 	return &hostCapabilities{
 		reg:           reg,
 		env:           env,
+		customHostFns: customHostFns,
 		namespace:     namespace,
 		actorID:       actorID,
 		actorModuleID: actorModuleID,
@@ -291,12 +297,31 @@ func (h *hostCapabilities) ScheduleInvokeActor(
 	return nil
 }
 
+func (h *hostCapabilities) CustomFn(
+	ctx context.Context,
+	operation string,
+	payload []byte,
+) ([]byte, error) {
+	customFn, ok := h.customHostFns[operation]
+	if ok {
+		res, err := customFn(payload)
+		if err != nil {
+			return nil, fmt.Errorf("error running custom host function: %s, err: %w", operation, err)
+		}
+		return res, nil
+	}
+	return nil, fmt.Errorf(
+		"unknown host function: %s::%s::%s",
+		h.namespace, operation, payload)
+}
+
 // TODO: Should have some kind of ACL enforcement polic here, but for now allow any module to
 //
 //	run any host function.
 func newHostFnRouter(
 	reg registry.Registry,
 	environment Environment,
+	customHostFns map[string]func([]byte) ([]byte, error),
 	actorNamespace string,
 	actorID string,
 	actorModuleID string,
@@ -393,6 +418,14 @@ func newHostFnRouter(
 
 			return nil, nil
 		default:
+			customFn, ok := customHostFns[wapcOperation]
+			if ok {
+				res, err := customFn(wapcPayload)
+				if err != nil {
+					return nil, fmt.Errorf("error running custom host function: %s, err: %w", wapcOperation, err)
+				}
+				return res, nil
+			}
 			return nil, fmt.Errorf(
 				"unknown host function: %s::%s::%s::%s",
 				wapcBinding, wapcNamespace, wapcOperation, wapcPayload)
