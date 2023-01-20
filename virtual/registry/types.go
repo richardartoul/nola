@@ -116,7 +116,12 @@ type ActorOptions struct {
 type CreateActorResult struct{}
 
 // ModuleOptions contains the options for a given module.
-type ModuleOptions struct{}
+type ModuleOptions struct {
+	// AllowEmptyModuleBytes allows a module to be created with empty WASM bytes. This is
+	// useful in the scenario where NOLA is being used as a library and the Actor's are
+	// implemented in Go instead of WASM.
+	AllowEmptyModuleBytes bool
+}
 
 // RegisterModuleResult is the result of a call to RegisterModule().
 type RegisterModuleResult struct{}

@@ -4,12 +4,15 @@ import (
 	"context"
 
 	"github.com/richardartoul/nola/virtual/types"
+	"github.com/richardartoul/nola/wapcutils"
 )
 
 // Environment is the interface responsible for routing invocations to the appropriate
 // actor. If the actor is not currently activated in the environment, it will take
 // care of activating it.
 type Environment interface {
+	debug
+
 	// InvokeActor invokes the specified operation on the specified actorID with the
 	// provided payload. If the actor is already activated somewhere in the system,
 	// the invocation will be routed appropriately. Otherwise, the request will
@@ -57,7 +60,10 @@ type Environment interface {
 
 	// Close closes the Environment and all of its associated resources.
 	Close() error
+}
 
+// debug contains private methods that are only used for debugging / tests.
+type debug interface {
 	// numActivatedActors returns the number of activated actors in the environment. It is
 	// primarily used for tests.
 	numActivatedActors() int
@@ -85,4 +91,50 @@ type RemoteClient interface {
 		operation string,
 		payload []byte,
 	) ([]byte, error)
+}
+
+// Module represents a "module" / template from which new actors are constructed/instantiated.
+type Module interface {
+	Instantiate(
+		ctx context.Context,
+		id string,
+		host HostCapabilities,
+	) (Actor, error)
+	Close(ctx context.Context) error
+}
+
+// Actor represents an activated actor in memory.
+type Actor interface {
+	Invoke(ctx context.Context, operation string, payload []byte) ([]byte, error)
+	Close(ctx context.Context) error
+}
+
+// HostCapabilities defines the interface of capabilities exposed by the host to the Actor.
+type HostCapabilities interface {
+	KV
+
+	// CreateActor creates a new actor.
+	CreateActor(context.Context, wapcutils.CreateActorRequest) (CreateActorResult, error)
+
+	// InvokeActor invokes a function on the specified actor.
+	InvokeActor(context.Context, wapcutils.InvokeActorRequest) ([]byte, error)
+
+	// ScheduleInvokeActor is the same as InvokeActor, except the invocation is scheduled
+	// in memory to be run later.
+	ScheduleInvokeActor(context.Context, wapcutils.ScheduleInvocationRequest) error
+}
+
+// KV is the host KV interface exposed to each actor.
+type KV interface {
+	Put(ctx context.Context, k, v []byte) error
+	Get(ctx context.Context, k []byte) ([]byte, bool, error)
+}
+
+type CreateActorResult struct {
+}
+
+type InvokeActorResult struct {
+}
+
+type ScheduleInvocationResult struct {
 }

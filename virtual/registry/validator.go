@@ -37,7 +37,7 @@ func (v *validator) RegisterModule(
 	if err := validateString("moduleID", moduleID); err != nil {
 		return RegisterModuleResult{}, err
 	}
-	if len(moduleBytes) == 0 {
+	if len(moduleBytes) == 0 && !opts.AllowEmptyModuleBytes {
 		return RegisterModuleResult{}, errors.New("moduleBytes must not be empty")
 	}
 	if len(moduleBytes) > 1<<22 {
