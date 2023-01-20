@@ -460,16 +460,12 @@ func (k *kvRegistry) Heartbeat(
 			}
 		}
 
-		var (
-			timeSinceLastHeartbeat = time.Since(state.LastHeartbeatedAt)
-		)
-
+		timeSinceLastHeartbeat := time.Since(state.LastHeartbeatedAt)
 		if timeSinceLastHeartbeat >= HeartbeatTTL {
 			state.ServerVersion++
 		}
 
 		serverVersion = state.ServerVersion
-
 		state.LastHeartbeatedAt = time.Now()
 		state.HeartbeatState = heartbeatState
 
