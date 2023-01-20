@@ -730,8 +730,6 @@ func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byt
 	default:
 		return nil, fmt.Errorf("testActor: unhandled operation: %s", operation)
 	}
-
-	require.NoError(t, env1.Close())
 }
 
 // TestServerVersionIsHonored ensures client-server coordination around server versions by blocking actor invocations if versions don't match,
