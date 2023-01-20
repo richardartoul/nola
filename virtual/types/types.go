@@ -43,4 +43,6 @@ type ActorReferencePhysical interface {
 	ServerID() string
 	// The address of the referenced actor.
 	Address() string
+	// server version is increased after any missed heartbeat
+	ServerVersion() int64
 }

@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewActorReference(t *testing.T) {
-	ref, err := NewActorReference("server1", "server1path", "a", "b", "c", 1)
+	ref, err := NewActorReference("server1", 0, "server1path", "a", "b", "c", 1)
 	require.NoError(t, err)
 
 	require.Equal(t, "server1", ref.ServerID())

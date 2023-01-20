@@ -12,6 +12,7 @@ import (
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/wapcutils"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -633,6 +634,44 @@ func TestVersionStampIsHonored(t *testing.T) {
 			break
 		}
 	}
+
+	require.NoError(t, env1.Close())
+}
+
+// TestServerVersionIsHonored ensures that the interaction between the client and server
+// around server version coordination works by preventing actor invocations
+// if server versions do not match which means that there has been a heartbeat missed by the server
+// and the server can no longer be sure it "owns" the actor and is allowed to run it.
+func TestServerVersionIsHonored(t *testing.T) {
+	var (
+		reg = registry.NewLocalRegistry()
+		ctx = context.Background()
+	)
+
+	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, EnvironmentOptions{
+		ActivationCacheTTL: time.Second * 15,
+	})
+	require.NoError(t, err)
+
+	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	_, err = reg.CreateActor(ctx, "ns-1", "a", "test-module", registry.ActorOptions{})
+	require.NoError(t, err)
+
+	_, err = env1.InvokeActor(ctx, "ns-1", "a", "inc", nil)
+	require.NoError(t, err)
+
+	env1.pauseHeartbeat()
+
+	time.Sleep(registry.HeartbeatTTL + time.Second)
+
+	env1.resumeHeartbeat()
+
+	require.NoError(t, env1.heartbeat())
+
+	_, err = env1.InvokeActor(ctx, "ns-1", "a", "inc", nil)
+	assert.EqualErrorf(t, err, "InvokeLocal: server version(1) != server version from reference(0)", "Error should be: %v, got: %v", "InvokeLocal: server version(1) != server version from reference(0)", err)
 }
 
 func getCount(t *testing.T, v []byte) int64 {

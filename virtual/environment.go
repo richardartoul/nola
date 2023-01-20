@@ -43,6 +43,8 @@ type environment struct {
 	registry registry.Registry
 	client   RemoteClient
 	opts     EnvironmentOptions
+
+	paused bool
 }
 
 const (
@@ -154,6 +156,9 @@ func NewEnvironment(
 		for {
 			select {
 			case <-ticker.C:
+				if env.paused {
+					return
+				}
 				if err := env.heartbeat(); err != nil {
 					log.Printf("error performing background heartbeat: %v\n", err)
 				}
@@ -235,6 +240,7 @@ func (r *environment) InvokeActorDirect(
 	ctx context.Context,
 	versionStamp int64,
 	serverID string,
+	serverVersion int64,
 	reference types.ActorReferenceVirtual,
 	operation string,
 	payload []byte,
@@ -262,6 +268,12 @@ func (r *environment) InvokeActorDirect(
 		return nil, fmt.Errorf(
 			"InvokeLocal: server heartbeat(%d) + TTL(%d) < versionStamp(%d)",
 			heartbeatResult.VersionStamp, heartbeatResult.HeartbeatTTL, versionStamp)
+	}
+
+	if heartbeatResult.ServerVersion != serverVersion {
+		return nil, fmt.Errorf(
+			"InvokeLocal: server version(%d) != server version from reference(%d)",
+			heartbeatResult.ServerVersion, serverVersion)
 	}
 
 	return r.activations.invoke(ctx, reference, operation, payload)
@@ -348,7 +360,7 @@ func (r *environment) invokeReferences(
 	localEnv, ok := localEnvironmentsRouter[ref.Address()]
 	localEnvironmentsRouterLock.RUnlock()
 	if ok {
-		return localEnv.InvokeActorDirect(ctx, versionStamp, ref.ServerID(), ref, operation, payload)
+		return localEnv.InvokeActorDirect(ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref, operation, payload)
 	}
 	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload)
 }
@@ -357,6 +369,14 @@ func (r *environment) freezeHeartbeatState() {
 	r.heartbeatState.Lock()
 	r.heartbeatState.frozen = true
 	r.heartbeatState.Unlock()
+}
+
+func (r *environment) pauseHeartbeat() {
+	r.paused = true
+}
+
+func (r *environment) resumeHeartbeat() {
+	r.paused = false
 }
 
 func getSelfIP() (net.IP, error) {

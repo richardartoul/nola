@@ -144,4 +144,8 @@ type HeartbeatResult struct {
 	// TTL of the successful heartbeat in the same unit as the
 	// VerisionStamp.
 	HeartbeatTTL int64
+	// ServerVersion is used to track missed heartbeats
+	// it is increased any time a heartbeat comes after a delay that is longer
+	// than heartbeat's TTL
+	ServerVersion int64
 }
