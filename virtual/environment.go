@@ -30,6 +30,7 @@ type environment struct {
 		sync.RWMutex
 		registry.HeartbeatResult
 		frozen bool
+		paused bool
 	}
 
 	// Closed when the background heartbeating goroutine should be shut down.
@@ -43,8 +44,6 @@ type environment struct {
 	registry registry.Registry
 	client   RemoteClient
 	opts     EnvironmentOptions
-
-	paused bool
 }
 
 const (
@@ -156,7 +155,7 @@ func NewEnvironment(
 		for {
 			select {
 			case <-ticker.C:
-				if env.paused {
+				if env.heartbeatState.paused {
 					return
 				}
 				if err := env.heartbeat(); err != nil {
@@ -270,6 +269,9 @@ func (r *environment) InvokeActorDirect(
 			heartbeatResult.VersionStamp, heartbeatResult.HeartbeatTTL, versionStamp)
 	}
 
+	// Compare server version of this environment to the server version from the actor activation reference to ensure
+	// the env hasn't missed a heartbeat recently, which could cause it to lose ownership of the actor.
+	// This bug was identified using this mode.l https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
 	if heartbeatResult.ServerVersion != serverVersion {
 		return nil, fmt.Errorf(
 			"InvokeLocal: server version(%d) != server version from reference(%d)",
@@ -372,11 +374,15 @@ func (r *environment) freezeHeartbeatState() {
 }
 
 func (r *environment) pauseHeartbeat() {
-	r.paused = true
+	r.heartbeatState.Lock()
+	r.heartbeatState.paused = true
+	r.heartbeatState.Unlock()
 }
 
 func (r *environment) resumeHeartbeat() {
-	r.paused = false
+	r.heartbeatState.Lock()
+	r.heartbeatState.paused = false
+	r.heartbeatState.Unlock()
 }
 
 func getSelfIP() (net.IP, error) {

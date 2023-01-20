@@ -262,6 +262,10 @@ func (k *kvRegistry) EnsureActivation(
 		)
 		if activationExists && serverExists && timeSinceLastHeartbeat < HeartbeatTTL {
 			// We have an existing activation and the server is still alive, so just use that.
+
+			// It is acceptable to look up the ServerVersion from the server discovery key directly,
+			// as long as the activation is still active, it guarantees that the server's version
+			// has not changed since the activation was first created.
 			serverVersion = server.ServerVersion
 			serverID = currActivation.ServerID
 			serverAddress = server.HeartbeatState.Address
@@ -297,6 +301,7 @@ func (k *kvRegistry) EnsureActivation(
 			serverID = liveServers[0].ServerID
 			serverAddress = liveServers[0].HeartbeatState.Address
 			currActivation = activation{ServerID: serverID}
+			serverVersion = liveServers[0].ServerVersion
 
 			ra.Activation = currActivation
 			marshaled, err := json.Marshal(&ra)
@@ -434,7 +439,7 @@ func (k *kvRegistry) Heartbeat(
 
 		var state serverState
 		if !ok {
-			serverVersion = 0
+			serverVersion = 1
 			state = serverState{
 				ServerID:      serverID,
 				ServerVersion: serverVersion,

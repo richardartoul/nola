@@ -73,12 +73,11 @@ type Environment interface {
 	// and the serverion heartbeat versionstamp.
 	freezeHeartbeatState()
 
-	// prevents the heartbeat goroutine from sending the heartbeat
-	// only used for testing purposes to simulate a server missing (sending a delayed) heartbeat
+	// pauseHeartbeat prevents the heartbeat goroutine from sending the heartbeat
+	// only used for testing purposes to simulate a server missing (sending a delayed) heartbeat.
 	pauseHeartbeat()
 
-	// resumes the heartbeat goroutine
-	// used for testing
+	// resumeHeartbeat function resumes the heartbeat goroutine, used only for testing purposes.
 	resumeHeartbeat()
 }
 

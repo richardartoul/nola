@@ -638,10 +638,9 @@ func TestVersionStampIsHonored(t *testing.T) {
 	require.NoError(t, env1.Close())
 }
 
-// TestServerVersionIsHonored ensures that the interaction between the client and server
-// around server version coordination works by preventing actor invocations
-// if server versions do not match which means that there has been a heartbeat missed by the server
-// and the server can no longer be sure it "owns" the actor and is allowed to run it.
+// TestServerVersionIsHonored ensures client-server coordination around server versions by blocking actor invocations if versions don't match,
+// indicating a missed heartbeat by the server and loss of ownership of the actor.
+// This reproduces the bug identified in https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
 func TestServerVersionIsHonored(t *testing.T) {
 	var (
 		reg = registry.NewLocalRegistry()
@@ -671,7 +670,7 @@ func TestServerVersionIsHonored(t *testing.T) {
 	require.NoError(t, env1.heartbeat())
 
 	_, err = env1.InvokeActor(ctx, "ns-1", "a", "inc", nil)
-	assert.EqualErrorf(t, err, "InvokeLocal: server version(1) != server version from reference(0)", "Error should be: %v, got: %v", "InvokeLocal: server version(1) != server version from reference(0)", err)
+	assert.EqualErrorf(t, err, "InvokeLocal: server version(2) != server version from reference(1)", "Error should be: %v, got: %v", "InvokeLocal: server version(1) != server version from reference(0)", err)
 }
 
 func getCount(t *testing.T, v []byte) int64 {
