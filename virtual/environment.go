@@ -137,7 +137,7 @@ func NewEnvironment(
 	activations := newActivations(reg, env, env.opts.GoModules)
 	env.activations = activations
 
-	for modID, _ := range env.opts.GoModules {
+	for modID := range env.opts.GoModules {
 		// Register all the GoModules in the registry so they're useable with calls to
 		// CreateActor() and EnsureActivation().
 		//
@@ -146,7 +146,7 @@ func NewEnvironment(
 			AllowEmptyModuleBytes: true,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to register go module with ID: %v", modID)
+			return nil, fmt.Errorf("failed to register go module with ID: %v, err: %w", modID, err)
 		}
 	}
 

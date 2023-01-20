@@ -578,6 +578,22 @@ func TestVersionStampIsHonored(t *testing.T) {
 	runWithDifferentConfigs(t, testFn)
 }
 
+// TestGoModulesRegisterTwice ensures that writing modules in pure Go and registering
+// them works repeatedly and doesn't fail due to "module already exists" errors from
+// the registry.
+func TestGoModulesRegisterTwice(t *testing.T) {
+	// Create environment and register modules.
+	reg := registry.NewLocalRegistry()
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
+	require.NoError(t, err)
+	require.NoError(t, env.Close())
+
+	// Recreate with same registry should not fail.
+	env, err = NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
+	require.NoError(t, err)
+	require.NoError(t, env.Close())
+}
+
 func getCount(t *testing.T, v []byte) int64 {
 	x, err := strconv.Atoi(string(v))
 	require.NoError(t, err)
@@ -607,9 +623,6 @@ func runWithDifferentConfigs(
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
 		require.NoError(t, err)
 		defer env.Close()
-
-		// _, err = reg.RegisterModule(ctx, ns, "test-module", nil, registry.ModuleOptions{})
-		// require.NoError(t, err)
 
 		testFn(t, reg, env)
 	})
