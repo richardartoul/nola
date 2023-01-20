@@ -14,7 +14,6 @@ import (
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -764,7 +763,7 @@ func TestServerVersionIsHonored(t *testing.T) {
 	require.NoError(t, env1.heartbeat())
 
 	_, err = env1.InvokeActor(ctx, "ns-1", "a", "inc", nil)
-	assert.EqualErrorf(t, err, "InvokeLocal: server version(2) != server version from reference(1)", "Error should be: %v, got: %v", "InvokeLocal: server version(1) != server version from reference(0)", err)
+	require.EqualErrorf(t, err, "InvokeLocal: server version(2) != server version from reference(1)", "Error should be: %v, got: %v", "InvokeLocal: server version(1) != server version from reference(0)", err)
 }
 
 func (ta testActor) Close(ctx context.Context) error {
