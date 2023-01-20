@@ -23,7 +23,7 @@ The heartbeat version stamp check should ensure that an invocation on a server t
 
 ## Findings
 
-During formal verification the following state path was discovered that demostarted violation of the primary correctness property:
+During formal verification the following state path was discovered that demonstrated violation of the primary correctness property:
 
 ![State path leading to violation](./img/model_result_01.png)
 
