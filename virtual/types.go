@@ -122,6 +122,14 @@ type HostCapabilities interface {
 	// ScheduleInvokeActor is the same as InvokeActor, except the invocation is scheduled
 	// in memory to be run later.
 	ScheduleInvokeActor(context.Context, wapcutils.ScheduleInvocationRequest) error
+
+	// CustomFn invoke a custom (user defined) host function. This will only work if the
+	// custom host function was registered with the environment when it was instantiated.
+	CustomFn(
+		ctx context.Context,
+		operation string,
+		payload []byte,
+	) ([]byte, error)
 }
 
 // KV is the host KV interface exposed to each actor.
