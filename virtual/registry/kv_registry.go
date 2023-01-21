@@ -262,9 +262,14 @@ func (k *kvRegistry) EnsureActivation(
 			serverExists = true
 		}
 
+		vs, err := tr.getVersionStamp()
+		if err != nil {
+			return nil, fmt.Errorf("error getting versionstamp: %w", err)
+		}
+
 		var (
 			currActivation, activationExists = ra.Activation, ra.Activation.ServerID != ""
-			timeSinceLastHeartbeat           = time.Since(server.LastHeartbeatedAt)
+			timeSinceLastHeartbeat           = versionSince(vs, server.LastHeartbeatedAt)
 			serverID                         string
 			serverAddress                    string
 			serverVersion                    int64
@@ -287,7 +292,7 @@ func (k *kvRegistry) EnsureActivation(
 					return fmt.Errorf("error unmarshaling server state: %w", err)
 				}
 
-				if time.Since(currServer.LastHeartbeatedAt) < HeartbeatTTL {
+				if versionSince(vs, currServer.LastHeartbeatedAt) < HeartbeatTTL {
 					liveServers = append(liveServers, currServer)
 				}
 				return nil
@@ -443,7 +448,7 @@ func (k *kvRegistry) Heartbeat(
 	versionStamp, err := k.kv.transact(func(tr transaction) (any, error) {
 		v, ok, err := tr.get(key)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error getting server state: %w", err)
 		}
 
 		var state serverState
@@ -453,25 +458,33 @@ func (k *kvRegistry) Heartbeat(
 				ServerID:      serverID,
 				ServerVersion: serverVersion,
 			}
-			state.LastHeartbeatedAt = time.Now()
+			vs, err := tr.getVersionStamp()
+			if err != nil {
+				return nil, fmt.Errorf("error getting versionstamp: %w", err)
+			}
+			state.LastHeartbeatedAt = vs
 		} else {
 			if err := json.Unmarshal(v, &state); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("error unmarshaling server state: %w", err)
 			}
 		}
 
-		timeSinceLastHeartbeat := time.Since(state.LastHeartbeatedAt)
+		vs, err := tr.getVersionStamp()
+		if err != nil {
+			return nil, fmt.Errorf("error getting versionstamp: %w", err)
+		}
+		timeSinceLastHeartbeat := versionSince(vs, state.LastHeartbeatedAt)
 		if timeSinceLastHeartbeat >= HeartbeatTTL {
 			state.ServerVersion++
 		}
 
 		serverVersion = state.ServerVersion
-		state.LastHeartbeatedAt = time.Now()
+		state.LastHeartbeatedAt = vs
 		state.HeartbeatState = heartbeatState
 
 		marshaled, err := json.Marshal(&state)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error marshaling server state: %w", err)
 		}
 
 		tr.put(key, marshaled)
@@ -535,11 +548,21 @@ type registeredModule struct {
 
 type serverState struct {
 	ServerID          string
-	LastHeartbeatedAt time.Time
+	LastHeartbeatedAt int64
 	HeartbeatState    HeartbeatState
 	ServerVersion     int64
 }
 
 type activation struct {
 	ServerID string
+}
+
+func versionSince(curr, prev int64) time.Duration {
+	since := curr - prev
+	if since < 0 {
+		panic(fmt.Sprintf(
+			"prev: %d, curr: %d, versionstamp did not increase monotonically",
+			prev, curr))
+	}
+	return time.Duration(since) * time.Microsecond
 }
