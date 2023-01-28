@@ -54,13 +54,6 @@ func (a *activations) invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	// This is required for module that are using WASM/wazero so we can propage the actor
-	// ID to invocations of the host's capabilities. The reason this is required is that the
-	// WACP implementation we're using defines a host router per-module instead of per-actor, so
-	// we use the context.Context to "smuggle" the actor ID into each invocation. See
-	// newHostFnRouter in wazer.go to see the implementation.
-	ctx = context.WithValue(ctx, hostFnActorIDCtxKey{}, reference.ActorID().ID)
-
 	a.RLock()
 	actor, ok := a._actors[reference.ActorID()]
 	if ok && actor.reference.Generation() >= reference.Generation() {
@@ -240,17 +233,10 @@ func (a *activatedActor) invoke(
 	payload []byte,
 ) ([]byte, error) {
 	// Workers can't have KV storage because they're not global singletons like actors
-	// are. They're also not registered with the Registry explicitly,  so we can skip
+	// are. They're also not registered with the Registry explicitly, so we can skip
 	// this step in that case.
 	if a.reference.ActorID().IDType != types.IDTypeWorker {
-		// This is required for module that are using WASM/wazero so we can propagate a
-		// per-invocation transaction to the hostFnRouter. The reason this is required is
-		// that the WACP implementation we're using defines a host router per-module
-		// instead of per-actor or per-invocation, so we use the context.Context to
-		// "smuggle" the actor ID into each invocation. See newHostFnRouter in wazero.go
-		// to see the implementation.
 		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
-			ctx := context.WithValue(ctx, hostFnActorTxnKey{}, tr)
 			return a._a.Invoke(ctx, operation, payload, tr)
 		})
 		if err != nil {

@@ -192,7 +192,7 @@ func (w wazeroModule) Instantiate(
 		return nil, err
 	}
 
-	return wazeroActor{obj}, nil
+	return wazeroActor{obj, id}, nil
 }
 
 func (w wazeroModule) Close(ctx context.Context) error {
@@ -201,6 +201,7 @@ func (w wazeroModule) Close(ctx context.Context) error {
 
 type wazeroActor struct {
 	obj durable.Object
+	id  string
 }
 
 func (w wazeroActor) Invoke(
@@ -209,6 +210,22 @@ func (w wazeroActor) Invoke(
 	payload []byte,
 	transaction registry.ActorKVTransaction,
 ) ([]byte, error) {
+	// This is required for modules that are using WASM/wazero so we can propagate
+	// the actor ID to invocations of the host's capabilities. The reason this is
+	// required is that the WAPC implementation we're using defines a host router
+	// per-module instead of per-actor, so we use the context.Context to "smuggle"
+	// the actor ID into each invocation. See newHostFnRouter in wazero.go to see
+	// the implementation.
+	ctx = context.WithValue(ctx, hostFnActorIDCtxKey{}, w.id)
+
+	// This is required for modules that are using WASM/wazero so we can propagate a
+	// per-invocation transaction to the hostFnRouter. The reason this is required is
+	// that the WAPC implementation we're using defines a host router per-module
+	// instead of per-actor or per-invocation, so we use the context.Context to
+	// "smuggle" the actor ID into each invocation. See newHostFnRouter in wazero.go
+	// to see the implementation.
+	ctx = context.WithValue(ctx, hostFnActorTxnKey{}, transaction)
+
 	return w.obj.Invoke(ctx, operation, payload)
 }
 

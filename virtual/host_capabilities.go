@@ -164,11 +164,6 @@ func newLazyActorTransaction(
 	}
 }
 
-// Put(ctx context.Context, key []byte, value []byte) error
-// 	Get(ctx context.Context, key []byte) ([]byte, bool, error)
-// 	Commit(ctx context.Context) error
-// 	Cancel(ctx context.Context) error
-
 func (l *lazyActorTransaction) Put(
 	ctx context.Context,
 	key, value []byte,
