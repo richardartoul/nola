@@ -3,6 +3,7 @@ package virtual
 import (
 	"context"
 
+	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 )
@@ -142,8 +143,9 @@ type HostCapabilities interface {
 
 // KV is the host KV interface exposed to each actor.
 type KV interface {
-	Put(ctx context.Context, k, v []byte) error
-	Get(ctx context.Context, k []byte) ([]byte, bool, error)
+	BeginTransaction(ctx context.Context) (registry.ActorKVTransaction, error)
+	// Put(ctx context.Context, k, v []byte) error
+	// Get(ctx context.Context, k []byte) ([]byte, bool, error)
 }
 
 type CreateActorResult struct {
