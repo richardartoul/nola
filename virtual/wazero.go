@@ -12,7 +12,13 @@ import (
 	"github.com/richardartoul/nola/wapcutils"
 )
 
+// hostFnActorIDCtxKey is the key that is used to store/retrieve the actorID field
+// from the context.
 type hostFnActorIDCtxKey struct{}
+
+// hostFnActorTxnKey is the key that is used to store/retrieve the actor's per-invocation
+// lazyTransaction from the context.
+type hostFnActorTxnKey struct{}
 
 // TODO: Should have some kind of ACL enforcement polic here, but for now allow any module to
 // run any host function.
@@ -30,16 +36,9 @@ func newHostFnRouter(
 		wapcOperation string,
 		wapcPayload []byte,
 	) ([]byte, error) {
-		actorIDIface := ctx.Value(hostFnActorIDCtxKey{})
-		if actorIDIface == nil {
-			return nil, fmt.Errorf("wazeroHostFnRouter: could not find non-empty actor ID in context")
-		}
-		actorID, ok := actorIDIface.(string)
-		if !ok {
-			return nil, fmt.Errorf("wazeroHostFnRouter: wrong type for actor ID in context: %T", actorIDIface)
-		}
-		if actorID == "" {
-			return nil, fmt.Errorf("wazeroHostFnRouter: could not find non-empty actor ID in context")
+		actorID, err := extractActorID(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error extracting actorID from context: %w", err)
 		}
 
 		switch wapcOperation {
@@ -49,13 +48,23 @@ func newHostFnRouter(
 				return nil, fmt.Errorf("error extracting KV from PUT payload: %w", err)
 			}
 
-			if err := reg.ActorKVPut(ctx, actorNamespace, actorID, k, v); err != nil {
+			tr, err := extractTransaction(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("error extracting transaction from context: %w", err)
+			}
+
+			if err := tr.Put(ctx, k, v); err != nil {
 				return nil, fmt.Errorf("error performing PUT against registry: %w", err)
 			}
 
 			return nil, nil
 		case wapcutils.KVGetOperationName:
-			v, ok, err := reg.ActorKVGet(ctx, actorNamespace, actorID, wapcPayload)
+			tr, err := extractTransaction(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("error extracting transaction from context: %w", err)
+			}
+
+			v, ok, err := tr.Get(ctx, wapcPayload)
 			if err != nil {
 				return nil, fmt.Errorf("error performing GET against registry: %w", err)
 			}
@@ -142,25 +151,31 @@ func newHostFnRouter(
 	}
 }
 
-type activatedActor struct {
-	a          Actor
-	generation uint64
+func extractActorID(ctx context.Context) (string, error) {
+	actorIDIface := ctx.Value(hostFnActorIDCtxKey{})
+	if actorIDIface == nil {
+		return "", fmt.Errorf("wazeroHostFnRouter: could not find non-empty actor ID in context")
+	}
+	actorID, ok := actorIDIface.(string)
+	if !ok {
+		return "", fmt.Errorf("wazeroHostFnRouter: wrong type for actor ID in context: %T", actorIDIface)
+	}
+	if actorID == "" {
+		return "", fmt.Errorf("wazeroHostFnRouter: could not find non-empty actor ID in context")
+	}
+	return actorID, nil
 }
 
-func newActivatedActor(
-	ctx context.Context,
-	actor Actor,
-	generation uint64,
-) (activatedActor, error) {
-	_, err := actor.Invoke(ctx, wapcutils.StartupOperationName, nil)
-	if err != nil {
-		return activatedActor{}, fmt.Errorf("newActivatedActor: error invoking startup function: %w", err)
+func extractTransaction(ctx context.Context) (registry.ActorKVTransaction, error) {
+	trIface := ctx.Value(hostFnActorTxnKey{})
+	if trIface == nil {
+		return nil, fmt.Errorf("wazeroHostFnRouter: could not find non-empty transaction in context")
 	}
-
-	return activatedActor{
-		a:          actor,
-		generation: generation,
-	}, nil
+	tr, ok := trIface.(registry.ActorKVTransaction)
+	if !ok {
+		return nil, fmt.Errorf("wazeroHostFnRouter: wrong type for actor ID in context: %T", trIface)
+	}
+	return tr, nil
 }
 
 type wazeroModule struct {
@@ -176,9 +191,44 @@ func (w wazeroModule) Instantiate(
 	if err != nil {
 		return nil, err
 	}
-	return obj, nil
+
+	return wazeroActor{obj, id}, nil
 }
 
 func (w wazeroModule) Close(ctx context.Context) error {
 	return nil
+}
+
+type wazeroActor struct {
+	obj durable.Object
+	id  string
+}
+
+func (w wazeroActor) Invoke(
+	ctx context.Context,
+	operation string,
+	payload []byte,
+	transaction registry.ActorKVTransaction,
+) ([]byte, error) {
+	// This is required for modules that are using WASM/wazero so we can propagate
+	// the actor ID to invocations of the host's capabilities. The reason this is
+	// required is that the WAPC implementation we're using defines a host router
+	// per-module instead of per-actor, so we use the context.Context to "smuggle"
+	// the actor ID into each invocation. See newHostFnRouter in wazero.go to see
+	// the implementation.
+	ctx = context.WithValue(ctx, hostFnActorIDCtxKey{}, w.id)
+
+	// This is required for modules that are using WASM/wazero so we can propagate a
+	// per-invocation transaction to the hostFnRouter. The reason this is required is
+	// that the WAPC implementation we're using defines a host router per-module
+	// instead of per-actor or per-invocation, so we use the context.Context to
+	// "smuggle" the actor ID into each invocation. See newHostFnRouter in wazero.go
+	// to see the implementation.
+	ctx = context.WithValue(ctx, hostFnActorTxnKey{}, transaction)
+
+	return w.obj.Invoke(ctx, operation, payload)
+}
+
+func (w wazeroActor) Close(ctx context.Context) error {
+	return w.obj.Close(ctx)
 }

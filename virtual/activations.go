@@ -3,9 +3,7 @@ package virtual
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
-	"time"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
 	"github.com/richardartoul/nola/virtual/registry"
@@ -56,32 +54,25 @@ func (a *activations) invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	// This is required for module that are using WASM/wazero so we can propage the actor
-	// ID to invocations of the host's capabilities. The reason this is required is that the
-	// WACP implementation we're using defines a host router per-module instead of per-actor, so
-	// we use the context.Context to "smuggle" the actor ID into each invocation. See
-	// newHostFnRouter in wazer.go to see the implementation.
-	ctx = context.WithValue(ctx, hostFnActorIDCtxKey{}, reference.ActorID().ID)
-
 	a.RLock()
 	actor, ok := a._actors[reference.ActorID()]
-	if ok && actor.generation >= reference.Generation() {
+	if ok && actor.reference.Generation() >= reference.Generation() {
 		a.RUnlock()
-		return actor.a.Invoke(ctx, operation, payload)
+		return actor.invoke(ctx, operation, payload)
 	}
 	a.RUnlock()
 
 	a.Lock()
-	if ok && actor.generation >= reference.Generation() {
+	if ok && actor.reference.Generation() >= reference.Generation() {
 		a.Unlock()
-		return actor.a.Invoke(ctx, operation, payload)
+		return actor.invoke(ctx, operation, payload)
 	}
 
-	if ok && actor.generation < reference.Generation() {
+	if ok && actor.reference.Generation() < reference.Generation() {
 		// The actor is already activated, however, the generation count has
 		// increased. Therefore we need to pretend like the actor doesn't
 		// already exist and reactivate it.
-		if err := actor.a.Close(ctx); err != nil {
+		if err := actor.close(ctx); err != nil {
 			// TODO: This should probably be a warning, but if this happens
 			//       I want to understand why.
 			panic(err)
@@ -106,7 +97,7 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s, err: %w",
 				reference.ActorID(), reference.ModuleID(), err)
 		}
-		actor, err = newActivatedActor(ctx, iActor, reference.Generation())
+		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
@@ -189,7 +180,7 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s",
 				reference.ActorID(), reference.ModuleID())
 		}
-		actor, err = newActivatedActor(ctx, iActor, reference.Generation())
+		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
@@ -198,7 +189,7 @@ func (a *activations) invoke(
 	}
 
 	a.Unlock()
-	return actor.a.Invoke(ctx, operation, payload)
+	return actor.invoke(ctx, operation, payload)
 }
 
 func (a *activations) numActivatedActors() int {
@@ -207,115 +198,56 @@ func (a *activations) numActivatedActors() int {
 	return len(a._actors)
 }
 
-type hostCapabilities struct {
-	reg           registry.Registry
-	env           Environment
-	customHostFns map[string]func([]byte) ([]byte, error)
-	namespace     string
-	actorID       string
-	actorModuleID string
+type activatedActor struct {
+	// Don't access directly from outside this structs own method implementations,
+	// use methods like invoke() and close() instead.
+	_a        Actor
+	reference types.ActorReferenceVirtual
+	host      HostCapabilities
 }
 
-func newHostCapabilities(
-	reg registry.Registry,
-	env Environment,
-	customHostFns map[string]func([]byte) ([]byte, error),
-	namespace string,
-	actorID string,
-	actorModuleID string,
-) HostCapabilities {
-	return &hostCapabilities{
-		reg:           reg,
-		env:           env,
-		customHostFns: customHostFns,
-		namespace:     namespace,
-		actorID:       actorID,
-		actorModuleID: actorModuleID,
-	}
-}
-
-func (h *hostCapabilities) Put(
+func newActivatedActor(
 	ctx context.Context,
-	key []byte,
-	value []byte,
-) error {
-	return h.reg.ActorKVPut(ctx, h.namespace, h.actorID, key, value)
-}
-
-func (h *hostCapabilities) Get(
-	ctx context.Context,
-	key []byte,
-) ([]byte, bool, error) {
-	return h.reg.ActorKVGet(ctx, h.namespace, h.actorID, key)
-}
-
-func (h *hostCapabilities) CreateActor(
-	ctx context.Context,
-	req wapcutils.CreateActorRequest,
-) (CreateActorResult, error) {
-	if req.ModuleID == "" {
-		// If no module ID was specified then assume the actor is trying to "fork"
-		// itself and create the new actor using the same module as the existing
-		// actor.
-		req.ModuleID = h.actorModuleID
+	actor Actor,
+	reference types.ActorReferenceVirtual,
+	host HostCapabilities,
+) (activatedActor, error) {
+	a := activatedActor{
+		_a:        actor,
+		reference: reference,
+		host:      host,
 	}
 
-	_, err := h.reg.CreateActor(ctx, h.namespace, req.ActorID, req.ModuleID, registry.ActorOptions{})
+	_, err := a.invoke(ctx, wapcutils.StartupOperationName, nil)
 	if err != nil {
-		return CreateActorResult{}, err
-	}
-	return CreateActorResult{}, nil
-}
-
-func (h *hostCapabilities) InvokeActor(
-	ctx context.Context,
-	req wapcutils.InvokeActorRequest,
-) ([]byte, error) {
-	return h.env.InvokeActor(ctx, h.namespace, req.ActorID, req.Operation, req.Payload)
-}
-
-func (h *hostCapabilities) ScheduleInvokeActor(
-	ctx context.Context,
-	req wapcutils.ScheduleInvocationRequest,
-) error {
-	if req.Invoke.ActorID == "" {
-		// Omitted if the actor wants to schedule a delayed invocation (timer) for itself.
-		req.Invoke.ActorID = h.actorID
+		a.close(ctx)
+		return activatedActor{}, fmt.Errorf("newActivatedActor: error invoking startup function: %w", err)
 	}
 
-	// TODO: When the actor gets GC'd (which is not currently implemented), this
-	//       timer won't get GC'd with it. We should keep track of all outstanding
-	//       timers with the instantiation and terminate them if the actor is
-	//       killed.
-	time.AfterFunc(time.Duration(req.AfterMillis)*time.Millisecond, func() {
-		// Copy the payload to make sure its safe to retain across invocations.
-		payloadCopy := make([]byte, len(req.Invoke.Payload))
-		copy(payloadCopy, req.Invoke.Payload)
-		_, err := h.env.InvokeActor(ctx, h.namespace, req.Invoke.ActorID, req.Invoke.Operation, payloadCopy)
-		if err != nil {
-			log.Printf(
-				"error performing scheduled invocation from actor: %s to actor: %s for operation: %s, err: %v\n",
-				h.actorID, req.Invoke.ActorID, req.Invoke.Operation, err)
-		}
-	})
-
-	return nil
+	return a, nil
 }
 
-func (h *hostCapabilities) CustomFn(
+func (a *activatedActor) invoke(
 	ctx context.Context,
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	customFn, ok := h.customHostFns[operation]
-	if ok {
-		res, err := customFn(payload)
+	// Workers can't have KV storage because they're not global singletons like actors
+	// are. They're also not registered with the Registry explicitly, so we can skip
+	// this step in that case.
+	if a.reference.ActorID().IDType != types.IDTypeWorker {
+		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
+			return a._a.Invoke(ctx, operation, payload, tr)
+		})
 		if err != nil {
-			return nil, fmt.Errorf("error running custom host function: %s, err: %w", operation, err)
+			return nil, err
 		}
-		return res, nil
+		return result.([]byte), nil
 	}
-	return nil, fmt.Errorf(
-		"unknown host function: %s::%s::%s",
-		h.namespace, operation, payload)
+
+	return a._a.Invoke(ctx, operation, payload, nil)
+}
+
+func (a *activatedActor) close(ctx context.Context) error {
+	return a._a.Close(ctx)
 }

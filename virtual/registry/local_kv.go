@@ -12,9 +12,11 @@ import (
 // localKV is an implementation of kv backed by local memory.
 type localKV struct {
 	sync.Mutex
-	t      time.Time
-	b      *btree.BTreeG[btreeKV]
-	closed bool
+	t time.Time
+	b *btree.BTreeG[btreeKV]
+	// clone of b for current transaction, if any.
+	trClone *btree.BTreeG[btreeKV]
+	closed  bool
 }
 
 func newLocalKV() kv {
@@ -26,13 +28,43 @@ func newLocalKV() kv {
 	}
 }
 
-// TODO: This doesn't actually implement rollbacks. It's fine for now, but we should
-//
-//	make it rollback on failure so it matches FDB.
+func (l *localKV) beginTransaction(ctx context.Context) (transaction, error) {
+	l.Lock()
+	l.trClone = l.b.Clone()
+	return l, nil
+}
+
+func (l *localKV) commit(ctx context.Context) error {
+	defer l.Unlock()
+	if l.trClone == nil {
+		panic("trClone should not be nil")
+	}
+
+	l.trClone = nil
+	return nil
+}
+
+func (l *localKV) cancel(ctx context.Context) error {
+	defer l.Unlock()
+	if l.trClone == nil {
+		panic("trClone should not be nil")
+	}
+
+	l.b = l.trClone
+	l.trClone = nil
+	return nil
+}
+
 func (l *localKV) transact(fn func(transaction) (any, error)) (any, error) {
 	l.Lock()
 	defer l.Unlock()
-	return fn(l)
+
+	clone := l.b.Clone()
+	result, err := fn(l)
+	if err != nil {
+		l.b = clone
+	}
+	return result, err
 }
 
 func (l *localKV) unsafeWipeAll() error {
@@ -52,17 +84,24 @@ func (l *localKV) close(ctx context.Context) error {
 }
 
 // "transaction" method so no lock because we're already locked.
-func (l *localKV) put(k, v []byte) {
+func (l *localKV) put(
+	ctx context.Context,
+	k, v []byte,
+) error {
 	if l.closed {
 		panic("KV already closed")
 	}
 
 	// Copy v in case the caller reuses it or mutates it.
 	l.b.ReplaceOrInsert(btreeKV{k, append([]byte(nil), v...)})
+	return nil
 }
 
 // "transaction" method so no lock because we're already locked.
-func (l *localKV) get(k []byte) ([]byte, bool, error) {
+func (l *localKV) get(
+	ctx context.Context,
+	k []byte,
+) ([]byte, bool, error) {
 	if l.closed {
 		panic("KV already closed")
 	}
@@ -75,7 +114,10 @@ func (l *localKV) get(k []byte) ([]byte, bool, error) {
 }
 
 // "transaction" method so no lock because we're already locked.
-func (l *localKV) iterPrefix(prefix []byte, fn func(k, v []byte) error) error {
+func (l *localKV) iterPrefix(
+	ctx context.Context,
+	prefix []byte, fn func(k, v []byte) error,
+) error {
 	if l.closed {
 		panic("KV already closed")
 	}
@@ -104,4 +146,7 @@ func (l *localKV) getVersionStamp() (int64, error) {
 type btreeKV struct {
 	k []byte
 	v []byte
+}
+
+type localKVTransaction struct {
 }

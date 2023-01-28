@@ -213,8 +213,13 @@ func testSimpleBench(
 		_, err = reg.CreateActor(context.Background(), "bench-ns", actorID, "test-module", registry.ActorOptions{})
 		require.NoError(t, err)
 
-		_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "incFast", nil)
-		require.NoError(t, err)
+		if useWorker {
+			_, err = env.InvokeWorker(context.Background(), "bench-ns", "test-module", "incFast", nil)
+			require.NoError(t, err)
+		} else {
+			_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "incFast", nil)
+			require.NoError(t, err)
+		}
 	}
 
 	sketch, err := ddsketch.NewDefaultDDSketch(0.01)

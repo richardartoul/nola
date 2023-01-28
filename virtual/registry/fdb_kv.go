@@ -21,6 +21,14 @@ func newFDBKV(clusterFile string) (kv, error) {
 	return &fdbKV{db: db}, nil
 }
 
+func (f *fdbKV) beginTransaction(ctx context.Context) (transaction, error) {
+	tr, err := f.db.CreateTransaction()
+	if err != nil {
+		return nil, fmt.Errorf("fdbKV: beginTransaction: error creating transaction: %w", err)
+	}
+	return &fdbTransaction{tr: tr}, nil
+}
+
 func (f *fdbKV) transact(fn func(tr transaction) (any, error)) (any, error) {
 	return f.db.Transact(func(tr fdb.Transaction) (any, error) {
 		return fn(&fdbTransaction{tr})
@@ -45,11 +53,18 @@ type fdbTransaction struct {
 	tr fdb.Transaction
 }
 
-func (tr *fdbTransaction) put(k, v []byte) {
+func (tr *fdbTransaction) put(
+	ctx context.Context,
+	k, v []byte,
+) error {
 	tr.tr.Set(fdb.Key(k), v)
+	return nil
 }
 
-func (tr *fdbTransaction) get(k []byte) ([]byte, bool, error) {
+func (tr *fdbTransaction) get(
+	ctx context.Context,
+	k []byte,
+) ([]byte, bool, error) {
 	v, err := tr.tr.Get(fdb.Key(k)).Get()
 	if err != nil {
 		return nil, false, err
@@ -62,7 +77,11 @@ func (tr *fdbTransaction) get(k []byte) ([]byte, bool, error) {
 	return v, true, nil
 }
 
-func (tr *fdbTransaction) iterPrefix(prefix []byte, fn func(k, v []byte) error) error {
+func (tr *fdbTransaction) iterPrefix(
+	ctx context.Context,
+	prefix []byte,
+	fn func(k, v []byte) error,
+) error {
 	prefixRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return err
@@ -86,4 +105,13 @@ func (tr *fdbTransaction) getVersionStamp() (int64, error) {
 		return -1, err
 	}
 	return readV, nil
+}
+
+func (tr *fdbTransaction) commit(ctx context.Context) error {
+	return tr.tr.Commit().Get()
+}
+
+func (tr *fdbTransaction) cancel(ctx context.Context) error {
+	tr.tr.Cancel()
+	return nil
 }
