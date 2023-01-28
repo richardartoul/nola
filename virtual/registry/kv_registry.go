@@ -384,7 +384,7 @@ func (k *kvRegistry) BeginTransaction(
 		return nil, fmt.Errorf("kvRegistry: beginTransaction: error getting actor key: %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("kvRegistry: beginTransactionL cannot perform KV Get for actor: %s that does not exist", actorID)
+		return nil, fmt.Errorf("kvRegistry: beginTransaction: cannot perform KV Get for actor: %s that does not exist", actorID)
 	}
 
 	tr := newKVTransaction(ctx, namespace, actorID, kvTr)

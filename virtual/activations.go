@@ -63,19 +63,19 @@ func (a *activations) invoke(
 
 	a.RLock()
 	actor, ok := a._actors[reference.ActorID()]
-	if ok && actor.generation >= reference.Generation() {
+	if ok && actor.reference.Generation() >= reference.Generation() {
 		a.RUnlock()
 		return actor.invoke(ctx, operation, payload)
 	}
 	a.RUnlock()
 
 	a.Lock()
-	if ok && actor.generation >= reference.Generation() {
+	if ok && actor.reference.Generation() >= reference.Generation() {
 		a.Unlock()
 		return actor.invoke(ctx, operation, payload)
 	}
 
-	if ok && actor.generation < reference.Generation() {
+	if ok && actor.reference.Generation() < reference.Generation() {
 		// The actor is already activated, however, the generation count has
 		// increased. Therefore we need to pretend like the actor doesn't
 		// already exist and reactivate it.
@@ -104,8 +104,7 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s, err: %w",
 				reference.ActorID(), reference.ModuleID(), err)
 		}
-		actor, err = newActivatedActor(
-			ctx, iActor, reference.Generation(), hostCapabilities)
+		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
@@ -188,8 +187,7 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s",
 				reference.ActorID(), reference.ModuleID())
 		}
-		actor, err = newActivatedActor(
-			ctx, iActor, reference.Generation(), hostCapabilities)
+		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
@@ -210,21 +208,21 @@ func (a *activations) numActivatedActors() int {
 type activatedActor struct {
 	// Don't access directly from outside this structs own method implementations,
 	// use methods like invoke() and close() instead.
-	_a         Actor
-	generation uint64
-	host       HostCapabilities
+	_a        Actor
+	reference types.ActorReferenceVirtual
+	host      HostCapabilities
 }
 
 func newActivatedActor(
 	ctx context.Context,
 	actor Actor,
-	generation uint64,
+	reference types.ActorReferenceVirtual,
 	host HostCapabilities,
 ) (activatedActor, error) {
 	a := activatedActor{
-		_a:         actor,
-		generation: generation,
-		host:       host,
+		_a:        actor,
+		reference: reference,
+		host:      host,
 	}
 
 	_, err := a.invoke(ctx, wapcutils.StartupOperationName, nil)
@@ -241,17 +239,22 @@ func (a *activatedActor) invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	// This is required for module that are using WASM/wazero so we can propagate a
-	// per-invocation transaction to the hostFnRouter. The reason this is required is
-	// that the WACP implementation we're using defines a host router per-module
-	// instead of per-actor or per-invocation, so we use the context.Context to
-	// "smuggle" the actor ID into each invocation. See newHostFnRouter in wazero.go
-	// to see the implementation.
-	tr, err := a.host.BeginTransaction(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("activatedActor: invoke: error beginnig new transaction: %w", err)
+	// Workers can't have KV storage because they're not global singletons like actors
+	// are. They're also not registered with the Registry explicitly,  so we can skip
+	// this step in that case.
+	if a.reference.ActorID().IDType != types.IDTypeWorker {
+		// This is required for module that are using WASM/wazero so we can propagate a
+		// per-invocation transaction to the hostFnRouter. The reason this is required is
+		// that the WACP implementation we're using defines a host router per-module
+		// instead of per-actor or per-invocation, so we use the context.Context to
+		// "smuggle" the actor ID into each invocation. See newHostFnRouter in wazero.go
+		// to see the implementation.
+		tr, err := a.host.BeginTransaction(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("activatedActor: invoke: error beginning new transaction: %w", err)
+		}
+		ctx = context.WithValue(ctx, hostFnActorTxnKey{}, tr)
 	}
-	ctx = context.WithValue(ctx, hostFnActorTxnKey{}, tr)
 
 	return a._a.Invoke(ctx, operation, payload)
 }
