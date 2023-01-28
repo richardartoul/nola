@@ -89,11 +89,6 @@ The service discovery / heartbeating mechanism is also leveraged by the Registry
 
 See the "Playground" section of the README for instructions on how to run the playground to play around with NOLA locally.
 
-## Roadmap
-
-1. Fix the KV interface to be transactional.
-2. See #TODOs.
-
 ## Benchmarks
 
 There is a very simple set of single-threaded benchmarks in `benchmarks_test.go`. These benchmarks use a fake in-memory registry and a tiny WASM module with a function that does nothing but increment an in-memory counter. While these benchmarks are not representative of any realistic workloads, they're useful for understanding the maximum throughput which the basic NOLA framework could ever achieve in its current state.
@@ -117,12 +112,11 @@ Of course a production system will never achieve these results on a single core 
 
 # TODOs
 
-1. Transactional KV.
-2. ACL policy for module capabilities + access to host functions.
-3. Limiting actor memory usage.
-4. Scheduling.
-5. WASM modules need dedicated storage so they can be large.
-6. Cycle/dead-lock detection for inter-actor RPC.
-7. Use a queue for buffering incoming actor RPCs + backpressure.
+1. ACL policy for module capabilities + access to host functions.
+2. Limiting actor memory usage.
+3. Scheduling.
+4. WASM modules need dedicated storage so they can be large.
+5. Cycle/dead-lock detection for inter-actor RPC.
+6. Use a queue for buffering incoming actor RPCs + backpressure.
 
 So many more things.
