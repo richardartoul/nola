@@ -213,10 +213,8 @@ func testKVSimple(t *testing.T, registry Registry) {
 	ctx := context.Background()
 
 	for _, ns := range []string{"ns1", "ns2"} {
-		// Neither PUT nor GET should work until an actor exists.
-		err := registry.ActorKVPut(ctx, ns, "a", []byte("key1"), []byte("hello world"))
-		require.Error(t, err)
-		_, _, err = registry.ActorKVGet(ctx, ns, "a", []byte("key1"))
+		_, err := registry.BeginTransaction(ctx, ns, "a")
+		// Cant start transaction for actor that doesn't exist.
 		require.Error(t, err)
 
 		// Create the module/actor.
@@ -224,8 +222,19 @@ func testKVSimple(t *testing.T, registry Registry) {
 		require.NoError(t, err)
 
 		for _, actor := range []string{"1", "2", "3", "4", "5"} {
+			tr, err := registry.BeginTransaction(ctx, ns, "a")
+			// Cant start transaction for actor that doesn't exist.
+			require.Error(t, err)
+
 			_, err = registry.CreateActor(ctx, ns, actor, "test-module", ActorOptions{})
 			require.NoError(t, err)
+
+			tr, err = registry.BeginTransaction(ctx, ns, actor)
+			// Cant start transaction for actor that doesn't exist.
+			require.NoError(t, err)
+			defer func() {
+				require.NoError(t, tr.Commit(ctx))
+			}()
 
 			for i := 0; i < 10; i++ {
 				var (
@@ -233,16 +242,16 @@ func testKVSimple(t *testing.T, registry Registry) {
 					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
 				)
 				// PUT/GET should work now.
-				_, ok, err := registry.ActorKVGet(ctx, ns, actor, key)
+				_, ok, err := tr.Get(ctx, key)
 				require.NoError(t, err)
 				// key1 should not exist yet.
 				require.False(t, ok)
 
 				// Store key1 now. Subsequent GET should work.
-				err = registry.ActorKVPut(ctx, ns, actor, key, value)
+				err = tr.Put(ctx, key, value)
 				require.NoError(t, err)
 
-				val, ok, err := registry.ActorKVGet(ctx, ns, actor, key)
+				val, ok, err := tr.Get(ctx, key)
 				require.NoError(t, err)
 				require.True(t, ok)
 				require.Equal(t, value, val)
@@ -254,7 +263,7 @@ func testKVSimple(t *testing.T, registry Registry) {
 					key   = []byte(fmt.Sprintf("key-%d", i))
 					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
 				)
-				val, ok, err := registry.ActorKVGet(ctx, ns, actor, key)
+				val, ok, err := tr.Get(ctx, key)
 				require.NoError(t, err)
 				require.True(t, ok)
 				require.Equal(t, value, val)

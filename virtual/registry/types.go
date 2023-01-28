@@ -76,23 +76,20 @@ type Registry interface {
 
 // ActorStorage contains the methods for interacting with per-actor durable storage.
 type ActorStorage interface {
-	// ActorKVPut stores value at key in the provided actor's durable KV storage.
-	ActorKVPut(
+	// TODO: Comment.
+	BeginTransaction(
 		ctx context.Context,
 		namespace string,
 		actorID string,
-		key []byte,
-		value []byte,
-	) error
+	) (ActorKVTransaction, error)
+}
 
-	// ActorKVGet retrieves the value associated with key from the provided actor's
-	// durable KV storage.
-	ActorKVGet(
-		ctx context.Context,
-		namespace string,
-		actorID string,
-		key []byte,
-	) ([]byte, bool, error)
+// TODO: Comments.
+type ActorKVTransaction interface {
+	Put(ctx context.Context, key []byte, value []byte) error
+	Get(ctx context.Context, key []byte) ([]byte, bool, error)
+	Commit(ctx context.Context) error
+	Cancel(ctx context.Context) error
 }
 
 // ServiceDiscovery contains the methods for interacting with the Registry's service
