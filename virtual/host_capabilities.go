@@ -38,15 +38,13 @@ func newHostCapabilities(
 	}
 }
 
-// BIG TODO: Use lazy implementation.
-
 func (h *hostCapabilities) BeginTransaction(
 	ctx context.Context,
 ) (registry.ActorKVTransaction, error) {
-	tr, err := h.reg.BeginTransaction(ctx, h.namespace, h.actorID)
-	if err != nil {
-		return nil, fmt.Errorf("hostCapabilities: BeginTransaction: error creating transaction: %w", err)
-	}
+	// Use lazy implementation because we create an implicit transaction for every
+	// invocation which would be extremely expensive if it were not for the fact that
+	// the transaction is never actually begun unless a KV operation is initiated.
+	tr := newLazyActorTransaction(h.reg, h.namespace, h.actorID)
 	return tr, nil
 }
 
@@ -54,10 +52,8 @@ func (h *hostCapabilities) Transact(
 	ctx context.Context,
 	fn func(tr registry.ActorKVTransaction) (any, error),
 ) (any, error) {
-	tr, err := h.reg.BeginTransaction(ctx, h.namespace, h.actorID)
-	if err != nil {
-		return nil, fmt.Errorf("hostCapabilities: Transact: error creating transaction: %w", err)
-	}
+	// Use lazy implementation for same reason described in BeginTransaction() above.
+	tr := newLazyActorTransaction(h.reg, h.namespace, h.actorID)
 	result, err := fn(tr)
 	if err != nil {
 		tr.Cancel(ctx)

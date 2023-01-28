@@ -195,7 +195,7 @@ func testSimpleBench(
 	useWorker bool,
 ) {
 	// Uncomment to run.
-	t.Skip()
+	// t.Skip()
 
 	reg, err := registry.NewFoundationDBRegistry("")
 	require.NoError(t, err)
@@ -208,13 +208,15 @@ func testSimpleBench(
 	_, err = reg.RegisterModule(context.Background(), "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
-	for i := 0; i < numActors; i++ {
-		actorID := fmt.Sprintf("%d", i)
-		_, err = reg.CreateActor(context.Background(), "bench-ns", actorID, "test-module", registry.ActorOptions{})
-		require.NoError(t, err)
+	if !useWorker {
+		for i := 0; i < numActors; i++ {
+			actorID := fmt.Sprintf("%d", i)
+			_, err = reg.CreateActor(context.Background(), "bench-ns", actorID, "test-module", registry.ActorOptions{})
+			require.NoError(t, err)
 
-		_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "incFast", nil)
-		require.NoError(t, err)
+			_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "incFast", nil)
+			require.NoError(t, err)
+		}
 	}
 
 	sketch, err := ddsketch.NewDefaultDDSketch(0.01)
