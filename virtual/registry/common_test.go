@@ -257,10 +257,14 @@ func testKVSimple(t *testing.T, registry Registry) {
 				// Cant start transaction for actor from wrong server.
 				require.Error(t, err)
 
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "server1", 0)
+				// Cant start transaction for actor with stale server version.
+				require.Error(t, err)
+
 				// Finally now that we've created the actor, created a live server, ensured the
 				// actor is activated on the live server, and initiate the transaction from the
 				// server the actor should be activated on, we can begin a transaction.
-				tr, err = registry.BeginTransaction(ctx, ns, actor, "server1", 0)
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "server1", 1)
 				require.NoError(t, err)
 				defer func() {
 					require.NoError(t, tr.Commit(ctx))
