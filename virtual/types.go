@@ -104,22 +104,28 @@ type RemoteClient interface {
 
 // Module represents a "module" / template from which new actors are constructed/instantiated.
 type Module interface {
+	// Instantiate instantiates a new in-memory actor from the module.
 	Instantiate(
 		ctx context.Context,
 		id string,
 		host HostCapabilities,
 	) (Actor, error)
+	// Close closes the modules.
 	Close(ctx context.Context) error
 }
 
 // Actor represents an activated actor in memory.
 type Actor interface {
+	// Invoke invokes the specified operation on the in-memory actor with the provided
+	// payload. The transaction is invocation-specific and will automatically be
+	// committed or rolled back / canceled based on whether Invoke returns an error.
 	Invoke(
 		ctx context.Context,
 		operation string,
 		payload []byte,
 		transaction registry.ActorKVTransaction,
 	) ([]byte, error)
+	// Close closes the in-memory actor.
 	Close(ctx context.Context) error
 }
 
@@ -148,8 +154,12 @@ type HostCapabilities interface {
 
 // KV is the host KV interface exposed to each actor.
 type KV interface {
-	// TODO: comments.
+	// BeginTransaction begins a new transaction. This transaction is different from the
+	// transaction that is provided to each call to Invoke() in that its lifecycle is not
+	// managed by NOLA automatically and it is the actor's responsibility to commit or
+	// cancel the transaction when it is ready.
 	BeginTransaction(ctx context.Context) (registry.ActorKVTransaction, error)
+	// Transact is the same as BeginTransaction, except with an easier to use interface.
 	Transact(context.Context, func(tr registry.ActorKVTransaction) (any, error)) (any, error)
 }
 
