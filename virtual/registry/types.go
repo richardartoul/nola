@@ -82,6 +82,9 @@ type ActorStorage interface {
 		ctx context.Context,
 		namespace string,
 		actorID string,
+
+		serverID string,
+		serverVersion int64,
 	) (ActorKVTransaction, error)
 }
 

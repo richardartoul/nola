@@ -304,8 +304,8 @@ func (k *kvRegistry) EnsureActivation(
 
 			serverID = liveServers[0].ServerID
 			serverAddress = liveServers[0].HeartbeatState.Address
-			currActivation = newActivation(serverID, serverVersion)
 			serverVersion = liveServers[0].ServerVersion
+			currActivation = newActivation(serverID, serverVersion)
 
 			ra.Activation = currActivation
 			marshaled, err := json.Marshal(&ra)
@@ -360,6 +360,9 @@ func (k *kvRegistry) BeginTransaction(
 	ctx context.Context,
 	namespace string,
 	actorID string,
+
+	serverID string,
+	serverVersion int64,
 ) (_ ActorKVTransaction, err error) {
 	var kvTr transaction
 	kvTr, err = k.kv.beginTransaction(ctx)
@@ -373,12 +376,29 @@ func (k *kvRegistry) BeginTransaction(
 	}()
 
 	actorKey := getActorKey(namespace, actorID)
-	_, ok, err := k.getActorBytes(ctx, kvTr, actorKey)
+	ra, ok, err := k.getActor(ctx, kvTr, actorKey)
 	if err != nil {
 		return nil, fmt.Errorf("kvRegistry: beginTransaction: error getting actor key: %w", err)
 	}
 	if !ok {
 		return nil, fmt.Errorf("kvRegistry: beginTransaction: cannot perform KV Get for actor: %s that does not exist", actorID)
+	}
+
+	// We treat the tuple of <ServerID, ServerVersion> as a fencing token for all
+	// actor KV storage operations. This guarantees that actor KV storage behaves in
+	// a linearizable manner because an actor can only ever be activated on one server
+	// in the registry at a given time, therefore linearizability is maintained as long
+	// as we check that the server performing the KV storage transaction is also the
+	// server responsible for the actor's current activation.
+	if ra.Activation.ServerID != serverID {
+		return nil, fmt.Errorf(
+			"kvRegistry: beginTransaction: cannot begin transaction because server IDs do not match: %s != %s",
+			ra.Activation.ServerID, serverID)
+	}
+	if ra.Activation.ServerVersion != serverVersion {
+		return nil, fmt.Errorf(
+			"kvRegistry: beginTransaction: cannot begin transaction because server versions do not match: %d != %d",
+			ra.Activation.ServerVersion, serverVersion)
 	}
 
 	tr := newKVTransaction(ctx, namespace, actorID, kvTr)

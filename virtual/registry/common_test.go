@@ -212,8 +212,8 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 func testKVSimple(t *testing.T, registry Registry) {
 	ctx := context.Background()
 
-	for _, ns := range []string{"ns1", "ns2"} {
-		_, err := registry.BeginTransaction(ctx, ns, "a")
+	for nsIdx, ns := range []string{"ns1", "ns2"} {
+		_, err := registry.BeginTransaction(ctx, ns, "a", "server1", 0)
 		// Cant start transaction for actor that doesn't exist.
 		require.Error(t, err)
 
@@ -221,17 +221,50 @@ func testKVSimple(t *testing.T, registry Registry) {
 		_, err = registry.RegisterModule(ctx, ns, "test-module", []byte("wasm"), ModuleOptions{})
 		require.NoError(t, err)
 
-		for _, actor := range []string{"1", "2", "3", "4", "5"} {
+		for actorIdx, actor := range []string{"1", "2", "3", "4", "5"} {
 			func() {
-				tr, err := registry.BeginTransaction(ctx, ns, "a")
+				tr, err := registry.BeginTransaction(ctx, ns, "a", "server1", 0)
 				// Cant start transaction for actor that doesn't exist.
 				require.Error(t, err)
 
 				_, err = registry.CreateActor(ctx, ns, actor, "test-module", ActorOptions{})
 				require.NoError(t, err)
 
-				tr, err = registry.BeginTransaction(ctx, ns, actor)
-				// Cant start transaction for actor that doesn't exist.
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "server1", 0)
+				// Cant start transaction for actor with no activation.
+				require.Error(t, err)
+
+				if nsIdx == 0 && actorIdx == 0 {
+					// Server heartbeats span namespaces so this will only be true the
+					// first time.
+
+					// Cant ensure activation when no available servers.
+					_, err = registry.EnsureActivation(ctx, ns, actor)
+					require.Error(t, err)
+
+					// Heartbeat server so we can activate.
+					_, err = registry.Heartbeat(ctx, "server1", HeartbeatState{
+						NumActivatedActors: 0,
+						Address:            "server1_address",
+					})
+					require.NoError(t, err)
+				}
+
+				_, err = registry.EnsureActivation(ctx, ns, actor)
+				require.NoError(t, err)
+
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "server2", 0)
+				// Cant start transaction for actor from wrong server.
+				require.Error(t, err)
+
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "server1", 0)
+				// Cant start transaction for actor with stale server version.
+				require.Error(t, err)
+
+				// Finally now that we've created the actor, created a live server, ensured the
+				// actor is activated on the live server, and initiate the transaction from the
+				// server the actor should be activated on, we can begin a transaction.
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "server1", 1)
 				require.NoError(t, err)
 				defer func() {
 					require.NoError(t, tr.Commit(ctx))
