@@ -143,9 +143,9 @@ type HostCapabilities interface {
 
 // KV is the host KV interface exposed to each actor.
 type KV interface {
+	// TODO: comments.
 	BeginTransaction(ctx context.Context) (registry.ActorKVTransaction, error)
-	// Put(ctx context.Context, k, v []byte) error
-	// Get(ctx context.Context, k []byte) ([]byte, bool, error)
+	Transact(context.Context, func(tr registry.ActorKVTransaction) (any, error)) (any, error)
 }
 
 type CreateActorResult struct {

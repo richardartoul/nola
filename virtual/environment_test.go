@@ -211,6 +211,50 @@ func TestKVHostFunctions(t *testing.T) {
 	runWithDifferentConfigs(t, testFn)
 }
 
+// TestKVHostFunctionsActorsSeparatedRegression is a regression test that ensures each
+// actor gets its own dedicated KV storage, even if another exists exists created from
+// the same module.
+func TestKVHostFunctionsActorsSeparatedRegression(t *testing.T) {
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		for _, ns := range []string{"ns-1", "ns-2"} {
+			_, err := reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
+			require.NoError(t, err)
+
+			_, err = reg.CreateActor(ctx, ns, "b", "test-module", registry.ActorOptions{})
+			require.NoError(t, err)
+
+			// Inc a twice, but b once.
+			_, err = env.InvokeActor(ctx, ns, "a", "inc", nil)
+			require.NoError(t, err)
+			_, err = env.InvokeActor(ctx, ns, "a", "inc", nil)
+			require.NoError(t, err)
+			_, err = env.InvokeActor(ctx, ns, "b", "inc", nil)
+			require.NoError(t, err)
+
+			key := []byte("key")
+
+			// Persist each actor's count.
+			_, err = env.InvokeActor(ctx, ns, "a", "kvPutCount", key)
+			require.NoError(t, err)
+			_, err = env.InvokeActor(ctx, ns, "b", "kvPutCount", key)
+			require.NoError(t, err)
+
+			// Make sure we can read back the independent counts.
+			payload, err := env.InvokeActor(ctx, ns, "a", "kvGet", key)
+			require.NoError(t, err)
+			val := getCount(t, payload)
+			require.Equal(t, int64(2), val)
+
+			payload, err = env.InvokeActor(ctx, ns, "b", "kvGet", key)
+			require.NoError(t, err)
+			val = getCount(t, payload)
+			require.Equal(t, int64(1), val)
+		}
+	}
+	runWithDifferentConfigs(t, testFn)
+}
+
 // TestCreateActorHostFunction tests whether the create actor host function can be used
 // by the WASM module to create new actors on demand. In other words, this test ensures
 // that actors can create new actors.
@@ -698,13 +742,20 @@ func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byt
 		return []byte("false"), nil
 	case "kvPutCount":
 		value := []byte(fmt.Sprintf("%d", ta.count))
-		return nil, ta.host.Put(ctx, payload, value)
+		_, err := ta.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
+			err := tr.Put(ctx, payload, value)
+			return nil, err
+		})
+		return nil, err
 	case "kvGet":
-		v, _, err := ta.host.Get(ctx, payload)
+		v, err := ta.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
+			v, _, err := tr.Get(ctx, payload)
+			return v, err
+		})
 		if err != nil {
 			return nil, err
 		}
-		return v, nil
+		return v.([]byte), nil
 	case "fork":
 		_, err := ta.host.CreateActor(ctx, wapcutils.CreateActorRequest{
 			ActorID:  string(payload),

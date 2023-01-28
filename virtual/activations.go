@@ -2,13 +2,9 @@ package virtual
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
-	"time"
 
-	"github.com/richardartoul/nola/durable"
 	"github.com/richardartoul/nola/durable/durablewazero"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
@@ -58,25 +54,32 @@ func (a *activations) invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	// This is required for module that are using WASM/wazero so we can propage the actor
+	// ID to invocations of the host's capabilities. The reason this is required is that the
+	// WACP implementation we're using defines a host router per-module instead of per-actor, so
+	// we use the context.Context to "smuggle" the actor ID into each invocation. See
+	// newHostFnRouter in wazer.go to see the implementation.
+	ctx = context.WithValue(ctx, hostFnActorIDCtxKey{}, reference.ActorID().ID)
+
 	a.RLock()
 	actor, ok := a._actors[reference.ActorID()]
 	if ok && actor.generation >= reference.Generation() {
 		a.RUnlock()
-		return actor.a.Invoke(ctx, operation, payload)
+		return actor.invoke(ctx, operation, payload)
 	}
 	a.RUnlock()
 
 	a.Lock()
 	if ok && actor.generation >= reference.Generation() {
 		a.Unlock()
-		return actor.a.Invoke(ctx, operation, payload)
+		return actor.invoke(ctx, operation, payload)
 	}
 
 	if ok && actor.generation < reference.Generation() {
 		// The actor is already activated, however, the generation count has
 		// increased. Therefore we need to pretend like the actor doesn't
 		// already exist and reactivate it.
-		if err := actor.a.Close(ctx); err != nil {
+		if err := actor.close(ctx); err != nil {
 			// TODO: This should probably be a warning, but if this happens
 			//       I want to understand why.
 			panic(err)
@@ -101,7 +104,8 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s, err: %w",
 				reference.ActorID(), reference.ModuleID(), err)
 		}
-		actor, err = newActivatedActor(ctx, iActor, reference.Generation())
+		actor, err = newActivatedActor(
+			ctx, iActor, reference.Generation(), hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
@@ -138,7 +142,7 @@ func (a *activations) invoke(
 	if !ok {
 		hostFn := newHostFnRouter(
 			a.registry, a.environment, a.customHostFns,
-			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID)
+			reference.Namespace(), reference.ModuleID().ID)
 
 		if len(moduleBytes) > 0 {
 			// WASM byte codes exists for the module so we should just use that.
@@ -184,7 +188,8 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s",
 				reference.ActorID(), reference.ModuleID())
 		}
-		actor, err = newActivatedActor(ctx, iActor, reference.Generation())
+		actor, err = newActivatedActor(
+			ctx, iActor, reference.Generation(), hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
@@ -193,7 +198,7 @@ func (a *activations) invoke(
 	}
 
 	a.Unlock()
-	return actor.a.Invoke(ctx, operation, payload)
+	return actor.invoke(ctx, operation, payload)
 }
 
 func (a *activations) numActivatedActors() int {
@@ -202,161 +207,55 @@ func (a *activations) numActivatedActors() int {
 	return len(a._actors)
 }
 
-// TODO: Should have some kind of ACL enforcement polic here, but for now allow any module to
-//
-//	run any host function.
-func newHostFnRouter(
-	reg registry.Registry,
-	environment Environment,
-	customHostFns map[string]func([]byte) ([]byte, error),
-	actorNamespace string,
-	actorID string,
-	actorModuleID string,
-) func(ctx context.Context, binding, namespace, operation string, payload []byte) ([]byte, error) {
-	return func(
-		ctx context.Context,
-		wapcBinding string,
-		wapcNamespace string,
-		wapcOperation string,
-		wapcPayload []byte,
-	) ([]byte, error) {
-		switch wapcOperation {
-		case wapcutils.KVPutOperationName:
-			k, v, err := wapcutils.ExtractKVFromPutPayload(wapcPayload)
-			if err != nil {
-				return nil, fmt.Errorf("error extracting KV from PUT payload: %w", err)
-			}
-
-			if err := reg.ActorKVPut(ctx, actorNamespace, actorID, k, v); err != nil {
-				return nil, fmt.Errorf("error performing PUT against registry: %w", err)
-			}
-
-			return nil, nil
-		case wapcutils.KVGetOperationName:
-			v, ok, err := reg.ActorKVGet(ctx, actorNamespace, actorID, wapcPayload)
-			if err != nil {
-				return nil, fmt.Errorf("error performing GET against registry: %w", err)
-			}
-			if !ok {
-				return []byte{0}, nil
-			} else {
-				// TODO: Avoid these useless allocs.
-				resp := make([]byte, 0, len(v)+1)
-				resp = append(resp, 1)
-				resp = append(resp, v...)
-				return resp, nil
-			}
-		case wapcutils.CreateActorOperationName:
-			var req wapcutils.CreateActorRequest
-			if err := json.Unmarshal(wapcPayload, &req); err != nil {
-				return nil, fmt.Errorf("error unmarshaling CreateActorRequest: %w", err)
-			}
-
-			if req.ModuleID == "" {
-				// If no module ID was specified then assume the actor is trying to "fork"
-				// itself and create the new actor using the same module as the existing
-				// actor.
-				req.ModuleID = actorModuleID
-			}
-
-			if _, err := reg.CreateActor(
-				ctx, actorNamespace, req.ActorID, req.ModuleID, registry.ActorOptions{}); err != nil {
-				return nil, fmt.Errorf("error creating new actor in registry: %w", err)
-			}
-
-			return nil, nil
-
-		case wapcutils.InvokeActorOperationName:
-			var req wapcutils.InvokeActorRequest
-			if err := json.Unmarshal(wapcPayload, &req); err != nil {
-				return nil, fmt.Errorf("error unmarshaling InvokeActorRequest: %w", err)
-			}
-
-			return environment.InvokeActor(ctx, actorNamespace, req.ActorID, req.Operation, req.Payload)
-
-		case wapcutils.ScheduleInvocationOperationName:
-			var req wapcutils.ScheduleInvocationRequest
-			if err := json.Unmarshal(wapcPayload, &req); err != nil {
-				return nil, fmt.Errorf(
-					"error unmarshaling ScheduleInvocationRequest: %w, payload: %s",
-					err, string(wapcPayload))
-			}
-
-			if req.Invoke.ActorID == "" {
-				// Omitted if the actor wants to schedule a delayed invocation (timer) for itself.
-				req.Invoke.ActorID = actorID
-			}
-
-			// TODO: When the actor gets GC'd (which is not currently implemented), this
-			//       timer won't get GC'd with it. We should keep track of all outstanding
-			//       timers with the instantiation and terminate them if the actor is
-			//       killed.
-			time.AfterFunc(time.Duration(req.AfterMillis)*time.Millisecond, func() {
-				// Copy the payload to make sure its safe to retain across invocations.
-				payloadCopy := make([]byte, len(req.Invoke.Payload))
-				copy(payloadCopy, req.Invoke.Payload)
-				_, err := environment.InvokeActor(ctx, actorNamespace, req.Invoke.ActorID, req.Invoke.Operation, payloadCopy)
-				if err != nil {
-					log.Printf(
-						"error performing scheduled invocation from actor: %s to actor: %s for operation: %s, err: %v\n",
-						actorID, req.Invoke.ActorID, req.Invoke.Operation, err)
-				}
-			})
-
-			return nil, nil
-		default:
-			customFn, ok := customHostFns[wapcOperation]
-			if ok {
-				res, err := customFn(wapcPayload)
-				if err != nil {
-					return nil, fmt.Errorf("error running custom host function: %s, err: %w", wapcOperation, err)
-				}
-				return res, nil
-			}
-			return nil, fmt.Errorf(
-				"unknown host function: %s::%s::%s::%s",
-				wapcBinding, wapcNamespace, wapcOperation, wapcPayload)
-		}
-	}
-}
-
 type activatedActor struct {
-	a          Actor
+	// Don't access directly from outside this structs own method implementations,
+	// use methods like invoke() and close() instead.
+	_a         Actor
 	generation uint64
+	host       HostCapabilities
 }
 
 func newActivatedActor(
 	ctx context.Context,
 	actor Actor,
 	generation uint64,
+	host HostCapabilities,
 ) (activatedActor, error) {
-	_, err := actor.Invoke(ctx, wapcutils.StartupOperationName, nil)
+	a := activatedActor{
+		_a:         actor,
+		generation: generation,
+		host:       host,
+	}
+
+	_, err := a.invoke(ctx, wapcutils.StartupOperationName, nil)
 	if err != nil {
+		a.close(ctx)
 		return activatedActor{}, fmt.Errorf("newActivatedActor: error invoking startup function: %w", err)
 	}
 
-	return activatedActor{
-		a:          actor,
-		generation: generation,
-	}, nil
+	return a, nil
 }
 
-type wazeroModule struct {
-	m durable.Module
-}
-
-func (w wazeroModule) Instantiate(
+func (a *activatedActor) invoke(
 	ctx context.Context,
-	id string,
-	host HostCapabilities,
-) (Actor, error) {
-	obj, err := w.m.Instantiate(ctx, id)
+	operation string,
+	payload []byte,
+) ([]byte, error) {
+	// This is required for module that are using WASM/wazero so we can propagate a
+	// per-invocation transaction to the hostFnRouter. The reason this is required is
+	// that the WACP implementation we're using defines a host router per-module
+	// instead of per-actor or per-invocation, so we use the context.Context to
+	// "smuggle" the actor ID into each invocation. See newHostFnRouter in wazero.go
+	// to see the implementation.
+	tr, err := a.host.BeginTransaction(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("activatedActor: invoke: error beginnig new transaction: %w", err)
 	}
-	return obj, nil
+	ctx = context.WithValue(ctx, hostFnActorTxnKey{}, tr)
+
+	return a._a.Invoke(ctx, operation, payload)
 }
 
-func (w wazeroModule) Close(ctx context.Context) error {
-	return nil
+func (a *activatedActor) close(ctx context.Context) error {
+	return a._a.Close(ctx)
 }

@@ -38,30 +38,36 @@ func newHostCapabilities(
 	}
 }
 
+// BIG TODO: Use lazy implementation.
+
 func (h *hostCapabilities) BeginTransaction(
 	ctx context.Context,
 ) (registry.ActorKVTransaction, error) {
 	tr, err := h.reg.BeginTransaction(ctx, h.namespace, h.actorID)
 	if err != nil {
-		return nil, fmt.Errorf("hostCapabilities: beginTransaction: error creating transaction: %w", err)
+		return nil, fmt.Errorf("hostCapabilities: BeginTransaction: error creating transaction: %w", err)
 	}
 	return tr, nil
 }
 
-// func (h *hostCapabilities) Put(
-// 	ctx context.Context,
-// 	key []byte,
-// 	value []byte,
-// ) error {
-// 	return h.reg.ActorKVPut(ctx, h.namespace, h.actorID, key, value)
-// }
-
-// func (h *hostCapabilities) Get(
-// 	ctx context.Context,
-// 	key []byte,
-// ) ([]byte, bool, error) {
-// 	return h.reg.ActorKVGet(ctx, h.namespace, h.actorID, key)
-// }
+func (h *hostCapabilities) Transact(
+	ctx context.Context,
+	fn func(tr registry.ActorKVTransaction) (any, error),
+) (any, error) {
+	tr, err := h.reg.BeginTransaction(ctx, h.namespace, h.actorID)
+	if err != nil {
+		return nil, fmt.Errorf("hostCapabilities: Transact: error creating transaction: %w", err)
+	}
+	result, err := fn(tr)
+	if err != nil {
+		tr.Cancel(ctx)
+		return nil, fmt.Errorf("hostCapabilities: Transactor: %w", err)
+	}
+	if err := tr.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("hostCapabilities: Transact: error commiting transaction: %w", err)
+	}
+	return result, nil
+}
 
 func (h *hostCapabilities) CreateActor(
 	ctx context.Context,
