@@ -76,7 +76,8 @@ type Registry interface {
 
 // ActorStorage contains the methods for interacting with per-actor durable storage.
 type ActorStorage interface {
-	// TODO: Comment.
+	// BeginTransaction eagerly begins a transaction that allows the Actor to read/write
+	// its KV storage in a transactional manner.
 	BeginTransaction(
 		ctx context.Context,
 		namespace string,
@@ -84,11 +85,16 @@ type ActorStorage interface {
 	) (ActorKVTransaction, error)
 }
 
-// TODO: Comments.
+// ActorKVTransaction is the interface exposed by the Registry to Actors so they can perform
+// transactions against the actor-local KV storage.
 type ActorKVTransaction interface {
+	// Put stores the value at the provided key in the actor's KV storage.
 	Put(ctx context.Context, key []byte, value []byte) error
+	// Get is the inverse of Put.
 	Get(ctx context.Context, key []byte) ([]byte, bool, error)
+	// Commit commits the transaction, persisting all Put/Get operations.
 	Commit(ctx context.Context) error
+	// Cancel cancels the transaction, rolling back all Put/Get operations.
 	Cancel(ctx context.Context) error
 }
 

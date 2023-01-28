@@ -131,7 +131,13 @@ func (v *validator) BeginTransaction(
 	if err := validateString("actorID", namespace); err != nil {
 		return nil, err
 	}
-	return v.r.BeginTransaction(ctx, namespace, actorID)
+
+	tr, err := v.r.BeginTransaction(ctx, namespace, actorID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &kvValidator{tr}, nil
 }
 
 func (v *validator) Heartbeat(
@@ -169,4 +175,38 @@ func validateString(name, x string) error {
 	}
 
 	return nil
+}
+
+type kvValidator struct {
+	tr ActorKVTransaction
+}
+
+func (k *kvValidator) Put(ctx context.Context, key []byte, value []byte) error {
+	if len(key) == 0 {
+		return errors.New("key cannot be empty")
+	}
+	if len(key) > 1<<10 {
+		return fmt.Errorf("key cannot be > 1<<10, but was: %d", len(key))
+	}
+
+	return k.tr.Put(ctx, key, value)
+}
+
+func (k *kvValidator) Get(ctx context.Context, key []byte) ([]byte, bool, error) {
+	if len(key) == 0 {
+		return nil, false, errors.New("key cannot be empty")
+	}
+	if len(key) > 1<<10 {
+		return nil, false, fmt.Errorf("key cannot be > 1<<10, but was: %d", len(key))
+	}
+
+	return k.tr.Get(ctx, key)
+}
+
+func (k *kvValidator) Commit(ctx context.Context) error {
+	return k.tr.Commit(ctx)
+}
+
+func (k *kvValidator) Cancel(ctx context.Context) error {
+	return k.tr.Cancel(ctx)
 }
