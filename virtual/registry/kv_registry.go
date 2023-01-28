@@ -143,7 +143,7 @@ func (k *kvRegistry) CreateActor(
 		moduleKey = getModulePartKey(namespace, moduleID, 0)
 	)
 	r, err := k.kv.transact(func(tr transaction) (any, error) {
-		_, ok, err := tr.get(ctx, actorKey)
+		_, ok, err := k.getActorBytes(ctx, tr, actorKey)
 		if err != nil {
 			return nil, err
 		}
@@ -190,7 +190,7 @@ func (k *kvRegistry) IncGeneration(
 ) error {
 	actorKey := getActorKey(namespace, actorID)
 	_, err := k.kv.transact(func(tr transaction) (any, error) {
-		actorBytes, ok, err := tr.get(ctx, actorKey)
+		ra, ok, err := k.getActor(ctx, tr, actorKey)
 		if err != nil {
 			return nil, err
 		}
@@ -198,11 +198,6 @@ func (k *kvRegistry) IncGeneration(
 			return RegisterModuleResult{}, fmt.Errorf(
 				"error incrementing generation for actor with ID: %s, actor does not exist in namespace: %s",
 				actorID, namespace)
-		}
-
-		var ra registeredActor
-		if err := json.Unmarshal(actorBytes, &ra); err != nil {
-			return nil, fmt.Errorf("error unmarshaling registered actor: %w", err)
 		}
 
 		ra.Generation++
@@ -230,7 +225,7 @@ func (k *kvRegistry) EnsureActivation(
 ) ([]types.ActorReference, error) {
 	actorKey := getActorKey(namespace, actorID)
 	references, err := k.kv.transact(func(tr transaction) (any, error) {
-		v, ok, err := tr.get(ctx, actorKey)
+		ra, ok, err := k.getActor(ctx, tr, actorKey)
 		if err != nil {
 			return nil, err
 		}
@@ -240,13 +235,8 @@ func (k *kvRegistry) EnsureActivation(
 				actorID, namespace)
 		}
 
-		var ra registeredActor
-		if err := json.Unmarshal(v, &ra); err != nil {
-			return nil, fmt.Errorf("error unmarsaling registered actor with ID: %s", actorID)
-		}
-
 		serverKey := getServerKey(ra.Activation.ServerID)
-		v, ok, err = tr.get(ctx, serverKey)
+		v, ok, err := tr.get(ctx, serverKey)
 		if err != nil {
 			return nil, err
 		}
@@ -314,7 +304,7 @@ func (k *kvRegistry) EnsureActivation(
 
 			serverID = liveServers[0].ServerID
 			serverAddress = liveServers[0].HeartbeatState.Address
-			currActivation = activation{ServerID: serverID}
+			currActivation = newActivation(serverID, serverVersion)
 			serverVersion = liveServers[0].ServerVersion
 
 			ra.Activation = currActivation
@@ -383,9 +373,7 @@ func (k *kvRegistry) BeginTransaction(
 	}()
 
 	actorKey := getActorKey(namespace, actorID)
-	// TODO: This is an expensive check to run each time, consider removing this if it becomes
-	//       a bottleneck.
-	_, ok, err := kvTr.get(ctx, actorKey)
+	_, ok, err := k.getActorBytes(ctx, kvTr, actorKey)
 	if err != nil {
 		return nil, fmt.Errorf("kvRegistry: beginTransaction: error getting actor key: %w", err)
 	}
@@ -469,6 +457,42 @@ func (k *kvRegistry) UnsafeWipeAll() error {
 	return k.kv.unsafeWipeAll()
 }
 
+func (k *kvRegistry) getActorBytes(
+	ctx context.Context,
+	tr transaction,
+	actorKey []byte,
+) ([]byte, bool, error) {
+	actorBytes, ok, err := tr.get(ctx, actorKey)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	return actorBytes, true, nil
+}
+
+func (k *kvRegistry) getActor(
+	ctx context.Context,
+	tr transaction,
+	actorKey []byte,
+) (registeredActor, bool, error) {
+	actorBytes, ok, err := k.getActorBytes(ctx, tr, actorKey)
+	if err != nil {
+		return registeredActor{}, false, err
+	}
+	if !ok {
+		return registeredActor{}, false, nil
+	}
+
+	var ra registeredActor
+	if err := json.Unmarshal(actorBytes, &ra); err != nil {
+		return registeredActor{}, false, fmt.Errorf("error unmarshaling registered actor: %w", err)
+	}
+
+	return ra, true, nil
+}
+
 func getModulePrefix(namespace, moduleID string) []byte {
 	return tuple.Tuple{namespace, "modules", moduleID}.Pack()
 }
@@ -513,7 +537,15 @@ type serverState struct {
 }
 
 type activation struct {
-	ServerID string
+	ServerID      string
+	ServerVersion int64
+}
+
+func newActivation(serverID string, serverVersion int64) activation {
+	return activation{
+		ServerID:      serverID,
+		ServerVersion: serverVersion,
+	}
 }
 
 func versionSince(curr, prev int64) time.Duration {
