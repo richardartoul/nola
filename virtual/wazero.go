@@ -191,9 +191,27 @@ func (w wazeroModule) Instantiate(
 	if err != nil {
 		return nil, err
 	}
-	return obj, nil
+
+	return wazeroActor{obj}, nil
 }
 
 func (w wazeroModule) Close(ctx context.Context) error {
 	return nil
+}
+
+type wazeroActor struct {
+	obj durable.Object
+}
+
+func (w wazeroActor) Invoke(
+	ctx context.Context,
+	operation string,
+	payload []byte,
+	transaction registry.ActorKVTransaction,
+) ([]byte, error) {
+	return w.obj.Invoke(ctx, operation, payload)
+}
+
+func (w wazeroActor) Close(ctx context.Context) error {
+	return w.obj.Close(ctx)
 }

@@ -114,7 +114,12 @@ type Module interface {
 
 // Actor represents an activated actor in memory.
 type Actor interface {
-	Invoke(ctx context.Context, operation string, payload []byte) ([]byte, error)
+	Invoke(
+		ctx context.Context,
+		operation string,
+		payload []byte,
+		transaction registry.ActorKVTransaction,
+	) ([]byte, error)
 	Close(ctx context.Context) error
 }
 

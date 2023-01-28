@@ -251,7 +251,7 @@ func (a *activatedActor) invoke(
 		// to see the implementation.
 		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
 			ctx := context.WithValue(ctx, hostFnActorTxnKey{}, tr)
-			return a._a.Invoke(ctx, operation, payload)
+			return a._a.Invoke(ctx, operation, payload, tr)
 		})
 		if err != nil {
 			return nil, err
@@ -259,7 +259,7 @@ func (a *activatedActor) invoke(
 		return result.([]byte), nil
 	}
 
-	return a._a.Invoke(ctx, operation, payload)
+	return a._a.Invoke(ctx, operation, payload, nil)
 }
 
 func (a *activatedActor) close(ctx context.Context) error {

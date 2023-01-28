@@ -772,7 +772,12 @@ type testActor struct {
 	startupWasCalled bool
 }
 
-func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byte) ([]byte, error) {
+func (ta *testActor) Invoke(
+	ctx context.Context,
+	operation string,
+	payload []byte,
+	transaction registry.ActorKVTransaction,
+) ([]byte, error) {
 	switch operation {
 	case wapcutils.StartupOperationName:
 		ta.startupWasCalled = true
@@ -791,30 +796,20 @@ func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byt
 		return []byte("false"), nil
 	case "kvPutCount":
 		value := []byte(fmt.Sprintf("%d", ta.count))
-		_, err := ta.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
-			err := tr.Put(ctx, payload, value)
-			return nil, err
-		})
-		return nil, err
+		return nil, transaction.Put(ctx, payload, value)
 	case "kvPutCountError":
 		value := []byte(fmt.Sprintf("%d", ta.count))
-		_, err := ta.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
-			err := tr.Put(ctx, payload, value)
-			return nil, err
-		})
+		err := transaction.Put(ctx, payload, value)
 		if err == nil {
 			return nil, errors.New("some fake error")
 		}
 		return nil, err
 	case "kvGet":
-		v, err := ta.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
-			v, _, err := tr.Get(ctx, payload)
-			return v, err
-		})
+		v, _, err := transaction.Get(ctx, payload)
 		if err != nil {
 			return nil, err
 		}
-		return v.([]byte), nil
+		return v, nil
 	case "fork":
 		_, err := ta.host.CreateActor(ctx, wapcutils.CreateActorRequest{
 			ActorID:  string(payload),
