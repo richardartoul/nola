@@ -464,7 +464,8 @@ func (k *kvRegistry) getActorBytes(
 ) ([]byte, bool, error) {
 	actorBytes, ok, err := tr.get(ctx, actorKey)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf(
+			"error getting actor bytes for key: %s", string(actorBytes))
 	}
 	if !ok {
 		return nil, false, nil
