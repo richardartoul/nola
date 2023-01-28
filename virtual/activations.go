@@ -16,8 +16,13 @@ type activations struct {
 	sync.RWMutex
 
 	// State.
-	_modules map[types.NamespacedID]Module
-	_actors  map[types.NamespacedID]activatedActor
+	_modules    map[types.NamespacedID]Module
+	_actors     map[types.NamespacedID]activatedActor
+	serverState struct {
+		sync.RWMutex
+		serverID      string
+		serverVersion int64
+	}
 
 	// Dependencies.
 	registry      registry.Registry
@@ -89,7 +94,7 @@ func (a *activations) invoke(
 		// Module is cached, instantiate the actor then we're done.
 		hostCapabilities := newHostCapabilities(
 			a.registry, a.environment, a.customHostFns,
-			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID)
+			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID, a.getServerState)
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
 			a.Unlock()
@@ -172,7 +177,7 @@ func (a *activations) invoke(
 	if !ok {
 		hostCapabilities := newHostCapabilities(
 			a.registry, a.environment, a.customHostFns,
-			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID)
+			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID, a.getServerState)
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
 			a.Unlock()
@@ -196,6 +201,25 @@ func (a *activations) numActivatedActors() int {
 	a.RLock()
 	defer a.RUnlock()
 	return len(a._actors)
+}
+
+func (a *activations) setServerState(
+	serverID string,
+	serverVersion int64,
+) {
+	a.serverState.Lock()
+	defer a.serverState.Unlock()
+	a.serverState.serverID = serverID
+	a.serverState.serverVersion = serverVersion
+}
+
+func (a *activations) getServerState() (
+	serverID string,
+	serverVersion int64,
+) {
+	a.serverState.RLock()
+	defer a.serverState.RUnlock()
+	return a.serverState.serverID, a.serverState.serverVersion
 }
 
 type activatedActor struct {

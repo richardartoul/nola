@@ -142,6 +142,7 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 						if getCount(t, result) == 1 {
 							break
 						}
+						time.Sleep(100 * time.Millisecond)
 					}
 					continue
 				}
@@ -626,7 +627,7 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 				// a bit until heartbeat + activation cache expire.
 				_, err = env3.InvokeActor(ctx, "ns-1", "a", "inc", nil)
 				if err != nil {
-					time.Sleep(time.Millisecond)
+					time.Sleep(100 * time.Millisecond)
 					continue
 				}
 				break
@@ -676,6 +677,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 				break
 			}
 			require.NoError(t, err)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 

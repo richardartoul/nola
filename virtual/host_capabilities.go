@@ -12,12 +12,13 @@ import (
 )
 
 type hostCapabilities struct {
-	reg           registry.Registry
-	env           Environment
-	customHostFns map[string]func([]byte) ([]byte, error)
-	namespace     string
-	actorID       string
-	actorModuleID string
+	reg              registry.Registry
+	env              Environment
+	customHostFns    map[string]func([]byte) ([]byte, error)
+	namespace        string
+	actorID          string
+	actorModuleID    string
+	getServerStateFn func() (string, int64)
 }
 
 func newHostCapabilities(
@@ -27,14 +28,16 @@ func newHostCapabilities(
 	namespace string,
 	actorID string,
 	actorModuleID string,
+	getServerStateFn func() (string, int64),
 ) HostCapabilities {
 	return &hostCapabilities{
-		reg:           reg,
-		env:           env,
-		customHostFns: customHostFns,
-		namespace:     namespace,
-		actorID:       actorID,
-		actorModuleID: actorModuleID,
+		reg:              reg,
+		env:              env,
+		customHostFns:    customHostFns,
+		namespace:        namespace,
+		actorID:          actorID,
+		actorModuleID:    actorModuleID,
+		getServerStateFn: getServerStateFn,
 	}
 }
 
@@ -44,7 +47,7 @@ func (h *hostCapabilities) BeginTransaction(
 	// Use lazy implementation because we create an implicit transaction for every
 	// invocation which would be extremely expensive if it were not for the fact that
 	// the transaction is never actually begun unless a KV operation is initiated.
-	tr := newLazyActorTransaction(h.reg, h.namespace, h.actorID)
+	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.namespace, h.actorID)
 	return tr, nil
 }
 
@@ -53,7 +56,7 @@ func (h *hostCapabilities) Transact(
 	fn func(tr registry.ActorKVTransaction) (any, error),
 ) (any, error) {
 	// Use lazy implementation for same reason described in BeginTransaction() above.
-	tr := newLazyActorTransaction(h.reg, h.namespace, h.actorID)
+	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.namespace, h.actorID)
 	result, err := fn(tr)
 	if err != nil {
 		tr.Cancel(ctx)
@@ -140,9 +143,10 @@ func (h *hostCapabilities) CustomFn(
 // created / opened unless its actually needed.s
 type lazyActorTransaction struct {
 	// Dependencies.
-	store     registry.ActorStorage
-	namespace string
-	actorID   string
+	store            registry.ActorStorage
+	getServerStateFn func() (string, int64)
+	namespace        string
+	actorID          string
 
 	// State.
 	//
@@ -154,13 +158,15 @@ type lazyActorTransaction struct {
 
 func newLazyActorTransaction(
 	store registry.ActorStorage,
+	getServerStateFn func() (string, int64),
 	namespace string,
 	actorID string,
 ) registry.ActorKVTransaction {
 	return &lazyActorTransaction{
-		store:     store,
-		namespace: namespace,
-		actorID:   actorID,
+		store:            store,
+		getServerStateFn: getServerStateFn,
+		namespace:        namespace,
+		actorID:          actorID,
 	}
 }
 
@@ -238,7 +244,9 @@ func (l *lazyActorTransaction) maybeInitTr(
 			return
 		}
 
-		l.tr, l.err = l.store.BeginTransaction(ctx, l.namespace, l.actorID)
+		serverID, serverVersion := l.getServerStateFn()
+		l.tr, l.err = l.store.BeginTransaction(
+			ctx, l.namespace, l.actorID, serverID, serverVersion)
 	})
 	if l.err != nil {
 		return fmt.Errorf("maybeInitTr: error beginning lazy transaction: %w", l.err)

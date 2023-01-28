@@ -124,6 +124,9 @@ func (v *validator) BeginTransaction(
 	ctx context.Context,
 	namespace string,
 	actorID string,
+
+	serverID string,
+	serverVersion int64,
 ) (ActorKVTransaction, error) {
 	if err := validateString("namespace", namespace); err != nil {
 		return nil, err
@@ -132,7 +135,7 @@ func (v *validator) BeginTransaction(
 		return nil, err
 	}
 
-	tr, err := v.r.BeginTransaction(ctx, namespace, actorID)
+	tr, err := v.r.BeginTransaction(ctx, namespace, actorID, serverID, serverVersion)
 	if err != nil {
 		return nil, err
 	}

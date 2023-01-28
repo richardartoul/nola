@@ -369,6 +369,12 @@ func (r *environment) heartbeat() error {
 		r.heartbeatState.HeartbeatResult = result
 	}
 	r.heartbeatState.Unlock()
+
+	// Ensure the latest ServerVersion is set on the activation struct as well so
+	// that new calls to BeginTransaction() in the registry from actor's will have
+	// the most up-to-date ServerVersion, otherwise they could begin failing at
+	// some point.
+	r.activations.setServerState(r.serverID, result.ServerVersion)
 	return nil
 }
 
