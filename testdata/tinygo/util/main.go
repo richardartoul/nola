@@ -20,6 +20,7 @@ func main() {
 		"log":                           log,
 		"fail":                          fail,
 		"kvPutCount":                    putCount,
+		"kvPutCountError":               putCountError,
 		"kvGet":                         kvGet,
 		"fork":                          fork,
 		"invokeActor":                   invokeActor,
@@ -79,6 +80,20 @@ func putCount(reqPayload []byte) ([]byte, error) {
 		payload = wapcutils.EncodePutPayload(nil, reqPayload, value)
 	)
 	_, err := wapc.HostCall("wapc", "nola", wapcutils.KVPutOperationName, payload)
+	return nil, err
+}
+
+// putCountError is the same as putCount, but it forces the actor to return an
+// error which makes testing implicit KV transaction rollback easier.
+func putCountError(reqPayload []byte) ([]byte, error) {
+	var (
+		value   = []byte(fmt.Sprintf("%d", count))
+		payload = wapcutils.EncodePutPayload(nil, reqPayload, value)
+	)
+	_, err := wapc.HostCall("wapc", "nola", wapcutils.KVPutOperationName, payload)
+	if err == nil {
+		return nil, fmt.Errorf("some fake error")
+	}
 	return nil, err
 }
 

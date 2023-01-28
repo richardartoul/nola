@@ -57,7 +57,7 @@ func (h *hostCapabilities) Transact(
 	result, err := fn(tr)
 	if err != nil {
 		tr.Cancel(ctx)
-		return nil, fmt.Errorf("hostCapabilities: Transactor: %w", err)
+		return nil, fmt.Errorf("hostCapabilities: Transact: %w", err)
 	}
 	if err := tr.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("hostCapabilities: Transact: error commiting transaction: %w", err)

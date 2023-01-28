@@ -249,11 +249,14 @@ func (a *activatedActor) invoke(
 		// instead of per-actor or per-invocation, so we use the context.Context to
 		// "smuggle" the actor ID into each invocation. See newHostFnRouter in wazero.go
 		// to see the implementation.
-		tr, err := a.host.BeginTransaction(ctx)
+		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
+			ctx := context.WithValue(ctx, hostFnActorTxnKey{}, tr)
+			return a._a.Invoke(ctx, operation, payload)
+		})
 		if err != nil {
-			return nil, fmt.Errorf("activatedActor: invoke: error beginning new transaction: %w", err)
+			return nil, err
 		}
-		ctx = context.WithValue(ctx, hostFnActorTxnKey{}, tr)
+		return result.([]byte), nil
 	}
 
 	return a._a.Invoke(ctx, operation, payload)

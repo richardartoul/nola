@@ -3,6 +3,7 @@ package virtual
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"strconv"
@@ -202,6 +203,54 @@ func TestKVHostFunctions(t *testing.T) {
 				val := getCount(t, payload)
 				require.Equal(t, int64(i+1), val)
 			}
+		}
+	}
+
+	// Run the test twice with two different environments, but the same registry
+	// to simulate a node restarting and being re-initialized with the same registry
+	// to ensure the KV operations are durable if the KV itself is.
+	runWithDifferentConfigs(t, testFn)
+}
+
+// TestKVTransactions tests whether the KV interfaces from the registry can be used
+// properly within transactions, and that transactions are automatically rolled back
+// if the actor returns an error.
+func TestKVTransactions(t *testing.T) {
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		for _, ns := range []string{"ns-1"} {
+			_, err := reg.CreateActor(ctx, ns, "a", "test-module", registry.ActorOptions{})
+			require.NoError(t, err)
+
+			_, err = env.InvokeActor(ctx, ns, "a", "inc", nil)
+			require.NoError(t, err)
+
+			// Write the current count to a key.
+			key := []byte("key")
+			_, err = env.InvokeActor(ctx, ns, "a", "kvPutCount", key)
+			require.NoError(t, err)
+
+			// Read the key back and make sure the value is == the count
+			payload, err := env.InvokeActor(ctx, ns, "a", "kvGet", key)
+			require.NoError(t, err)
+			val := getCount(t, payload)
+			require.Equal(t, int64(1), val)
+
+			// Increment the count and write to KV again, but ensure the actor
+			// returns an error so the updated counter will not be committed to
+			// KV storage. This tests that implicit KV transactions are rolled
+			// back if the actor returns an error.
+			_, err = env.InvokeActor(ctx, ns, "a", "inc", nil)
+			require.NoError(t, err)
+
+			_, err = env.InvokeActor(ctx, ns, "a", "kvPutCountError", key)
+			require.True(t, strings.Contains(err.Error(), "some fake error"), err.Error())
+
+			// Count should still be 1.
+			payload, err = env.InvokeActor(ctx, ns, "a", "kvGet", key)
+			require.NoError(t, err)
+			val = getCount(t, payload)
+			require.Equal(t, int64(1), val)
 		}
 	}
 
@@ -746,6 +795,16 @@ func (ta *testActor) Invoke(ctx context.Context, operation string, payload []byt
 			err := tr.Put(ctx, payload, value)
 			return nil, err
 		})
+		return nil, err
+	case "kvPutCountError":
+		value := []byte(fmt.Sprintf("%d", ta.count))
+		_, err := ta.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
+			err := tr.Put(ctx, payload, value)
+			return nil, err
+		})
+		if err == nil {
+			return nil, errors.New("some fake error")
+		}
 		return nil, err
 	case "kvGet":
 		v, err := ta.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {

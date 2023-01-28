@@ -370,11 +370,17 @@ func (k *kvRegistry) BeginTransaction(
 	ctx context.Context,
 	namespace string,
 	actorID string,
-) (ActorKVTransaction, error) {
-	kvTr, err := k.kv.beginTransaction(ctx)
+) (_ ActorKVTransaction, err error) {
+	var kvTr transaction
+	kvTr, err = k.kv.beginTransaction(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("kvRegistry: beginTransaction: error beginning transaction: %w", err)
 	}
+	defer func() {
+		if err != nil {
+			kvTr.cancel(ctx)
+		}
+	}()
 
 	actorKey := getActorKey(namespace, actorID)
 	// TODO: This is an expensive check to run each time, consider removing this if it becomes

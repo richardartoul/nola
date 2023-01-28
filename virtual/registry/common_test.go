@@ -222,52 +222,54 @@ func testKVSimple(t *testing.T, registry Registry) {
 		require.NoError(t, err)
 
 		for _, actor := range []string{"1", "2", "3", "4", "5"} {
-			tr, err := registry.BeginTransaction(ctx, ns, "a")
-			// Cant start transaction for actor that doesn't exist.
-			require.Error(t, err)
+			func() {
+				tr, err := registry.BeginTransaction(ctx, ns, "a")
+				// Cant start transaction for actor that doesn't exist.
+				require.Error(t, err)
 
-			_, err = registry.CreateActor(ctx, ns, actor, "test-module", ActorOptions{})
-			require.NoError(t, err)
+				_, err = registry.CreateActor(ctx, ns, actor, "test-module", ActorOptions{})
+				require.NoError(t, err)
 
-			tr, err = registry.BeginTransaction(ctx, ns, actor)
-			// Cant start transaction for actor that doesn't exist.
-			require.NoError(t, err)
-			defer func() {
-				require.NoError(t, tr.Commit(ctx))
+				tr, err = registry.BeginTransaction(ctx, ns, actor)
+				// Cant start transaction for actor that doesn't exist.
+				require.NoError(t, err)
+				defer func() {
+					require.NoError(t, tr.Commit(ctx))
+				}()
+
+				for i := 0; i < 10; i++ {
+					var (
+						key   = []byte(fmt.Sprintf("key-%d", i))
+						value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
+					)
+					// PUT/GET should work now.
+					_, ok, err := tr.Get(ctx, key)
+					require.NoError(t, err)
+					// key1 should not exist yet.
+					require.False(t, ok)
+
+					// Store key1 now. Subsequent GET should work.
+					err = tr.Put(ctx, key, value)
+					require.NoError(t, err)
+
+					val, ok, err := tr.Get(ctx, key)
+					require.NoError(t, err)
+					require.True(t, ok)
+					require.Equal(t, value, val)
+				}
+
+				// Make sure we can re-read all the keys.
+				for i := 0; i < 10; i++ {
+					var (
+						key   = []byte(fmt.Sprintf("key-%d", i))
+						value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
+					)
+					val, ok, err := tr.Get(ctx, key)
+					require.NoError(t, err)
+					require.True(t, ok)
+					require.Equal(t, value, val)
+				}
 			}()
-
-			for i := 0; i < 10; i++ {
-				var (
-					key   = []byte(fmt.Sprintf("key-%d", i))
-					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
-				)
-				// PUT/GET should work now.
-				_, ok, err := tr.Get(ctx, key)
-				require.NoError(t, err)
-				// key1 should not exist yet.
-				require.False(t, ok)
-
-				// Store key1 now. Subsequent GET should work.
-				err = tr.Put(ctx, key, value)
-				require.NoError(t, err)
-
-				val, ok, err := tr.Get(ctx, key)
-				require.NoError(t, err)
-				require.True(t, ok)
-				require.Equal(t, value, val)
-			}
-
-			// Make sure we can re-read all the keys.
-			for i := 0; i < 10; i++ {
-				var (
-					key   = []byte(fmt.Sprintf("key-%d", i))
-					value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
-				)
-				val, ok, err := tr.Get(ctx, key)
-				require.NoError(t, err)
-				require.True(t, ok)
-				require.Equal(t, value, val)
-			}
 		}
 	}
 }

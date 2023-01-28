@@ -12,9 +12,11 @@ import (
 // localKV is an implementation of kv backed by local memory.
 type localKV struct {
 	sync.Mutex
-	t      time.Time
-	b      *btree.BTreeG[btreeKV]
-	closed bool
+	t time.Time
+	b *btree.BTreeG[btreeKV]
+	// clone of b for current transaction, if any.
+	trClone *btree.BTreeG[btreeKV]
+	closed  bool
 }
 
 func newLocalKV() kv {
@@ -26,23 +28,43 @@ func newLocalKV() kv {
 	}
 }
 
-// TODO: beginTranaction/commit/cancel/transact don't actually implement transactions.
 func (l *localKV) beginTransaction(ctx context.Context) (transaction, error) {
+	l.Lock()
+	l.trClone = l.b.Clone()
 	return l, nil
 }
 
 func (l *localKV) commit(ctx context.Context) error {
+	defer l.Unlock()
+	if l.trClone == nil {
+		panic("trClone should not be nil")
+	}
+
+	l.trClone = nil
 	return nil
 }
 
 func (l *localKV) cancel(ctx context.Context) error {
+	defer l.Unlock()
+	if l.trClone == nil {
+		panic("trClone should not be nil")
+	}
+
+	l.b = l.trClone
+	l.trClone = nil
 	return nil
 }
 
 func (l *localKV) transact(fn func(transaction) (any, error)) (any, error) {
 	l.Lock()
 	defer l.Unlock()
-	return fn(l)
+
+	clone := l.b.Clone()
+	result, err := fn(l)
+	if err != nil {
+		l.b = clone
+	}
+	return result, err
 }
 
 func (l *localKV) unsafeWipeAll() error {
@@ -124,4 +146,7 @@ func (l *localKV) getVersionStamp() (int64, error) {
 type btreeKV struct {
 	k []byte
 	v []byte
+}
+
+type localKVTransaction struct {
 }
