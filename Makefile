@@ -17,7 +17,7 @@ run-server-foundationdb-1:
 run-server-foundationdb-2:
 	go run cmd/app/main.go --discoveryType=localhost --registryBackend=foundationdb --port=9092
 
-run-playground:
+run-wasm-playground:
 	bash ./scripts/playground/basic.sh
 
 run-example-semaphore:
