@@ -22,27 +22,30 @@ This is not linearizable because a failure in the system has "leaked" externally
 
 Orleans is a non-linearizable, eventually consistent "AP" system. NOLA, however, is a CP system that guarantees external consistency / linearizability from an external callers perspective. This means that NOLA will become unavailable in some failure scenarios in which Orleans would have continued to function. However, in exchange, NOLA can be used as a primitive for building distributed systems that demand correctness, whereas Orleans cant. In practice we think this makes NOLA significantly more useful than it would otherwise, and enables a wide variety of use-cases that could not be built using Orleans, or which could only be implemented in Orleans by leveraging additional distributed systems as dependencies.
 
-We believe this is the right trade-off because in practice most distributed applications care about correctness. Trying to use a system like Orleans and layer strong consistent on top of it is extremely difficult, complex, and error prone. Instead, we believe that the underlying virtual actor framework should provide linearizability so the application developer can focus their attention elsewhere.
+We believe this is the right trade-off because in practice most distributed applications care about correctness. Trying to use a system like Orleans and layer strong consistency on top of it is extremely difficult, complex, and error prone. Instead, we believe that the underlying virtual actor framework should provide linearizability so the application developer can focus their attention elsewhere.
 
-Note that while NOLA is a "CP" system in the [CAP](https://en.wikipedia.org/wiki/CAP_theorem) sense, it is still a highly available and reliable system. Individual server failures are handled automatically via NOLA's heartbeating and discovery system, and actors that were activated on a server that failed or crashed will be automatically migrated to a new healthy server on subsequent invocation. In addition, the "hard parts" of guaranteeing correctness and linearizability in NOLA are offloaded to [FoundationDB](https://github.com/apple/foundationdb) which is a strongly consistent distributed database that is well known for its [reliability and fault tolerance](https://apple.github.io/foundationdb/fault-tolerance.html).
+Note that while NOLA is a "CP" system in the [CAP](https://en.wikipedia.org/wiki/CAP_theorem) sense, it is still highly available and fault tolerant. Individual server failures are handled automatically via NOLA's heartbeating and discovery system, and actors that were activated on a server that failed or crashed will be automatically migrated to a new healthy server on subsequent invocation. In addition, the "hard parts" of guaranteeing correctness and linearizability in NOLA are offloaded to [FoundationDB](https://github.com/apple/foundationdb) which is a strongly consistent distributed database that is well known for its [reliability and fault tolerance](https://apple.github.io/foundationdb/fault-tolerance.html).
 
-NOLA is still in early phases of development, however, the goal is to develop it into a production grade system that could be deployed to internal environments and used as a powerful primitive for building distributed applications.
+NOLA diverges from Olreans in one more important way which is that it also bundles durable per-actor transactional KV storage with each actor. In this sense it resembles [Cloudflare's Durable Objects](https://developers.cloudflare.com/workers/learning/using-durable-objects/).
+
+NOLA is still in early phases of development; however, the goal is to develop it into a production grade system that could be deployed to datacenter environments and used as a powerful primitive for building distributed applications.
 
 # Features
 
-NOLA is still a work in progress and arguably not yet production ready. Its current capabilities are best understood via the tests in `environment_test.go`. Summarizing, NOLA currently supports the following functionality / capabilities:
+NOLA is still a work in progress and arguably not yet production ready. Its current capabilities are best understood via the tests in `environment_test.go`. However, NOLA already has a large number of features and functionality implemented:
 
-1. Actors can be instantiated on-demand and live forever (or until they're manually removed).
-2. Communication with actors happens via RPC.
-3. Actor execution is single-threaded and all RPCs/Invocations execute atomically.
-4. Actors can spawn new actors and invoke functions on other actors.
-5. Every actor comes with its own built-in durable and fully transactional KV storage.
-6. The system is externally consistent / linerizable / strongly consistent in the same way that Cloudflare durable objects are. See our [formal model](https://github.com/richardartoul/nola/tree/master/proofs/stateright/activation-cache) for more details.
-7. Actors are "cheap". Millions of them can be created, and they can be evicted from memory when they're inactive (not actively receiving RPCs or doing useful work). An inactive actor will be "activated" on-demand as soon as someone issues an RPC for it.
-8. By default, an Actor will only ever have a single live activation in the system at any given moment. In effect, every Actor is an HA singleton that NOLA ensures is always available. Inactive actors are automatically GC'd by the system until they become active again.
-9. The system self heals by automatically detecting failed servers and removing them from the cluster. Actors on the failed server are automatically reactived on a healthy server on their next invocation/RPC.
-10. An intelligent control plane that assigns individual actors to servers based relevant criteria like load, memory usage, and locality of communication. Note that this feature is only partially implemented. Right now, NOLA will simply try and "load balance" the number of actors evenly across all available servers, but it will not take CPU or memory usage into account at all.
-11. Orleans-style timers such that activated actors can schedule function invocations to run at sometime in the future or on a regular basis.
+1. Actors can be written in pure Go (using NOLA as an embedded library) or in any language that can be compiled to WASM and uploaded to NOLA at runtime. A single application using NOLA can run a mixture of Go and WASM actors. The Go actors can even invoke the WASM actors and vice versa without issue.
+2. Actors can be instantiated on-demand and "live" forever (or until they're manually removed).
+3. Communication with actors happens via RPC.
+4. Actor execution is single-threaded and all RPCs/Invocations execute atomically.
+5. Actors can spawn new actors and invoke functions on other actors.
+6. Every actor comes with its own built-in durable and fully transactional KV storage.
+7. The system is externally consistent / linerizable / strongly consistent in the same way that Cloudflare durable objects are. See our [formal model](https://github.com/richardartoul/nola/tree/master/proofs/stateright/activation-cache) for more details.
+8. Actors are "cheap". Millions of them can be created, and they can be evicted from memory when they're inactive (not actively receiving RPCs or doing useful work). An inactive actor will be "activated" on-demand as soon as someone issues an RPC for it.
+9. By default, an Actor will only ever have a single live activation in the system at any given moment. In effect, every Actor is an HA singleton that NOLA ensures is always available. Inactive actors are automatically GC'd by the system until they become active again.
+10. The system self heals by automatically detecting failed servers and removing them from the cluster. Actors on the failed server are automatically reactived on a healthy server on their next invocation/RPC.
+11. An intelligent control plane that assigns individual actors to servers based relevant criteria like load, memory usage, and locality of communication. Note that this feature is only partially implemented. Right now, NOLA will simply try and "load balance" the number of actors evenly across all available servers, but it will not take CPU or memory usage into account at all.
+12. Orleans-style timers such that activated actors can schedule function invocations to run at sometime in the future or on a regular basis.
 
 # Key Technologies
 
