@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/richardartoul/nola/virtual/types"
+
 	"github.com/stretchr/testify/require"
 )
 
