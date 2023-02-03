@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -20,6 +21,16 @@ const (
 	// TODO: Should be configurable.
 	HeartbeatTTL = 5 * time.Second
 )
+
+var (
+	errActorDoesNotExist = errors.New("actor does not exist")
+)
+
+// IsActorDoesNotExistErr returns a boolean indicating whether the error is an
+// instance of (or wraps) errActorDoesNotExist.
+func IsActorDoesNotExistErr(err error) bool {
+	return errors.Is(err, errActorDoesNotExist)
+}
 
 type kvRegistry struct {
 	versionStampBatcher singleflight.Group
@@ -136,7 +147,7 @@ func (k *kvRegistry) CreateActor(
 	namespace,
 	actorID,
 	moduleID string,
-	opts ActorOptions,
+	opts types.ActorOptions,
 ) (CreateActorResult, error) {
 	var (
 		actorKey  = getActorKey(namespace, actorID)
@@ -230,9 +241,11 @@ func (k *kvRegistry) EnsureActivation(
 			return nil, err
 		}
 		if !ok {
+			// Make sure we use %w to wrap the errActorDoesNotExist so the caller can use
+			// errors.Is() on it.
 			return nil, fmt.Errorf(
-				"error ensuring activation of actor with ID: %s, does not exist in namespace: %s",
-				actorID, namespace)
+				"error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
+				actorID, namespace, errActorDoesNotExist)
 		}
 
 		serverKey := getServerKey(ra.Activation.ServerID)
@@ -539,7 +552,7 @@ func getServersPrefix() []byte {
 }
 
 type registeredActor struct {
-	Opts       ActorOptions
+	Opts       types.ActorOptions
 	ModuleID   string
 	Generation uint64
 	Activation activation

@@ -24,6 +24,7 @@ type Environment interface {
 		actorID string,
 		operation string,
 		payload []byte,
+		createIfNotExist types.CreateIfNotExist,
 	) ([]byte, error)
 
 	// InvokeActorDirect is the same as InvokeActor, however, it performs the invocation
@@ -137,7 +138,7 @@ type HostCapabilities interface {
 	CreateActor(context.Context, wapcutils.CreateActorRequest) (CreateActorResult, error)
 
 	// InvokeActor invokes a function on the specified actor.
-	InvokeActor(context.Context, wapcutils.InvokeActorRequest) ([]byte, error)
+	InvokeActor(context.Context, types.InvokeActorRequest) ([]byte, error)
 
 	// ScheduleInvokeActor is the same as InvokeActor, except the invocation is scheduled
 	// in memory to be run later.

@@ -35,7 +35,7 @@ type Registry interface {
 		namespace,
 		actorID,
 		moduleID string,
-		opts ActorOptions,
+		opts types.ActorOptions,
 	) (CreateActorResult, error)
 
 	// IncGeneration increments the actor's generation count. This is useful for ensuring
@@ -112,10 +112,6 @@ type ServiceDiscovery interface {
 		serverID string,
 		state HeartbeatState,
 	) (HeartbeatResult, error)
-}
-
-// ActorOptions contains the options for a given actor.
-type ActorOptions struct {
 }
 
 // CreateActorResult is the result of a call to CreateActor().

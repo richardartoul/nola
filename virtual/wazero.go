@@ -9,6 +9,7 @@ import (
 
 	"github.com/richardartoul/nola/durable"
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 )
 
@@ -91,19 +92,19 @@ func newHostFnRouter(
 			}
 
 			if _, err := reg.CreateActor(
-				ctx, actorNamespace, req.ActorID, req.ModuleID, registry.ActorOptions{}); err != nil {
+				ctx, actorNamespace, req.ActorID, req.ModuleID, types.ActorOptions{}); err != nil {
 				return nil, fmt.Errorf("error creating new actor in registry: %w", err)
 			}
 
 			return nil, nil
 
 		case wapcutils.InvokeActorOperationName:
-			var req wapcutils.InvokeActorRequest
+			var req types.InvokeActorRequest
 			if err := json.Unmarshal(wapcPayload, &req); err != nil {
 				return nil, fmt.Errorf("error unmarshaling InvokeActorRequest: %w", err)
 			}
 
-			return environment.InvokeActor(ctx, actorNamespace, req.ActorID, req.Operation, req.Payload)
+			return environment.InvokeActor(ctx, actorNamespace, req.ActorID, req.Operation, req.Payload, req.CreateIfNotExist)
 
 		case wapcutils.ScheduleInvocationOperationName:
 			var req wapcutils.ScheduleInvocationRequest
@@ -126,7 +127,8 @@ func newHostFnRouter(
 				// Copy the payload to make sure its safe to retain across invocations.
 				payloadCopy := make([]byte, len(req.Invoke.Payload))
 				copy(payloadCopy, req.Invoke.Payload)
-				_, err := environment.InvokeActor(ctx, actorNamespace, req.Invoke.ActorID, req.Invoke.Operation, payloadCopy)
+				_, err := environment.InvokeActor(
+					ctx, actorNamespace, req.Invoke.ActorID, req.Invoke.Operation, payloadCopy, req.Invoke.CreateIfNotExist)
 				if err != nil {
 					log.Printf(
 						"error performing scheduled invocation from actor: %s to actor: %s for operation: %s, err: %v\n",
