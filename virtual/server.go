@@ -104,7 +104,7 @@ func (s *server) createActor(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
-	result, err := s.registry.CreateActor(ctx, req.Namespace, req.ActorID, req.ModuleID, registry.ActorOptions{})
+	result, err := s.registry.CreateActor(ctx, req.Namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -125,11 +125,9 @@ func (s *server) createActor(w http.ResponseWriter, r *http.Request) {
 type invokeActorRequest struct {
 	ServerID  string `json:"server_id"`
 	Namespace string `json:"namespace"`
-	ActorID   string `json:"actor_id"`
-	Operation string `json:"operation"`
-	Payload   []byte `json:"payload"`
-	// Same data as Payload, but different field so it doesn't have to be encoded
-	// as base64.
+	types.InvokeActorRequest
+	// Same data as Payload (in types.InvokeActorRequest), but different field so it doesn't
+	// have to be encoded as base64.
 	PayloadJSON interface{} `json:"payload_json"`
 }
 
@@ -161,7 +159,8 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	// TODO: This should be configurable, probably in a header with some maximum.
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
-	result, err := s.environment.InvokeActor(ctx, req.Namespace, req.ActorID, req.Operation, req.Payload)
+	result, err := s.environment.InvokeActor(
+		ctx, req.Namespace, req.ActorID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))

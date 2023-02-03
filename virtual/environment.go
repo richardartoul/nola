@@ -201,12 +201,17 @@ var bufPool = sync.Pool{
 	},
 }
 
+type CreateIfNotExist struct {
+	ModuleID string `json:"ModuleID"`
+}
+
 func (r *environment) InvokeActor(
 	ctx context.Context,
 	namespace string,
 	actorID string,
 	operation string,
 	payload []byte,
+	create types.CreateIfNotExist,
 ) ([]byte, error) {
 	vs, err := r.registry.GetVersionStamp(ctx)
 	if err != nil {
@@ -233,7 +238,26 @@ func (r *environment) InvokeActor(
 		var err error
 		// TODO: Need a concurrency limiter on this thing.
 		references, err = r.registry.EnsureActivation(ctx, namespace, actorID)
-		if err != nil {
+		if registry.IsActorDoesNotExistErr(err) && create.ModuleID != "" {
+			// Actor does not exist, but caller specified we can create it on their behalf.
+			// TODO: This is racey, technically create.Options should be passed to
+			// EnsureActivation and it should be handled in that transaction, but its fine for
+			// now because it doesn't cause any correctness issues, just means a few requests
+			// may fail the first time an actor is invoked if many invocations happen
+			// concurrently but it will sort itself out automatically.
+			_, err := r.registry.CreateActor(ctx, namespace, actorID, create.ModuleID, create.Options)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"error creating non-existent actor: %s in registry: %w with options: %v",
+					actorID, err, create)
+			}
+			references, err = r.registry.EnsureActivation(ctx, namespace, actorID)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"error ensuring activation of actor: %s in registry: %w",
+					actorID, err)
+			}
+		} else if err != nil {
 			return nil, fmt.Errorf(
 				"error ensuring activation of actor: %s in registry: %w",
 				actorID, err)

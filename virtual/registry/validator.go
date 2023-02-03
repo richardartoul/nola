@@ -71,7 +71,7 @@ func (v *validator) CreateActor(
 	namespace,
 	actorID,
 	moduleID string,
-	opts ActorOptions,
+	opts types.ActorOptions,
 ) (CreateActorResult, error) {
 	if err := validateString("namespace", namespace); err != nil {
 		return CreateActorResult{}, err

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 )
 
@@ -79,7 +80,7 @@ func (h *hostCapabilities) CreateActor(
 		req.ModuleID = h.actorModuleID
 	}
 
-	_, err := h.reg.CreateActor(ctx, h.namespace, req.ActorID, req.ModuleID, registry.ActorOptions{})
+	_, err := h.reg.CreateActor(ctx, h.namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
 	if err != nil {
 		return CreateActorResult{}, err
 	}
@@ -88,9 +89,9 @@ func (h *hostCapabilities) CreateActor(
 
 func (h *hostCapabilities) InvokeActor(
 	ctx context.Context,
-	req wapcutils.InvokeActorRequest,
+	req types.InvokeActorRequest,
 ) ([]byte, error) {
-	return h.env.InvokeActor(ctx, h.namespace, req.ActorID, req.Operation, req.Payload)
+	return h.env.InvokeActor(ctx, h.namespace, req.ActorID, req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
 func (h *hostCapabilities) ScheduleInvokeActor(
@@ -110,7 +111,9 @@ func (h *hostCapabilities) ScheduleInvokeActor(
 		// Copy the payload to make sure its safe to retain across invocations.
 		payloadCopy := make([]byte, len(req.Invoke.Payload))
 		copy(payloadCopy, req.Invoke.Payload)
-		_, err := h.env.InvokeActor(ctx, h.namespace, req.Invoke.ActorID, req.Invoke.Operation, payloadCopy)
+		_, err := h.env.InvokeActor(
+			ctx, h.namespace, req.Invoke.ActorID,
+			req.Invoke.Operation, req.Invoke.Payload, req.Invoke.CreateIfNotExist)
 		if err != nil {
 			log.Printf(
 				"error performing scheduled invocation from actor: %s to actor: %s for operation: %s, err: %v\n",

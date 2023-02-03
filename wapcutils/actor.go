@@ -1,5 +1,7 @@
 package wapcutils
 
+import "github.com/richardartoul/nola/virtual/types"
+
 // CreateActorRequest is the JSON struct that represents a request from an existing
 // actor to create a new one.
 type CreateActorRequest struct {
@@ -12,23 +14,10 @@ type CreateActorRequest struct {
 	ModuleID string `json:"module_id"`
 }
 
-// InvokeActorRequest is the JSON struct that represents a request from an existing
-// actor to invoke an operation on another one.
-type InvokeActorRequest struct {
-	// ActorID is the ID of the target actor. Omit when being used inside of
-	// ScheduleInvocationRequest to target self.
-	ActorID string `json:"actor_id"`
-	// Operation is the name of the operation to invoke on the target actor.
-	Operation string `json:"operation"`
-	// Payload is the []byte payload to provide to the invoked function on the
-	// target actor.
-	Payload []byte `json:"payload"`
-}
-
 // ScheduleInvocationRequest is the JSON struct that represents a request from an
 // existing actor to invoke an operation on another one (or its self) at a later
 // time.
 type ScheduleInvocationRequest struct {
-	Invoke      InvokeActorRequest `json:"invocation"`
-	AfterMillis int                `json:"after_millis"`
+	Invoke      types.InvokeActorRequest `json:"invocation"`
+	AfterMillis int                      `json:"after_millis"`
 }

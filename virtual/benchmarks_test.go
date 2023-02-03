@@ -10,7 +10,7 @@ import (
 
 	"github.com/DataDog/sketches-go/ddsketch"
 	"github.com/richardartoul/nola/virtual/registry"
-	"github.com/richardartoul/nola/wapcutils"
+	"github.com/richardartoul/nola/virtual/types"
 
 	"github.com/stretchr/testify/require"
 )
@@ -51,14 +51,14 @@ func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
 	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(b, err)
 
-	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", registry.ActorOptions{})
+	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", types.ActorOptions{})
 	require.NoError(b, err)
 
 	defer reportOpsPerSecond(b)()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_, err = env.InvokeActor(ctx, "bench-ns", "a", "incFast", nil)
+		_, err = env.InvokeActor(ctx, "bench-ns", "a", "incFast", nil, types.CreateIfNotExist{})
 		if err != nil {
 			panic(err)
 		}
@@ -102,7 +102,7 @@ func BenchmarkLocalCreateActor(b *testing.B) {
 	defer reportOpsPerSecond(b)()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err = reg.CreateActor(ctx, "bench-ns", fmt.Sprintf("%d", i), "test-module", registry.ActorOptions{})
+		_, err = reg.CreateActor(ctx, "bench-ns", fmt.Sprintf("%d", i), "test-module", types.ActorOptions{})
 		if err != nil {
 			panic(err)
 		}
@@ -124,11 +124,11 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		actorID := fmt.Sprintf("%d", i)
-		_, err = reg.CreateActor(ctx, "bench-ns", actorID, "test-module", registry.ActorOptions{})
+		_, err = reg.CreateActor(ctx, "bench-ns", actorID, "test-module", types.ActorOptions{})
 		if err != nil {
 			panic(err)
 		}
-		_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil)
+		_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil, types.CreateIfNotExist{})
 		if err != nil {
 			panic(err)
 		}
@@ -146,12 +146,12 @@ func BenchmarkLocalActorToActorCommunication(b *testing.B) {
 	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(b, err)
 
-	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", registry.ActorOptions{})
+	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", types.ActorOptions{})
 	require.NoError(b, err)
-	_, err = reg.CreateActor(ctx, "bench-ns", "b", "test-module", registry.ActorOptions{})
+	_, err = reg.CreateActor(ctx, "bench-ns", "b", "test-module", types.ActorOptions{})
 	require.NoError(b, err)
 
-	invokeReq := wapcutils.InvokeActorRequest{
+	invokeReq := types.InvokeActorRequest{
 		ActorID:   "b",
 		Operation: "incFast",
 		Payload:   nil,
@@ -162,7 +162,7 @@ func BenchmarkLocalActorToActorCommunication(b *testing.B) {
 	defer reportOpsPerSecond(b)()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err = env.InvokeActor(ctx, "bench-ns", "a", "invokeActor", marshaled)
+		_, err = env.InvokeActor(ctx, "bench-ns", "a", "invokeActor", marshaled, types.CreateIfNotExist{})
 		if err != nil {
 			panic(err)
 		}
@@ -210,14 +210,14 @@ func testSimpleBench(
 
 	for i := 0; i < numActors; i++ {
 		actorID := fmt.Sprintf("%d", i)
-		_, err = reg.CreateActor(context.Background(), "bench-ns", actorID, "test-module", registry.ActorOptions{})
+		_, err = reg.CreateActor(context.Background(), "bench-ns", actorID, "test-module", types.ActorOptions{})
 		require.NoError(t, err)
 
 		if useWorker {
 			_, err = env.InvokeWorker(context.Background(), "bench-ns", "test-module", "incFast", nil)
 			require.NoError(t, err)
 		} else {
-			_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "incFast", nil)
+			_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "incFast", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
 		}
 	}
@@ -249,7 +249,7 @@ func testSimpleBench(
 					start := time.Now()
 					if !useWorker {
 						actorID := fmt.Sprintf("%d", i%numActors)
-						_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil)
+						_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil, types.CreateIfNotExist{})
 						if err != nil {
 							panic(err)
 						}
