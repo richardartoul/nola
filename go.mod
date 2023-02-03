@@ -11,6 +11,7 @@ require (
 	github.com/google/btree v1.1.2
 	github.com/google/uuid v1.3.0
 	github.com/lib/pq v1.10.7
+	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/stretchr/testify v1.7.1
 	github.com/tetratelabs/wazero v1.0.0-pre.5
 	github.com/wapc/wapc-go v0.5.6

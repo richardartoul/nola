@@ -5,8 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"time"
-
-	_ "github.com/lib/pq"
+    "fmt"
 )
 
 // TODO: hardcoded for now, but may be useful as a configuration option for
@@ -27,9 +26,9 @@ type sqlKVStatement struct {
 	rangeStmt  *sql.Stmt
 }
 
-func newSQLKV(ctx context.Context, url string) (kv, error) {
+func newSQLKV(driver, dsn string) (kv, error) {
     tableName := defaultTableName
-    db, err := sql.Open("postgres", url) // TODO support selecting driver at runtime
+    db, err := sql.Open(driver, dsn) // TODO support selecting driver at runtime
 	if err != nil {
 		return nil, err
 	}
@@ -39,30 +38,30 @@ func newSQLKV(ctx context.Context, url string) (kv, error) {
 		return nil, err
 	}
 
-    // TODO I believe there is a way to improve the indexing on this
-    _, err = db.Exec("CREATE TABLE IF NOT EXISTS $1 (k BLOB PRIMARY KEY, v BLOB NOT NULL)", tableName)
+    // TODO Improve indexing
+    _, err = db.Exec("CREATE TABLE IF NOT EXISTS nola_kv (k BLOB PRIMARY KEY, v BLOB NOT NULL);")
 	if err != nil {
-		return nil, err
+        return nil, fmt.Errorf("failed to create table: %w", err)
 	}
 
-	setStmt, err := db.Prepare("INSERT INTO $1 (k, v) VALUES ($2, $3) ON CONFLICT (k) DO UPDATE SET v = $3")
+	setStmt, err := db.Prepare("INSERT INTO nola_kv (k, v) VALUES (?,?) ON CONFLICT (k) DO UPDATE SET v=?;")
 	if err != nil {
-		return nil, err
+        return nil, fmt.Errorf("failed to prepare insert statement: %w", err)
 	}
 
-	getStmt, err := db.Prepare("SELECT v FROM $1 WHERE k = $2")
+	getStmt, err := db.Prepare("SELECT v FROM nola_kv WHERE k=?;")
 	if err != nil {
-		return nil, err
+        return nil, fmt.Errorf("failed to prepare select statement: %w", err)
 	}
 
-	deleteStmt, err := db.Prepare("DELETE FROM $1 where k = $2")
+	deleteStmt, err := db.Prepare("DELETE FROM nola_kv where k=?;")
 	if err != nil {
-		return nil, err
+        return nil, fmt.Errorf("failed to prepare delete statement: %w", err)
 	}
 
-	rangeStmt, err := db.Prepare("SELECT (k, v) FROM $1 WHERE k LIKE $2%")
+	rangeStmt, err := db.Prepare("SELECT k, v FROM nola_kv WHERE k LIKE '?%';")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to prepare range statement: %w", err)
 	}
 
 	return &sqlKV{
@@ -116,8 +115,12 @@ func (sqlkv *sqlKV) close(ctx context.Context) error {
 }
 
 func (sqlkv *sqlKV) unsafeWipeAll() error {
-	_, err := sqlkv.db.Exec("DELETE FROM $1", sqlkv.tableName)
-	return err
+	_, err := sqlkv.db.Exec("DELETE FROM nola_kv;")
+	if err != nil {
+        return fmt.Errorf("failed to wipe table: %w", err)
+    }
+
+    return nil
 }
 
 type sqlTransactionKV struct {
@@ -126,25 +129,25 @@ type sqlTransactionKV struct {
 }
 
 func (sqltransactionkv *sqlKVStatement) put(ctx context.Context, key []byte, value []byte) error {
-	_, err := sqltransactionkv.setStmt.ExecContext(ctx, sqltransactionkv.tableName, key, value)
+	_, err := sqltransactionkv.setStmt.ExecContext(ctx, key, value, value)
 	return err
 }
 
 func (sqltransactionkv *sqlKVStatement) get(ctx context.Context, key []byte) ([]byte, bool, error) {
 	var data []byte
 
-	err := sqltransactionkv.getStmt.QueryRowContext(ctx, sqltransactionkv.tableName, key).Scan(&data)
+	err := sqltransactionkv.getStmt.QueryRowContext(ctx, key).Scan(&data)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, err
+        return nil, false, nil
 	} else if err != nil {
-		return nil, false, err
+        return nil, false, fmt.Errorf("failed to get kv: %w", err)
 	}
 
 	return data, true, nil
 }
 
 func (sqltransactionkv *sqlKVStatement) iterPrefix(ctx context.Context, prefix []byte, fn func(k, v []byte) error) error {
-	rows, err := sqltransactionkv.rangeStmt.QueryContext(ctx, sqltransactionkv.tableName, prefix)
+	rows, err := sqltransactionkv.rangeStmt.QueryContext(ctx, prefix)
 	if err != nil {
 	    return err
     }
