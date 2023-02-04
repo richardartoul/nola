@@ -1,5 +1,6 @@
 module github.com/richardartoul/nola
 
+// Update in GH Actions too
 go 1.19
 
 require (
