@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
-    "fmt"
 )
 
 // TODO: hardcoded for now, but may be useful as a configuration option for
@@ -27,8 +27,8 @@ type sqlKVStatement struct {
 }
 
 func newSQLKV(driver, dsn string) (kv, error) {
-    tableName := defaultTableName
-    db, err := sql.Open(driver, dsn) // TODO support selecting driver at runtime
+	tableName := defaultTableName
+	db, err := sql.Open(driver, dsn) // TODO support selecting driver at runtime
 	if err != nil {
 		return nil, err
 	}
@@ -42,25 +42,25 @@ func newSQLKV(driver, dsn string) (kv, error) {
 		return nil, err
 	}
 
-    // TODO Improve indexing
-    _, err = db.Exec("CREATE TABLE IF NOT EXISTS nola_kv (k BLOB PRIMARY KEY, v BLOB NOT NULL);")
+	// TODO Improve indexing
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS nola_kv (k BLOB PRIMARY KEY, v BLOB NOT NULL);")
 	if err != nil {
-        return nil, fmt.Errorf("failed to create table: %w", err)
+		return nil, fmt.Errorf("failed to create table: %w", err)
 	}
 
 	setStmt, err := db.Prepare("INSERT INTO nola_kv (k, v) VALUES (?,?) ON CONFLICT (k) DO UPDATE SET v=?;")
 	if err != nil {
-        return nil, fmt.Errorf("failed to prepare insert statement: %w", err)
+		return nil, fmt.Errorf("failed to prepare insert statement: %w", err)
 	}
 
 	getStmt, err := db.Prepare("SELECT v FROM nola_kv WHERE k=?;")
 	if err != nil {
-        return nil, fmt.Errorf("failed to prepare select statement: %w", err)
+		return nil, fmt.Errorf("failed to prepare select statement: %w", err)
 	}
 
 	deleteStmt, err := db.Prepare("DELETE FROM nola_kv where k=?;")
 	if err != nil {
-        return nil, fmt.Errorf("failed to prepare delete statement: %w", err)
+		return nil, fmt.Errorf("failed to prepare delete statement: %w", err)
 	}
 
 	rangeStmt, err := db.Prepare("SELECT k, v FROM nola_kv WHERE k LIKE ?;")
@@ -71,7 +71,7 @@ func newSQLKV(driver, dsn string) (kv, error) {
 	return &sqlKV{
 		db: db,
 		sqlKVStatement: sqlKVStatement{
-			vst: time.Now(),
+			vst:        time.Now(),
 			tableName:  tableName,
 			setStmt:    setStmt,
 			getStmt:    getStmt,
@@ -93,12 +93,12 @@ func (sqlkv *sqlKV) beginTransaction(ctx context.Context) (transaction, error) {
 		setStmt:    tx.StmtContext(ctx, sqlkv.setStmt),
 		getStmt:    tx.StmtContext(ctx, sqlkv.getStmt),
 		deleteStmt: tx.StmtContext(ctx, sqlkv.deleteStmt),
-		rangeStmt: tx.StmtContext(ctx, sqlkv.rangeStmt),
+		rangeStmt:  tx.StmtContext(ctx, sqlkv.rangeStmt),
 	}}, nil
 }
 
 func (sqlkv *sqlKV) transact(txfn func(transaction) (any, error)) (any, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second * 5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	tx, err := sqlkv.beginTransaction(ctx)
 	if err != nil {
@@ -125,10 +125,10 @@ func (sqlkv *sqlKV) close(ctx context.Context) error {
 func (sqlkv *sqlKV) unsafeWipeAll() error {
 	_, err := sqlkv.db.Exec("DELETE FROM nola_kv;")
 	if err != nil {
-        return fmt.Errorf("failed to wipe table: %w", err)
-    }
+		return fmt.Errorf("failed to wipe table: %w", err)
+	}
 
-    return nil
+	return nil
 }
 
 type sqlTransactionKV struct {
@@ -146,9 +146,9 @@ func (sqltransactionkv *sqlKVStatement) get(ctx context.Context, key []byte) ([]
 
 	err := sqltransactionkv.getStmt.QueryRowContext(ctx, key).Scan(&data)
 	if errors.Is(err, sql.ErrNoRows) {
-        return nil, false, nil
+		return nil, false, nil
 	} else if err != nil {
-        return nil, false, fmt.Errorf("failed to get kv: %w", err)
+		return nil, false, fmt.Errorf("failed to get kv: %w", err)
 	}
 
 	return data, true, nil
@@ -158,27 +158,27 @@ func (sqltransactionkv *sqlKVStatement) iterPrefix(ctx context.Context, prefix [
 	rows, err := sqltransactionkv.rangeStmt.QueryContext(ctx, append(prefix, '%'))
 	if err != nil {
 		return fmt.Errorf("failed to execute iterprefix: %w", err)
-    }
+	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var key []byte
 		var value []byte
-        if err := rows.Scan(&key, &value); err != nil {
-		    return err
-        }
+		if err := rows.Scan(&key, &value); err != nil {
+			return err
+		}
 
-        err = fn(key, value)
-        if err != nil {
-            return err
-        }
+		err = fn(key, value)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := rows.Err(); err != nil {
-	    return err
-    }
+		return err
+	}
 
-    return nil
+	return nil
 }
 
 func (sqltransactionkv *sqlTransactionKV) getVersionStamp() (int64, error) {

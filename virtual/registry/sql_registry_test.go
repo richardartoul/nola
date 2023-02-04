@@ -1,11 +1,10 @@
 package registry
 
 import (
-    "testing"
+	"testing"
 
 	"github.com/stretchr/testify/require"
 )
-
 
 func TestSQLRegistry(t *testing.T) {
 	testAllCommon(t, func() Registry {
@@ -17,4 +16,3 @@ func TestSQLRegistry(t *testing.T) {
 		return registry
 	})
 }
-
