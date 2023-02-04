@@ -9,7 +9,7 @@ import (
 
 func TestSQLRegistry(t *testing.T) {
 	testAllCommon(t, func() Registry {
-		registry, err := newTestSQLRegistry()
+		registry, err := newTestSQLRegistry(t)
 		require.NoError(t, err)
 
 		registry.UnsafeWipeAll()

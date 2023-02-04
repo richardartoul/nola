@@ -33,6 +33,10 @@ func newSQLKV(driver, dsn string) (kv, error) {
 		return nil, err
 	}
 
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxIdleTime(0)
+
 	err = db.Ping()
 	if err != nil {
 		return nil, err
@@ -59,7 +63,7 @@ func newSQLKV(driver, dsn string) (kv, error) {
         return nil, fmt.Errorf("failed to prepare delete statement: %w", err)
 	}
 
-	rangeStmt, err := db.Prepare("SELECT k, v FROM nola_kv WHERE k LIKE '?%';")
+	rangeStmt, err := db.Prepare("SELECT k, v FROM nola_kv WHERE k LIKE ?;")
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare range statement: %w", err)
 	}
@@ -67,6 +71,7 @@ func newSQLKV(driver, dsn string) (kv, error) {
 	return &sqlKV{
 		db: db,
 		sqlKVStatement: sqlKVStatement{
+			vst: time.Now(),
 			tableName:  tableName,
 			setStmt:    setStmt,
 			getStmt:    getStmt,
@@ -88,11 +93,14 @@ func (sqlkv *sqlKV) beginTransaction(ctx context.Context) (transaction, error) {
 		setStmt:    tx.StmtContext(ctx, sqlkv.setStmt),
 		getStmt:    tx.StmtContext(ctx, sqlkv.getStmt),
 		deleteStmt: tx.StmtContext(ctx, sqlkv.deleteStmt),
+		rangeStmt: tx.StmtContext(ctx, sqlkv.rangeStmt),
 	}}, nil
 }
 
 func (sqlkv *sqlKV) transact(txfn func(transaction) (any, error)) (any, error) {
-	tx, err := sqlkv.beginTransaction(context.TODO()) // TODO add context
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second * 5)
+	defer cancel()
+	tx, err := sqlkv.beginTransaction(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -147,9 +155,9 @@ func (sqltransactionkv *sqlKVStatement) get(ctx context.Context, key []byte) ([]
 }
 
 func (sqltransactionkv *sqlKVStatement) iterPrefix(ctx context.Context, prefix []byte, fn func(k, v []byte) error) error {
-	rows, err := sqltransactionkv.rangeStmt.QueryContext(ctx, prefix)
+	rows, err := sqltransactionkv.rangeStmt.QueryContext(ctx, append(prefix, '%'))
 	if err != nil {
-	    return err
+		return fmt.Errorf("failed to execute iterprefix: %w", err)
     }
 	defer rows.Close()
 

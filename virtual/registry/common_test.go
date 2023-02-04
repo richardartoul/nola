@@ -31,9 +31,13 @@ func testAllCommon(t *testing.T, registryCtor func() Registry) {
 func testRegistrySimple(t *testing.T, registry Registry) {
 	ctx := context.Background()
 
+	t.Log("first")
+
 	// Create module.
 	_, err := registry.RegisterModule(ctx, "ns1", "test-module", []byte("wasm"), ModuleOptions{})
 	require.NoError(t, err)
+
+	t.Log("here")
 
 	// Subsequent module for same namespace should fail.
 	_, err = registry.RegisterModule(ctx, "ns1", "test-module", []byte("wasm"), ModuleOptions{})
