@@ -2,15 +2,19 @@ package registry
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
+	"database/sql"
+
+	_ "github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// TODO: hardcoded for now, but may be useful as a configuration option for
-// some type of isolation
-const defaultTableName = "nola_kv"
+const (
+	defaultTableName = "nola_kv"
+	postgresKVDriverName = "postgres"
+)
 
 type sqlKV struct {
 	db *sql.DB
@@ -26,46 +30,43 @@ type sqlKVStatement struct {
 	rangeStmt  *sql.Stmt
 }
 
-func newSQLKV(driver, dsn string) (kv, error) {
+func newPostgresSQLKV(dsn string) (kv, error) {
 	tableName := defaultTableName
-	db, err := sql.Open(driver, dsn) // TODO support selecting driver at runtime
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open %q connection: %w", postgresKVDriverName, err)
 	}
-
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxIdleTime(0)
 
 	err = db.Ping()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to ping database (%q), faild init: %w", postgresKVDriverName, err)
 	}
 
-	// TODO Improve indexing
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS nola_kv (k BLOB PRIMARY KEY, v BLOB NOT NULL);")
+	// XXX Could we possibly index the part of the prefix to improve the
+	// performance of iterRange?
+	_, err = db.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %v (k BYTEA PRIMARY KEY, v BYTEA NOT NULL);", defaultTableName))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create table: %w", err)
+		return nil, fmt.Errorf("failed to create table (%q): %w", postgresKVDriverName, err)
 	}
 
-	setStmt, err := db.Prepare("INSERT INTO nola_kv (k, v) VALUES (?,?) ON CONFLICT (k) DO UPDATE SET v=?;")
+	setStmt, err := db.Prepare(fmt.Sprintf("INSERT INTO %q (k, v) VALUES ($1,$2) ON CONFLICT (k) DO UPDATE SET v=$2;", tableName))
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare insert statement: %w", err)
+		return nil, fmt.Errorf("failed to prepare insert statement (%q): %w", postgresKVDriverName, err)
 	}
 
-	getStmt, err := db.Prepare("SELECT v FROM nola_kv WHERE k=?;")
+	getStmt, err := db.Prepare(fmt.Sprintf("SELECT v FROM %v WHERE k=$1;", tableName))
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare select statement: %w", err)
+		return nil, fmt.Errorf("failed to prepare select statement (%q): %w", postgresKVDriverName, err)
 	}
 
-	deleteStmt, err := db.Prepare("DELETE FROM nola_kv where k=?;")
+	deleteStmt, err := db.Prepare(fmt.Sprintf("DELETE FROM %v where k=$1;", tableName))
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare delete statement: %w", err)
+		return nil, fmt.Errorf("failed to prepare delete statement (%q): %w", postgresKVDriverName, err)
 	}
 
-	rangeStmt, err := db.Prepare("SELECT k, v FROM nola_kv WHERE k LIKE ?;")
+	rangeStmt, err := db.Prepare(fmt.Sprintf("SELECT k, v FROM %v WHERE k LIKE $1;", tableName))
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare range statement: %w", err)
+		return nil, fmt.Errorf("failed to prepare range statement (%q): %w", postgresKVDriverName, err)
 	}
 
 	return &sqlKV{
@@ -84,7 +85,7 @@ func newSQLKV(driver, dsn string) (kv, error) {
 func (sqlkv *sqlKV) beginTransaction(ctx context.Context) (transaction, error) {
 	tx, err := sqlkv.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to start transaction (%q): %w", postgresKVDriverName, err)
 	}
 
 	return &sqlTransactionKV{tx: tx, sqlKVStatement: &sqlKVStatement{
@@ -98,21 +99,24 @@ func (sqlkv *sqlKV) beginTransaction(ctx context.Context) (transaction, error) {
 }
 
 func (sqlkv *sqlKV) transact(txfn func(transaction) (any, error)) (any, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	// This limits the total time of the transaction to 10sec including the time
+	// to start/stop. FDB has a max 5sec transaction, which we're aiming for
+	// here.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 	tx, err := sqlkv.beginTransaction(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed transact begin: %w", err)
 	}
 
 	rt, err := txfn(tx)
 	if err != nil {
-		return nil, err
+		return nil, err // user supplied error
 	}
 
-	err = tx.commit(context.TODO())
+	err = tx.commit(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed transact commit: %w", err)
 	}
 
 	return rt, nil
@@ -123,7 +127,7 @@ func (sqlkv *sqlKV) close(ctx context.Context) error {
 }
 
 func (sqlkv *sqlKV) unsafeWipeAll() error {
-	_, err := sqlkv.db.Exec("DELETE FROM nola_kv;")
+	_, err := sqlkv.db.Exec("DELETE FROM $1;", defaultTableName)
 	if err != nil {
 		return fmt.Errorf("failed to wipe table: %w", err)
 	}
@@ -138,7 +142,11 @@ type sqlTransactionKV struct {
 
 func (sqltransactionkv *sqlKVStatement) put(ctx context.Context, key []byte, value []byte) error {
 	_, err := sqltransactionkv.setStmt.ExecContext(ctx, key, value, value)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to put (%q): %w", postgresKVDriverName, err)
+	}
+
+	return nil
 }
 
 func (sqltransactionkv *sqlKVStatement) get(ctx context.Context, key []byte) ([]byte, bool, error) {
@@ -165,30 +173,49 @@ func (sqltransactionkv *sqlKVStatement) iterPrefix(ctx context.Context, prefix [
 		var key []byte
 		var value []byte
 		if err := rows.Scan(&key, &value); err != nil {
-			return err
+			return fmt.Errorf("failed to scan in iterPrefix: %w", err)
 		}
 
 		err = fn(key, value)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to apply iterPrefix function %w", err)
 		}
 	}
 
 	if err := rows.Err(); err != nil {
-		return err
+		return fmt.Errorf("failed to list rows when iterating prefix: %w", err)
 	}
 
 	return nil
 }
 
 func (sqltransactionkv *sqlTransactionKV) getVersionStamp() (int64, error) {
-	return time.Since(sqltransactionkv.vst).Microseconds(), nil
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	var now time.Time
+	err := sqltransactionkv.tx.QueryRowContext(ctx, "SELECT NOW() AT TIMEZONE 'UTC';").Scan(&now)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get versionstamp (%q): %w", postgresKVDriverName, err)
+	}
+
+	return now.UTC().UnixMicro(), nil
 }
 
 func (sqltransactionkv *sqlTransactionKV) commit(ctx context.Context) error {
-	return sqltransactionkv.tx.Commit()
+	err := sqltransactionkv.tx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction (%q): %w", postgresKVDriverName, err)
+	}
+
+	return nil
 }
 
 func (sqltransactionkv *sqlTransactionKV) cancel(ctx context.Context) error {
-	return sqltransactionkv.tx.Rollback()
+	err := sqltransactionkv.tx.Rollback()
+	if err != nil {
+		return fmt.Errorf("failed to cancel transaction (%q): %w", postgresKVDriverName, err)
+	}
+
+	return nil
 }

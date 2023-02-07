@@ -8,7 +8,7 @@ import (
 
 func TestSQLRegistry(t *testing.T) {
 	testAllCommon(t, func() Registry {
-		registry, err := newTestSQLRegistry(t)
+		registry, err := NewPostgresSQLRegistry("postgres://postgres:test1234@localhost:5432/postgres?sslmode=disable")
 		require.NoError(t, err)
 
 		registry.UnsafeWipeAll()

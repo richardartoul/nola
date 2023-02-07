@@ -19,8 +19,9 @@ var (
 	port                        = flag.Int("port", 9090, "TCP port for HTTP server to bind")
 	serverID                    = flag.String("serverID", uuid.New().String(), "ID to identify the server. Must be globally unique within the cluster")
 	discoveryType               = flag.String("discoveryType", virtual.DiscoveryTypeLocalHost, "how the server should register itself with the discovery serice. Valid options: localhost|remote. Use localhost for local testing, use remote for multi-node setups")
-	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb")
+	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb|postgres")
 	foundationDBClusterFilePath = flag.String("foundationDBClusterFilePath", "", "path to use for the FoundationDB cluster file")
+	postgresDSN                 = flag.String("postgresDSN", "", "postgres dsn for registry storage")
 )
 
 func main() {
@@ -39,6 +40,12 @@ func main() {
 		reg, err = registry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
 		if err != nil {
 			log.Fatalf("error creating FoundationDB registry: %v\n", err)
+		}
+	case "postgres":
+		var err error
+		reg, err = registry.NewPostgresSQLRegistry(*postgresDSN)
+		if err != nil {
+			log.Fatalf("error creating postgres registry: %v\n", err)
 		}
 	default:
 		log.Fatalf("unknown registry type: %v", *registryType)
