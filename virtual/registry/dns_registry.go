@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"log"
 	"net"
 	"sync"
@@ -12,29 +13,52 @@ import (
 	"github.com/richardartoul/nola/virtual/types"
 )
 
+const (
+	DNSServerID          = "DNS_SERVER_ID"
+	DNSServerVersion     = int64(-1)
+	DNSModuleID          = "DNS_MODULE_ID"
+	DNS_ACTOR_GENERATION = 01
+)
+
 type dnsResolver interface {
 	LookupIP(host string) ([]net.IP, error)
 }
 
 type dnsRegistry struct {
-	sync.Mutex
+	sync.RWMutex
 
+	// Dependencies.
 	resolver dnsResolver
 	host     string
-	ips      []net.IP
+	opts     DNSRegistryOptions
 
+	// State.
+	ips      []net.IP
+	hashRing *HashRing
+
+	// Shutdown logic.
 	discoveryRunning bool
 	closeCh          chan struct{}
 	closedCh         chan struct{}
 }
 
+type DNSRegistryOptions struct {
+	ResolveEvery time.Duration
+}
+
 func NewDNSRegistry(
 	resolver dnsResolver,
 	host string,
+	opts DNSRegistryOptions,
 ) (Registry, error) {
+	if opts.ResolveEvery == 0 {
+		opts.ResolveEvery = 5 * time.Second
+	}
+
 	d := &dnsRegistry{
 		resolver: resolver,
 		host:     host,
+		opts:     opts,
 
 		closeCh:  make(chan struct{}),
 		closedCh: make(chan struct{}),
@@ -93,7 +117,24 @@ func (d *dnsRegistry) EnsureActivation(
 	namespace,
 	actorID string,
 ) ([]types.ActorReference, error) {
-	return nil, errors.New("DNSRegistry: EnsureActivation: not implemented")
+	d.RLock()
+	ring := d.hashRing
+	d.RUnlock()
+
+	if ring.IsEmpty() {
+		return nil, fmt.Errorf("EnsureActivation: hashring is empty")
+	}
+
+	serverIP := ring.Get(actorID)
+	ref, err := types.NewActorReference(
+		DNSServerID, DNSServerVersion, serverIP, namespace,
+		DNSModuleID, actorID, DNS_ACTOR_GENERATION)
+	if err != nil {
+		return nil, fmt.Errorf("error creating actor reference: %w", err)
+	}
+
+	return []types.ActorReference{ref}, nil
+
 }
 
 func (d *dnsRegistry) GetVersionStamp(
@@ -139,9 +180,18 @@ func (d *dnsRegistry) discover() error {
 		return fmt.Errorf("discover: error looking up IPs: %w", err)
 	}
 
+	// crc32.ChecksumIEEE because thats the default groupcache uses
+	// https://github.com/golang/groupcache/blob/41bb18bfe9da5321badc438f91158cd790a33aa3/http.go#L72
+	// should investigate if we should pick a different value.
+	hashRing := NewHashRing(64, crc32.ChecksumIEEE)
+	for _, ip := range ips {
+		hashRing.Add(ip.To4().String())
+	}
+
 	d.Lock()
 	oldIPs := d.ips
 	d.ips = ips
+	d.hashRing = hashRing
 	d.Unlock()
 
 	if len(d.ips) != len(oldIPs) {
@@ -162,7 +212,7 @@ func (d *dnsRegistry) discoveryLoop() {
 	d.Unlock()
 
 	defer close(d.closedCh)
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(d.opts.ResolveEvery)
 	for {
 		select {
 		case <-ticker.C:
