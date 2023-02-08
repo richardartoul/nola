@@ -163,6 +163,7 @@ func (a *activations) invoke(
 				ModuleID().Namespace, reference.ModuleID().ID)
 			goMod, ok := a.goModules[goModID]
 			if !ok {
+				a.Unlock()
 				return nil, fmt.Errorf(
 					"error constructing module: %s, hard-coded Go module does not exist",
 					reference.ModuleID())

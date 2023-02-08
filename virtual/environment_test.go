@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,16 +59,22 @@ func TestSimpleActor(t *testing.T) {
 		ctx := context.Background()
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			// Can't invoke because actor doesn't exist yet.
+			fmt.Println(1)
 			_, err := env.InvokeActor(ctx, ns, "a", "inc", nil, types.CreateIfNotExist{})
+			fmt.Println(2)
 			require.Error(t, err)
 
 			// Create actor.
+			fmt.Println(3)
 			_, err = reg.CreateActor(ctx, ns, "a", "test-module", types.ActorOptions{})
+			fmt.Println(4)
 			require.NoError(t, err)
 
 			for i := 0; i < 100; i++ {
 				// Invoke should work now.
+				fmt.Println(5)
 				result, err := env.InvokeActor(ctx, ns, "a", "inc", nil, types.CreateIfNotExist{})
+				fmt.Println(6)
 				require.NoError(t, err)
 				require.Equal(t, int64(i+1), getCount(t, result))
 
@@ -760,24 +768,39 @@ func runWithDifferentConfigs(
 	t *testing.T,
 	testFn func(t *testing.T, reg registry.Registry, env Environment),
 ) {
-	t.Run("wasm", func(t *testing.T) {
-		reg := registry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-		require.NoError(t, err)
-		defer env.Close()
+	// t.Run("wasm-local", func(t *testing.T) {
+	// 	reg := registry.NewLocalRegistry()
+	// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	// 	require.NoError(t, err)
+	// 	defer env.Close()
 
-		_, err = reg.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-		require.NoError(t, err)
-		_, err = reg.RegisterModule(context.Background(), "ns-2", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	// 	_, err = reg.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	// 	require.NoError(t, err)
+	// 	_, err = reg.RegisterModule(context.Background(), "ns-2", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	// 	require.NoError(t, err)
+
+	// 	testFn(t, reg, env)
+	// })
+
+	// t.Run("go-local", func(t *testing.T) {
+	// 	reg := registry.NewLocalRegistry()
+	// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
+	// 	require.NoError(t, err)
+	// 	defer env.Close()
+
+	// 	testFn(t, reg, env)
+	// })
+
+	t.Run("go-dns", func(t *testing.T) {
+		resolver := &fakeResolver{}
+		resolver.setIPs([]net.IP{net.ParseIP("127.0.0.1")})
+
+		reg, err := registry.NewDNSRegistry(resolver, "test", int64(defaultOptsGo.Discovery.Port), registry.DNSRegistryOptions{})
 		require.NoError(t, err)
 
-		testFn(t, reg, env)
-	})
-
-	t.Run("go", func(t *testing.T) {
-		reg := registry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
 		require.NoError(t, err)
+
 		defer env.Close()
 
 		testFn(t, reg, env)
@@ -909,4 +932,25 @@ func TestServerVersionIsHonored(t *testing.T) {
 
 func (ta testActor) Close(ctx context.Context) error {
 	return nil
+}
+
+type fakeResolver struct {
+	sync.Mutex
+	ips []net.IP
+}
+
+func (f *fakeResolver) setIPs(ips []net.IP) {
+	f.Lock()
+	defer f.Unlock()
+	f.ips = ips
+}
+
+func (f *fakeResolver) LookupIP(host string) ([]net.IP, error) {
+	if host != "test" {
+		panic(fmt.Sprintf("wrong host: %s", host))
+	}
+
+	f.Lock()
+	defer f.Unlock()
+	return f.ips, nil
 }

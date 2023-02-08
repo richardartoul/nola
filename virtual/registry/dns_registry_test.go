@@ -12,15 +12,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDNSRegistry(t *testing.T) {
+// TestDNSRegistrySimple is a simple test of the DNS registry. It tests that
+// the background discovery loop works and that EnsureActivation uses
+// consistent hashing to pick a server.
+func TestDNSRegistrySimple(t *testing.T) {
 	resolver := &fakeResolver{}
-	reg, err := NewDNSRegistry(resolver, "test", DNSRegistryOptions{
+	reg, err := NewDNSRegistry(resolver, "test", 9090, DNSRegistryOptions{
 		ResolveEvery: 100 * time.Millisecond,
 	})
 	require.NoError(t, err)
+	defer func() {
+		if err := reg.Close(context.Background()); err != nil {
+			panic(err)
+		}
+	}()
 
 	_, err = reg.EnsureActivation(context.Background(), "ns1", "a")
 	require.True(t, strings.Contains(err.Error(), "hashring is empty"))
+
+	// Should be a no-op.
+	_, err = reg.Heartbeat(context.Background(), "serverID", HeartbeatState{})
+	require.NoError(t, err)
+
+	// Should always return a constant.
+	for i := 0; i < 100; i++ {
+		versionStamp, err := reg.GetVersionStamp(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, int64(1), versionStamp)
+	}
 
 	resolver.setIPs([]net.IP{
 		net.ParseIP("127.0.0.1"),
@@ -38,7 +57,7 @@ func TestDNSRegistry(t *testing.T) {
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "a", activations[0].ActorID().ID)
 		require.Equal(t, DNSModuleID, activations[0].ModuleID().ID)
-		require.Equal(t, "127.0.0.2", activations[0].Address())
+		require.Equal(t, "127.0.0.1:9090", activations[0].Address())
 		require.Equal(t, DNSServerID, activations[0].ServerID())
 		require.Equal(t, DNSServerVersion, activations[0].ServerVersion())
 		break

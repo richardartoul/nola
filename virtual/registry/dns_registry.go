@@ -17,7 +17,9 @@ const (
 	DNSServerID          = "DNS_SERVER_ID"
 	DNSServerVersion     = int64(-1)
 	DNSModuleID          = "DNS_MODULE_ID"
-	DNS_ACTOR_GENERATION = 01
+	DNS_ACTOR_GENERATION = 1
+	// Must be at least 1 because <= 0 is not a legal versionstamp
+	DNSVersionStamp = 1
 )
 
 type dnsResolver interface {
@@ -30,6 +32,7 @@ type dnsRegistry struct {
 	// Dependencies.
 	resolver dnsResolver
 	host     string
+	port     int64
 	opts     DNSRegistryOptions
 
 	// State.
@@ -49,6 +52,7 @@ type DNSRegistryOptions struct {
 func NewDNSRegistry(
 	resolver dnsResolver,
 	host string,
+	port int64,
 	opts DNSRegistryOptions,
 ) (Registry, error) {
 	if opts.ResolveEvery == 0 {
@@ -58,6 +62,7 @@ func NewDNSRegistry(
 	d := &dnsRegistry{
 		resolver: resolver,
 		host:     host,
+		port:     port,
 		opts:     opts,
 
 		closeCh:  make(chan struct{}),
@@ -82,7 +87,7 @@ func (d *dnsRegistry) RegisterModule(
 	moduleBytes []byte,
 	opts ModuleOptions,
 ) (RegisterModuleResult, error) {
-	return RegisterModuleResult{}, errors.New("DNSRegistry: RegisterModule: not implemented")
+	return RegisterModuleResult{}, nil
 }
 
 // GetModule gets the bytes and options associated with the provided module.
@@ -91,7 +96,7 @@ func (d *dnsRegistry) GetModule(
 	namespace,
 	moduleID string,
 ) ([]byte, ModuleOptions, error) {
-	return nil, ModuleOptions{}, errors.New("DNSRegistry: GetModule: not implemented")
+	return nil, ModuleOptions{}, nil
 }
 
 func (d *dnsRegistry) CreateActor(
@@ -101,7 +106,7 @@ func (d *dnsRegistry) CreateActor(
 	moduleID string,
 	opts types.ActorOptions,
 ) (CreateActorResult, error) {
-	return CreateActorResult{}, errors.New("DNSRegistry: CreateActor: not implemented")
+	return CreateActorResult{}, nil
 }
 
 func (d *dnsRegistry) IncGeneration(
@@ -140,15 +145,14 @@ func (d *dnsRegistry) EnsureActivation(
 func (d *dnsRegistry) GetVersionStamp(
 	ctx context.Context,
 ) (int64, error) {
-	// TODO: Implement me.
-	return -1, errors.New("DNSRegistry: GetVersionStamp: not implemented")
+	// Must always return 1 because <= 0 is not a legal versionstamp in the system.
+	return DNSVersionStamp, nil
 }
 
 func (d *dnsRegistry) BeginTransaction(
 	ctx context.Context,
 	namespace string,
 	actorID string,
-
 	serverID string,
 	serverVersion int64,
 ) (_ ActorKVTransaction, err error) {
@@ -160,12 +164,19 @@ func (d *dnsRegistry) Heartbeat(
 	serverID string,
 	heartbeatState HeartbeatState,
 ) (HeartbeatResult, error) {
-	// TODO: Implement me.
-	return HeartbeatResult{}, errors.New("DNSRegistry: Heartbeat: not implemented")
+	return HeartbeatResult{
+		VersionStamp: DNSVersionStamp,
+		// Must be at least 1 so heartbeat.Versionstamp + TTL > DNSVersionStamp
+		HeartbeatTTL:  1,
+		ServerVersion: DNSServerVersion,
+	}, nil
 }
 
 func (d *dnsRegistry) Close(ctx context.Context) error {
-	// TODO: Implement me.
+	log.Printf("DNSRegistry: Shutting down")
+	close(d.closeCh)
+	<-d.closedCh
+	log.Printf("DNSRegistry: Done shutting down")
 	return nil
 }
 
@@ -183,10 +194,13 @@ func (d *dnsRegistry) discover() error {
 	// crc32.ChecksumIEEE because thats the default groupcache uses
 	// https://github.com/golang/groupcache/blob/41bb18bfe9da5321badc438f91158cd790a33aa3/http.go#L72
 	// should investigate if we should pick a different value.
+	var ()
 	hashRing := NewHashRing(64, crc32.ChecksumIEEE)
+	ipStrs := make([]string, 0, len(ips))
 	for _, ip := range ips {
-		hashRing.Add(ip.To4().String())
+		ipStrs = append(ipStrs, fmt.Sprintf("%s:%d", ip.To4().String(), d.port))
 	}
+	hashRing.Add(ipStrs...)
 
 	d.Lock()
 	oldIPs := d.ips

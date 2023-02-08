@@ -120,7 +120,7 @@ func NewEnvironment(
 		return nil, fmt.Errorf("error creating activationCache: %w", err)
 	}
 
-	host := "localhost"
+	host := "127.0.0.1"
 	if opts.Discovery.DiscoveryType == DiscoveryTypeRemote {
 		selfIP, err := getSelfIP()
 		if err != nil {
@@ -293,12 +293,18 @@ func (r *environment) InvokeActorDirect(
 	if serverID == "" {
 		return nil, errors.New("serverID cannot be empty")
 	}
-	if serverID != r.serverID {
+	if serverID != r.serverID && serverID != registry.DNSServerID {
 		// Make sure the client has reached the server it intended. This is an important
 		// check due to the limitations of I.P-based network addressing. For example, if
 		// two pods of NOLA were running in k8s on a shared set of VMs and get
 		// rescheduled such that they switch I.P addresses, clients may temporarily route
 		// requests for server A to server B and vice versa.
+		//
+		// Note that we also skip this check if the requested serverID is the hard-coded
+		// registry.DNSServerID value. In this scenario, the application is using a DNS
+		// based registry solution and everything is "loose" in terms of correctness anyways
+		// so it doesn't matter if we sometimes reach the wrong physical server in rare
+		// cases.
 		//
 		// TODO: Technically the server should return its identity in the response and the
 		//       client should assert on that as well to avoid issues where the request
