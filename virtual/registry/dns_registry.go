@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
+	"sync"
+	"time"
 
 	"github.com/richardartoul/nola/virtual/types"
 )
@@ -14,19 +17,38 @@ type dnsResolver interface {
 }
 
 type dnsRegistry struct {
+	sync.Mutex
+
+	resolver dnsResolver
+	host     string
+	ips      []net.IP
+
+	discoveryRunning bool
+	closeCh          chan struct{}
+	closedCh         chan struct{}
 }
 
 func NewDNSRegistry(
 	resolver dnsResolver,
+	host string,
 ) (Registry, error) {
-	ips, err := resolver.LookupIP("google.com")
-	if err != nil {
-		return nil, fmt.Errorf("DNSRegister: error looking up IPs for name: %s", "google.com")
+	d := &dnsRegistry{
+		resolver: resolver,
+		host:     host,
+
+		closeCh:  make(chan struct{}),
+		closedCh: make(chan struct{}),
 	}
-	for _, ip := range ips {
-		fmt.Printf("google.com. IN A %s\n", ip.String())
+
+	if err := d.discover(); err != nil {
+		return nil, fmt.Errorf(
+			"NewDNSRegistry: error looking up UPs for name: %s, err: %w",
+			host, err)
 	}
-	return &dnsRegistry{}, errors.New("wtf")
+
+	go d.discoveryLoop()
+
+	return d, nil
 }
 
 func (d *dnsRegistry) RegisterModule(
@@ -109,4 +131,46 @@ func (d *dnsRegistry) Close(ctx context.Context) error {
 func (d *dnsRegistry) UnsafeWipeAll() error {
 	// TODO: Implement me.
 	return nil
+}
+
+func (d *dnsRegistry) discover() error {
+	ips, err := d.resolver.LookupIP(d.host)
+	if err != nil {
+		return fmt.Errorf("discover: error looking up IPs: %w", err)
+	}
+
+	d.Lock()
+	oldIPs := d.ips
+	d.ips = ips
+	d.Unlock()
+
+	if len(d.ips) != len(oldIPs) {
+		log.Printf(
+			"DNSRegistry: discovered new IP addresses: prev: %v, curr: %v\n",
+			oldIPs, ips)
+	}
+
+	return nil
+}
+
+func (d *dnsRegistry) discoveryLoop() {
+	d.Lock()
+	if d.discoveryRunning {
+		d.Unlock()
+		panic("[invariant violated] discovery already running")
+	}
+	d.Unlock()
+
+	defer close(d.closedCh)
+	ticker := time.NewTicker(5 * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			if err := d.discover(); err != nil {
+				log.Printf("discoveryLoop: error performing background discovery: %v\n", err)
+			}
+		case <-d.closeCh:
+			return
+		}
+	}
 }
