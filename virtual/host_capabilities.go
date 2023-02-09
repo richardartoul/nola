@@ -69,24 +69,6 @@ func (h *hostCapabilities) Transact(
 	return result, nil
 }
 
-// func (h *hostCapabilities) CreateActor(
-// 	ctx context.Context,
-// 	req wapcutils.CreateActorRequest,
-// ) (CreateActorResult, error) {
-// 	if req.ModuleID == "" {
-// 		// If no module ID was specified then assume the actor is trying to "fork"
-// 		// itself and create the new actor using the same module as the existing
-// 		// actor.
-// 		req.ModuleID = h.actorModuleID
-// 	}
-
-// 	_, err := h.reg.CreateActor(ctx, h.namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
-// 	if err != nil {
-// 		return CreateActorResult{}, err
-// 	}
-// 	return CreateActorResult{}, nil
-// }
-
 func (h *hostCapabilities) InvokeActor(
 	ctx context.Context,
 	req types.InvokeActorRequest,

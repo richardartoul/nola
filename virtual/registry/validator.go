@@ -66,26 +66,6 @@ func (v *validator) GetModule(
 	return v.r.GetModule(ctx, namespace, moduleID)
 }
 
-// func (v *validator) CreateActor(
-// 	ctx context.Context,
-// 	namespace,
-// 	actorID,
-// 	moduleID string,
-// 	opts types.ActorOptions,
-// ) (CreateActorResult, error) {
-// 	if err := validateString("namespace", namespace); err != nil {
-// 		return CreateActorResult{}, err
-// 	}
-// 	if err := validateString("actorID", actorID); err != nil {
-// 		return CreateActorResult{}, err
-// 	}
-// 	if err := validateString("moduleID", moduleID); err != nil {
-// 		return CreateActorResult{}, err
-// 	}
-
-// 	return v.r.CreateActor(ctx, namespace, actorID, moduleID, opts)
-// }
-
 func (v *validator) IncGeneration(
 	ctx context.Context,
 	namespace,

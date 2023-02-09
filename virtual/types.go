@@ -135,9 +135,6 @@ type Actor interface {
 type HostCapabilities interface {
 	KV
 
-	// // CreateActor creates a new actor.
-	// CreateActor(context.Context, wapcutils.CreateActorRequest) (CreateActorResult, error)
-
 	// InvokeActor invokes a function on the specified actor.
 	InvokeActor(context.Context, types.InvokeActorRequest) ([]byte, error)
 
