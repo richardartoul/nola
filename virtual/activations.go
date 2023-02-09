@@ -17,7 +17,7 @@ type activations struct {
 
 	// State.
 	_modules    map[types.NamespacedID]Module
-	_actors     map[types.NamespacedID]activatedActor
+	_actors     map[types.NamespacedActorID]activatedActor
 	serverState struct {
 		sync.RWMutex
 		serverID      string
@@ -39,7 +39,7 @@ func newActivations(
 ) *activations {
 	return &activations{
 		_modules: make(map[types.NamespacedID]Module),
-		_actors:  make(map[types.NamespacedID]activatedActor),
+		_actors:  make(map[types.NamespacedActorID]activatedActor),
 
 		registry:      registry,
 		environment:   environment,

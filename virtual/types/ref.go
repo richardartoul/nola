@@ -58,7 +58,7 @@ func (l actorRef) Namespace() string {
 	return l.virtualRef.Namespace()
 }
 
-func (l actorRef) ActorID() NamespacedID {
+func (l actorRef) ActorID() NamespacedActorID {
 	return l.virtualRef.ActorID()
 }
 
