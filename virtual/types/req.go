@@ -6,6 +6,8 @@ type InvokeActorRequest struct {
 	// ActorID is the ID of the target actor. Omit when being used inside of
 	// ScheduleInvocationRequest to target self.
 	ActorID string `json:"actor_id"`
+	// ModuleID is the ID of the module for which the actor should be activated.
+	ModuleID string `json:"module_id"`
 	// Operation is the name of the operation to invoke on the target actor.
 	Operation string `json:"operation"`
 	// Payload is the []byte payload to provide to the invoked function on the
@@ -19,8 +21,7 @@ type InvokeActorRequest struct {
 // CreateIfNotExist provides the arguments for InvokeActorRequest to construct the
 // actor if it doesn't already exist.
 type CreateIfNotExist struct {
-	ModuleID string       `json:"module_id"`
-	Options  ActorOptions `json:"actor_options"`
+	Options ActorOptions `json:"actor_options"`
 }
 
 // ActorOptions contains the options for a given actor.

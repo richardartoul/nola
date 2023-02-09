@@ -1,318 +1,303 @@
 package virtual
 
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"sync"
-	"testing"
-	"time"
+// func BenchmarkLocalInvokeActor(b *testing.B) {
+// 	reg := registry.NewLocalRegistry()
+// 	benchmarkInvokeActor(b, reg)
+// }
 
-	"github.com/DataDog/sketches-go/ddsketch"
-	"github.com/richardartoul/nola/virtual/registry"
-	"github.com/richardartoul/nola/virtual/types"
+// func BenchmarkLocalInvokeWorker(b *testing.B) {
+// 	reg := registry.NewLocalRegistry()
+// 	benchmarkInvokeWorker(b, reg)
+// }
 
-	"github.com/stretchr/testify/require"
-)
+// func BenchmarkFoundationDBRegistryInvokeActor(b *testing.B) {
+// 	reg, err := registry.NewFoundationDBRegistry("")
+// 	require.NoError(b, err)
+// 	require.NoError(b, reg.UnsafeWipeAll())
 
-func BenchmarkLocalInvokeActor(b *testing.B) {
-	reg := registry.NewLocalRegistry()
-	benchmarkInvokeActor(b, reg)
-}
+// 	benchmarkInvokeActor(b, reg)
+// }
 
-func BenchmarkLocalInvokeWorker(b *testing.B) {
-	reg := registry.NewLocalRegistry()
-	benchmarkInvokeWorker(b, reg)
-}
+// func BenchmarkFoundationDBRegistryInvokeWorker(b *testing.B) {
+// 	reg, err := registry.NewFoundationDBRegistry("")
+// 	require.NoError(b, err)
+// 	require.NoError(b, reg.UnsafeWipeAll())
 
-func BenchmarkFoundationDBRegistryInvokeActor(b *testing.B) {
-	reg, err := registry.NewFoundationDBRegistry("")
-	require.NoError(b, err)
-	require.NoError(b, reg.UnsafeWipeAll())
+// 	benchmarkInvokeWorker(b, reg)
+// }
 
-	benchmarkInvokeActor(b, reg)
-}
+// func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
+// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+// 	require.NoError(b, err)
+// 	defer env.Close()
 
-func BenchmarkFoundationDBRegistryInvokeWorker(b *testing.B) {
-	reg, err := registry.NewFoundationDBRegistry("")
-	require.NoError(b, err)
-	require.NoError(b, reg.UnsafeWipeAll())
+// 	ctx := context.Background()
 
-	benchmarkInvokeWorker(b, reg)
-}
+// 	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+// 	require.NoError(b, err)
 
-func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(b, err)
-	defer env.Close()
+// 	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", types.ActorOptions{})
+// 	require.NoError(b, err)
 
-	ctx := context.Background()
+// 	defer reportOpsPerSecond(b)()
+// 	b.ResetTimer()
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(b, err)
+// 	for i := 0; i < b.N; i++ {
+// 		_, err = env.InvokeActor(ctx, "bench-ns", "a", "incFast", nil, types.CreateIfNotExist{})
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 	}
+// }
 
-	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", types.ActorOptions{})
-	require.NoError(b, err)
+// func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
+// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+// 	require.NoError(b, err)
+// 	defer env.Close()
 
-	defer reportOpsPerSecond(b)()
-	b.ResetTimer()
+// 	ctx := context.Background()
 
-	for i := 0; i < b.N; i++ {
-		_, err = env.InvokeActor(ctx, "bench-ns", "a", "incFast", nil, types.CreateIfNotExist{})
-		if err != nil {
-			panic(err)
-		}
-	}
-}
+// 	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+// 	require.NoError(b, err)
 
-func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(b, err)
-	defer env.Close()
+// 	defer reportOpsPerSecond(b)()
+// 	b.ResetTimer()
 
-	ctx := context.Background()
+// 	for i := 0; i < b.N; i++ {
+// 		_, err = env.InvokeWorker(ctx, "bench-ns", "test-module", "incFast", nil)
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 	}
+// }
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(b, err)
+// func BenchmarkLocalCreateActor(b *testing.B) {
+// 	b.Skip("Skip this benchmark for now since its not interesting with a fake in-memory registry implementation")
 
-	defer reportOpsPerSecond(b)()
-	b.ResetTimer()
+// 	reg := registry.NewLocalRegistry()
+// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+// 	require.NoError(b, err)
+// 	defer env.Close()
 
-	for i := 0; i < b.N; i++ {
-		_, err = env.InvokeWorker(ctx, "bench-ns", "test-module", "incFast", nil)
-		if err != nil {
-			panic(err)
-		}
-	}
-}
+// 	ctx := context.Background()
 
-func BenchmarkLocalCreateActor(b *testing.B) {
-	b.Skip("Skip this benchmark for now since its not interesting with a fake in-memory registry implementation")
+// 	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+// 	require.NoError(b, err)
 
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(b, err)
-	defer env.Close()
+// 	defer reportOpsPerSecond(b)()
+// 	b.ResetTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		_, err = reg.CreateActor(ctx, "bench-ns", fmt.Sprintf("%d", i), "test-module", types.ActorOptions{})
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 	}
+// }
 
-	ctx := context.Background()
+// func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
+// 	reg := registry.NewLocalRegistry()
+// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+// 	require.NoError(b, err)
+// 	defer env.Close()
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(b, err)
+// 	ctx := context.Background()
 
-	defer reportOpsPerSecond(b)()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err = reg.CreateActor(ctx, "bench-ns", fmt.Sprintf("%d", i), "test-module", types.ActorOptions{})
-		if err != nil {
-			panic(err)
-		}
-	}
-}
+// 	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+// 	require.NoError(b, err)
 
-func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(b, err)
-	defer env.Close()
+// 	defer reportOpsPerSecond(b)()
+// 	b.ResetTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		actorID := fmt.Sprintf("%d", i)
+// 		_, err = reg.CreateActor(ctx, "bench-ns", actorID, "test-module", types.ActorOptions{})
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 		_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil, types.CreateIfNotExist{})
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 	}
+// }
 
-	ctx := context.Background()
+// func BenchmarkLocalActorToActorCommunication(b *testing.B) {
+// 	reg := registry.NewLocalRegistry()
+// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+// 	require.NoError(b, err)
+// 	defer env.Close()
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(b, err)
+// 	ctx := context.Background()
 
-	defer reportOpsPerSecond(b)()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		actorID := fmt.Sprintf("%d", i)
-		_, err = reg.CreateActor(ctx, "bench-ns", actorID, "test-module", types.ActorOptions{})
-		if err != nil {
-			panic(err)
-		}
-		_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil, types.CreateIfNotExist{})
-		if err != nil {
-			panic(err)
-		}
-	}
-}
+// 	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+// 	require.NoError(b, err)
 
-func BenchmarkLocalActorToActorCommunication(b *testing.B) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(b, err)
-	defer env.Close()
+// 	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", types.ActorOptions{})
+// 	require.NoError(b, err)
+// 	_, err = reg.CreateActor(ctx, "bench-ns", "b", "test-module", types.ActorOptions{})
+// 	require.NoError(b, err)
 
-	ctx := context.Background()
+// 	invokeReq := types.InvokeActorRequest{
+// 		ActorID:   "b",
+// 		Operation: "incFast",
+// 		Payload:   nil,
+// 	}
+// 	marshaled, err := json.Marshal(invokeReq)
+// 	require.NoError(b, err)
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(b, err)
+// 	defer reportOpsPerSecond(b)()
+// 	b.ResetTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		_, err = env.InvokeActor(ctx, "bench-ns", "a", "invokeActor", marshaled, types.CreateIfNotExist{})
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 	}
+// }
 
-	_, err = reg.CreateActor(ctx, "bench-ns", "a", "test-module", types.ActorOptions{})
-	require.NoError(b, err)
-	_, err = reg.CreateActor(ctx, "bench-ns", "b", "test-module", types.ActorOptions{})
-	require.NoError(b, err)
+// func reportOpsPerSecond(b *testing.B) func() {
+// 	start := time.Now()
+// 	return func() {
+// 		elapsedSeconds := time.Since(start).Seconds()
+// 		b.ReportMetric(float64(b.N)/(elapsedSeconds), "ops/s")
+// 	}
+// }
 
-	invokeReq := types.InvokeActorRequest{
-		ActorID:   "b",
-		Operation: "incFast",
-		Payload:   nil,
-	}
-	marshaled, err := json.Marshal(invokeReq)
-	require.NoError(b, err)
+// // Can't use the micro-benchmarking framework because we need concurrency.
+// func TestBenchmarkFoundationDBRegistryInvokeActor(t *testing.T) {
+// 	testSimpleBench(t, 2*time.Microsecond, 10, 15*time.Second, false)
+// }
 
-	defer reportOpsPerSecond(b)()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err = env.InvokeActor(ctx, "bench-ns", "a", "invokeActor", marshaled, types.CreateIfNotExist{})
-		if err != nil {
-			panic(err)
-		}
-	}
-}
+// // Can't use the micro-benchmarking framework because we need concurrency.
+// func TestBenchmarkFoundationDBRegistryInvokeWorker(t *testing.T) {
+// 	testSimpleBench(t, 1*time.Microsecond, 10, 15*time.Second, true)
+// }
 
-func reportOpsPerSecond(b *testing.B) func() {
-	start := time.Now()
-	return func() {
-		elapsedSeconds := time.Since(start).Seconds()
-		b.ReportMetric(float64(b.N)/(elapsedSeconds), "ops/s")
-	}
-}
+// func testSimpleBench(
+// 	t *testing.T,
+// 	invokeEvery time.Duration,
+// 	numActors int,
+// 	benchDuration time.Duration,
+// 	useWorker bool,
+// ) {
+// 	// Uncomment to run.
+// 	t.Skip()
 
-// Can't use the micro-benchmarking framework because we need concurrency.
-func TestBenchmarkFoundationDBRegistryInvokeActor(t *testing.T) {
-	testSimpleBench(t, 2*time.Microsecond, 10, 15*time.Second, false)
-}
+// 	reg, err := registry.NewFoundationDBRegistry("")
+// 	require.NoError(t, err)
+// 	require.NoError(t, reg.UnsafeWipeAll())
 
-// Can't use the micro-benchmarking framework because we need concurrency.
-func TestBenchmarkFoundationDBRegistryInvokeWorker(t *testing.T) {
-	testSimpleBench(t, 1*time.Microsecond, 10, 15*time.Second, true)
-}
+// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+// 	require.NoError(t, err)
+// 	defer env.Close()
 
-func testSimpleBench(
-	t *testing.T,
-	invokeEvery time.Duration,
-	numActors int,
-	benchDuration time.Duration,
-	useWorker bool,
-) {
-	// Uncomment to run.
-	t.Skip()
+// 	_, err = reg.RegisterModule(context.Background(), "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+// 	require.NoError(t, err)
 
-	reg, err := registry.NewFoundationDBRegistry("")
-	require.NoError(t, err)
-	require.NoError(t, reg.UnsafeWipeAll())
+// 	for i := 0; i < numActors; i++ {
+// 		actorID := fmt.Sprintf("%d", i)
+// 		_, err = reg.CreateActor(context.Background(), "bench-ns", actorID, "test-module", types.ActorOptions{})
+// 		require.NoError(t, err)
 
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	require.NoError(t, err)
-	defer env.Close()
+// 		if useWorker {
+// 			_, err = env.InvokeWorker(context.Background(), "bench-ns", "test-module", "incFast", nil)
+// 			require.NoError(t, err)
+// 		} else {
+// 			_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "incFast", nil, types.CreateIfNotExist{})
+// 			require.NoError(t, err)
+// 		}
+// 	}
 
-	_, err = reg.RegisterModule(context.Background(), "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(t, err)
+// 	sketch, err := ddsketch.NewDefaultDDSketch(0.01)
+// 	require.NoError(t, err)
 
-	for i := 0; i < numActors; i++ {
-		actorID := fmt.Sprintf("%d", i)
-		_, err = reg.CreateActor(context.Background(), "bench-ns", actorID, "test-module", types.ActorOptions{})
-		require.NoError(t, err)
+// 	var (
+// 		ctx, cc    = context.WithCancel(context.Background())
+// 		outerWg    sync.WaitGroup
+// 		innerWg    sync.WaitGroup
+// 		benchState = &benchState{
+// 			invokeLatency: sketch,
+// 		}
+// 	)
 
-		if useWorker {
-			_, err = env.InvokeWorker(context.Background(), "bench-ns", "test-module", "incFast", nil)
-			require.NoError(t, err)
-		} else {
-			_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "incFast", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-		}
-	}
+// 	outerWg.Add(1)
+// 	go func() {
+// 		defer outerWg.Done()
 
-	sketch, err := ddsketch.NewDefaultDDSketch(0.01)
-	require.NoError(t, err)
+// 		for i := 0; ; i++ {
+// 			i := 1 // Capture for async goroutine.
+// 			select {
+// 			default:
+// 				innerWg.Add(1)
+// 				go func() {
+// 					defer innerWg.Done()
 
-	var (
-		ctx, cc    = context.WithCancel(context.Background())
-		outerWg    sync.WaitGroup
-		innerWg    sync.WaitGroup
-		benchState = &benchState{
-			invokeLatency: sketch,
-		}
-	)
+// 					start := time.Now()
+// 					if !useWorker {
+// 						actorID := fmt.Sprintf("%d", i%numActors)
+// 						_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil, types.CreateIfNotExist{})
+// 						if err != nil {
+// 							panic(err)
+// 						}
+// 					} else {
+// 						_, err = env.InvokeWorker(ctx, "bench-ns", "test-module", "incFast", nil)
+// 						if err != nil {
+// 							panic(err)
+// 						}
+// 					}
 
-	outerWg.Add(1)
-	go func() {
-		defer outerWg.Done()
+// 					benchState.track(time.Since(start))
+// 				}()
+// 				time.Sleep(invokeEvery)
+// 			case <-ctx.Done():
+// 				return
+// 			}
+// 		}
+// 	}()
 
-		for i := 0; ; i++ {
-			i := 1 // Capture for async goroutine.
-			select {
-			default:
-				innerWg.Add(1)
-				go func() {
-					defer innerWg.Done()
+// 	time.Sleep(benchDuration)
+// 	cc()
+// 	outerWg.Wait()
+// 	innerWg.Wait()
 
-					start := time.Now()
-					if !useWorker {
-						actorID := fmt.Sprintf("%d", i%numActors)
-						_, err = env.InvokeActor(ctx, "bench-ns", actorID, "incFast", nil, types.CreateIfNotExist{})
-						if err != nil {
-							panic(err)
-						}
-					} else {
-						_, err = env.InvokeWorker(ctx, "bench-ns", "test-module", "incFast", nil)
-						if err != nil {
-							panic(err)
-						}
-					}
+// 	fmt.Println("Inputs")
+// 	fmt.Println("    invokeEvery", invokeEvery)
+// 	fmt.Println("    numActors", numActors)
+// 	fmt.Println("Results")
+// 	fmt.Println("    numInvokes", benchState.getNumInvokes())
+// 	fmt.Println("    invoke/s", float64(benchState.getNumInvokes())/benchDuration.Seconds())
+// 	fmt.Println("    median latency", getQuantile(t, benchState.invokeLatency, 0.5))
+// 	fmt.Println("    p95 latency", getQuantile(t, benchState.invokeLatency, 0.95), "ms")
+// 	fmt.Println("    p99 latency", getQuantile(t, benchState.invokeLatency, 0.99), "ms")
+// 	fmt.Println("    p99.9 latency", getQuantile(t, benchState.invokeLatency, 0.999), "ms")
+// 	fmt.Println("    max latency", getQuantile(t, benchState.invokeLatency, 1.0), "ms")
 
-					benchState.track(time.Since(start))
-				}()
-				time.Sleep(invokeEvery)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+// 	t.Fail() // Fail so it prints output.
+// }
 
-	time.Sleep(benchDuration)
-	cc()
-	outerWg.Wait()
-	innerWg.Wait()
+// func getQuantile(t *testing.T, sketch *ddsketch.DDSketch, q float64) float64 {
+// 	quantile, err := sketch.GetValueAtQuantile(q)
+// 	require.NoError(t, err)
+// 	return quantile
+// }
 
-	fmt.Println("Inputs")
-	fmt.Println("    invokeEvery", invokeEvery)
-	fmt.Println("    numActors", numActors)
-	fmt.Println("Results")
-	fmt.Println("    numInvokes", benchState.getNumInvokes())
-	fmt.Println("    invoke/s", float64(benchState.getNumInvokes())/benchDuration.Seconds())
-	fmt.Println("    median latency", getQuantile(t, benchState.invokeLatency, 0.5))
-	fmt.Println("    p95 latency", getQuantile(t, benchState.invokeLatency, 0.95), "ms")
-	fmt.Println("    p99 latency", getQuantile(t, benchState.invokeLatency, 0.99), "ms")
-	fmt.Println("    p99.9 latency", getQuantile(t, benchState.invokeLatency, 0.999), "ms")
-	fmt.Println("    max latency", getQuantile(t, benchState.invokeLatency, 1.0), "ms")
+// type benchState struct {
+// 	sync.RWMutex
 
-	t.Fail() // Fail so it prints output.
-}
+// 	numInvokes    int
+// 	invokeLatency *ddsketch.DDSketch
+// }
 
-func getQuantile(t *testing.T, sketch *ddsketch.DDSketch, q float64) float64 {
-	quantile, err := sketch.GetValueAtQuantile(q)
-	require.NoError(t, err)
-	return quantile
-}
+// func (b *benchState) getNumInvokes() int {
+// 	b.RLock()
+// 	defer b.RUnlock()
 
-type benchState struct {
-	sync.RWMutex
+// 	return b.numInvokes
+// }
 
-	numInvokes    int
-	invokeLatency *ddsketch.DDSketch
-}
+// func (b *benchState) track(x time.Duration) {
+// 	b.Lock()
+// 	defer b.Unlock()
 
-func (b *benchState) getNumInvokes() int {
-	b.RLock()
-	defer b.RUnlock()
-
-	return b.numInvokes
-}
-
-func (b *benchState) track(x time.Duration) {
-	b.Lock()
-	defer b.Unlock()
-
-	b.invokeLatency.Add(float64(x.Milliseconds()))
-	b.numInvokes++
-}
+// 	b.invokeLatency.Add(float64(x.Milliseconds()))
+// 	b.numInvokes++
+// }

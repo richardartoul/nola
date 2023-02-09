@@ -28,15 +28,15 @@ type Registry interface {
 		moduleID string,
 	) ([]byte, ModuleOptions, error)
 
-	// CreateActor creates a new actor in the given namespace from the provided module
-	// ID.
-	CreateActor(
-		ctx context.Context,
-		namespace,
-		actorID,
-		moduleID string,
-		opts types.ActorOptions,
-	) (CreateActorResult, error)
+	// // CreateActor creates a new actor in the given namespace from the provided module
+	// // ID.
+	// CreateActor(
+	// 	ctx context.Context,
+	// 	namespace,
+	// 	actorID,
+	// 	moduleID string,
+	// 	opts types.ActorOptions,
+	// ) (CreateActorResult, error)
 
 	// IncGeneration increments the actor's generation count. This is useful for ensuring
 	// that all actor activations are invalidated and recreated.
@@ -44,6 +44,7 @@ type Registry interface {
 		ctx context.Context,
 		namespace,
 		actorID string,
+		moduleID string,
 	) error
 
 	// EnsureActivation checks the registry to see if the provided actor is already
@@ -60,6 +61,7 @@ type Registry interface {
 		ctx context.Context,
 		namespace,
 		actorID string,
+		moduleID string,
 	) ([]types.ActorReference, error)
 
 	// GetVersionStamp() returns a monotonically increasing integer that should increase
@@ -82,7 +84,7 @@ type ActorStorage interface {
 		ctx context.Context,
 		namespace string,
 		actorID string,
-
+		moduleID string,
 		serverID string,
 		serverVersion int64,
 	) (ActorKVTransaction, error)

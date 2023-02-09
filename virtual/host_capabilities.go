@@ -48,7 +48,7 @@ func (h *hostCapabilities) BeginTransaction(
 	// Use lazy implementation because we create an implicit transaction for every
 	// invocation which would be extremely expensive if it were not for the fact that
 	// the transaction is never actually begun unless a KV operation is initiated.
-	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.namespace, h.actorID)
+	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.namespace, h.actorID, h.actorModuleID)
 	return tr, nil
 }
 
@@ -57,7 +57,7 @@ func (h *hostCapabilities) Transact(
 	fn func(tr registry.ActorKVTransaction) (any, error),
 ) (any, error) {
 	// Use lazy implementation for same reason described in BeginTransaction() above.
-	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.namespace, h.actorID)
+	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.namespace, h.actorID, h.actorModuleID)
 	result, err := fn(tr)
 	if err != nil {
 		tr.Cancel(ctx)
@@ -69,29 +69,31 @@ func (h *hostCapabilities) Transact(
 	return result, nil
 }
 
-func (h *hostCapabilities) CreateActor(
-	ctx context.Context,
-	req wapcutils.CreateActorRequest,
-) (CreateActorResult, error) {
-	if req.ModuleID == "" {
-		// If no module ID was specified then assume the actor is trying to "fork"
-		// itself and create the new actor using the same module as the existing
-		// actor.
-		req.ModuleID = h.actorModuleID
-	}
+// func (h *hostCapabilities) CreateActor(
+// 	ctx context.Context,
+// 	req wapcutils.CreateActorRequest,
+// ) (CreateActorResult, error) {
+// 	if req.ModuleID == "" {
+// 		// If no module ID was specified then assume the actor is trying to "fork"
+// 		// itself and create the new actor using the same module as the existing
+// 		// actor.
+// 		req.ModuleID = h.actorModuleID
+// 	}
 
-	_, err := h.reg.CreateActor(ctx, h.namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
-	if err != nil {
-		return CreateActorResult{}, err
-	}
-	return CreateActorResult{}, nil
-}
+// 	_, err := h.reg.CreateActor(ctx, h.namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
+// 	if err != nil {
+// 		return CreateActorResult{}, err
+// 	}
+// 	return CreateActorResult{}, nil
+// }
 
 func (h *hostCapabilities) InvokeActor(
 	ctx context.Context,
 	req types.InvokeActorRequest,
 ) ([]byte, error) {
-	return h.env.InvokeActor(ctx, h.namespace, req.ActorID, req.Operation, req.Payload, req.CreateIfNotExist)
+	return h.env.InvokeActor(
+		ctx, h.namespace, req.ActorID, req.ModuleID,
+		req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
 func (h *hostCapabilities) ScheduleInvokeActor(
@@ -112,7 +114,7 @@ func (h *hostCapabilities) ScheduleInvokeActor(
 		payloadCopy := make([]byte, len(req.Invoke.Payload))
 		copy(payloadCopy, req.Invoke.Payload)
 		_, err := h.env.InvokeActor(
-			ctx, h.namespace, req.Invoke.ActorID,
+			ctx, h.namespace, req.Invoke.ActorID, req.Invoke.ModuleID,
 			req.Invoke.Operation, req.Invoke.Payload, req.Invoke.CreateIfNotExist)
 		if err != nil {
 			log.Printf(
@@ -150,6 +152,7 @@ type lazyActorTransaction struct {
 	getServerStateFn func() (string, int64)
 	namespace        string
 	actorID          string
+	moduleID         string
 
 	// State.
 	//
@@ -164,12 +167,14 @@ func newLazyActorTransaction(
 	getServerStateFn func() (string, int64),
 	namespace string,
 	actorID string,
+	moduleID string,
 ) registry.ActorKVTransaction {
 	return &lazyActorTransaction{
 		store:            store,
 		getServerStateFn: getServerStateFn,
 		namespace:        namespace,
 		actorID:          actorID,
+		moduleID:         moduleID,
 	}
 }
 
@@ -249,7 +254,7 @@ func (l *lazyActorTransaction) maybeInitTr(
 
 		serverID, serverVersion := l.getServerStateFn()
 		l.tr, l.err = l.store.BeginTransaction(
-			ctx, l.namespace, l.actorID, serverID, serverVersion)
+			ctx, l.namespace, l.actorID, l.moduleID, serverID, serverVersion)
 	})
 	if l.err != nil {
 		return fmt.Errorf("maybeInitTr: error beginning lazy transaction: %w", l.err)

@@ -66,30 +66,31 @@ func (v *validator) GetModule(
 	return v.r.GetModule(ctx, namespace, moduleID)
 }
 
-func (v *validator) CreateActor(
-	ctx context.Context,
-	namespace,
-	actorID,
-	moduleID string,
-	opts types.ActorOptions,
-) (CreateActorResult, error) {
-	if err := validateString("namespace", namespace); err != nil {
-		return CreateActorResult{}, err
-	}
-	if err := validateString("actorID", actorID); err != nil {
-		return CreateActorResult{}, err
-	}
-	if err := validateString("moduleID", moduleID); err != nil {
-		return CreateActorResult{}, err
-	}
+// func (v *validator) CreateActor(
+// 	ctx context.Context,
+// 	namespace,
+// 	actorID,
+// 	moduleID string,
+// 	opts types.ActorOptions,
+// ) (CreateActorResult, error) {
+// 	if err := validateString("namespace", namespace); err != nil {
+// 		return CreateActorResult{}, err
+// 	}
+// 	if err := validateString("actorID", actorID); err != nil {
+// 		return CreateActorResult{}, err
+// 	}
+// 	if err := validateString("moduleID", moduleID); err != nil {
+// 		return CreateActorResult{}, err
+// 	}
 
-	return v.r.CreateActor(ctx, namespace, actorID, moduleID, opts)
-}
+// 	return v.r.CreateActor(ctx, namespace, actorID, moduleID, opts)
+// }
 
 func (v *validator) IncGeneration(
 	ctx context.Context,
 	namespace,
 	actorID string,
+	moduuleID string,
 ) error {
 	if err := validateString("namespace", namespace); err != nil {
 		return err
@@ -97,13 +98,14 @@ func (v *validator) IncGeneration(
 	if err := validateString("actorID", actorID); err != nil {
 		return err
 	}
-	return v.r.IncGeneration(ctx, namespace, actorID)
+	return v.r.IncGeneration(ctx, namespace, actorID, moduuleID)
 }
 
 func (v *validator) EnsureActivation(
 	ctx context.Context,
 	namespace,
 	actorID string,
+	moduleID string,
 ) ([]types.ActorReference, error) {
 	if err := validateString("namespace", namespace); err != nil {
 		return nil, err
@@ -111,7 +113,7 @@ func (v *validator) EnsureActivation(
 	if err := validateString("actorID", actorID); err != nil {
 		return nil, err
 	}
-	return v.r.EnsureActivation(ctx, namespace, actorID)
+	return v.r.EnsureActivation(ctx, namespace, actorID, moduleID)
 }
 
 func (v *validator) GetVersionStamp(
@@ -124,7 +126,7 @@ func (v *validator) BeginTransaction(
 	ctx context.Context,
 	namespace string,
 	actorID string,
-
+	moduleID string,
 	serverID string,
 	serverVersion int64,
 ) (ActorKVTransaction, error) {
@@ -135,7 +137,7 @@ func (v *validator) BeginTransaction(
 		return nil, err
 	}
 
-	tr, err := v.r.BeginTransaction(ctx, namespace, actorID, serverID, serverVersion)
+	tr, err := v.r.BeginTransaction(ctx, namespace, actorID, moduleID, serverID, serverVersion)
 	if err != nil {
 		return nil, err
 	}

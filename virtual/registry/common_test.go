@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/richardartoul/nola/virtual/types"
-
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,22 +40,6 @@ func testRegistrySimple(t *testing.T, registry Registry) {
 	// Succeeds with same module if different namespace.
 	_, err = registry.RegisterModule(ctx, "ns2", "test-module", []byte("wasm"), ModuleOptions{})
 	require.NoError(t, err)
-
-	// Create actor fails for unknown module.
-	_, err = registry.CreateActor(ctx, "ns1", "a", "unknown-module", types.ActorOptions{})
-	require.Error(t, err)
-
-	// Succeeds for known module.
-	_, err = registry.CreateActor(ctx, "ns1", "a", "test-module", types.ActorOptions{})
-	require.NoError(t, err)
-
-	// Fails to create duplicate actor in same namespace.
-	_, err = registry.CreateActor(ctx, "ns1", "a", "test-module", types.ActorOptions{})
-	require.Error(t, err)
-
-	// Allows actors with same ID in different namespaces.
-	_, err = registry.CreateActor(ctx, "ns2", "a", "test-module", types.ActorOptions{})
-	require.NoError(t, err)
 }
 
 // testRegistryServiceDiscoveryAndEnsureActivation tests the combination of the
@@ -73,16 +55,8 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	_, err := registry.RegisterModule(ctx, "ns1", "test-module", []byte("wasm"), ModuleOptions{})
 	require.NoError(t, err)
 
-	// Should fail because the actor does not exist.
-	_, err = registry.EnsureActivation(ctx, "ns1", "a")
-	require.Error(t, err)
-	require.True(t, IsActorDoesNotExistErr(err))
-
-	_, err = registry.CreateActor(ctx, "ns1", "a", "test-module", types.ActorOptions{})
-	require.NoError(t, err)
-
 	// Should fail because there are no servers available to activate on.
-	_, err = registry.EnsureActivation(ctx, "ns1", "a")
+	_, err = registry.EnsureActivation(ctx, "ns1", "a", "test-module")
 	require.Error(t, err)
 	require.False(t, IsActorDoesNotExistErr(err))
 
@@ -95,7 +69,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 
 	// Should succeed now that we have a server to activate on.
-	activations, err := registry.EnsureActivation(ctx, "ns1", "a")
+	activations, err := registry.EnsureActivation(ctx, "ns1", "a", "test-module")
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations))
 	require.Equal(t, "server1", activations[0].ServerID())
@@ -109,8 +83,8 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 
 	// Ensure we get back all the same information but with the generation
 	// bumped now.
-	require.NoError(t, registry.IncGeneration(ctx, "ns1", "a"))
-	activations, err = registry.EnsureActivation(ctx, "ns1", "a")
+	require.NoError(t, registry.IncGeneration(ctx, "ns1", "a", "test-module"))
+	activations, err = registry.EnsureActivation(ctx, "ns1", "a", "test-module")
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations))
 	require.Equal(t, "server1", activations[0].ServerID())
@@ -135,7 +109,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// server 1.
 	for i := 0; i < 10; i++ {
 		// Should succeed now that we have a server to activate on.
-		activations, err := registry.EnsureActivation(ctx, "ns1", "a")
+		activations, err := registry.EnsureActivation(ctx, "ns1", "a", "test-module")
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "server1", activations[0].ServerID())
@@ -150,10 +124,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// Next 10 activations should all go to server2 for balancing purposes.
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("0-%d", i)
-		_, err = registry.CreateActor(ctx, "ns1", actorID, "test-module", types.ActorOptions{})
-		require.NoError(t, err)
-
-		activations, err = registry.EnsureActivation(ctx, "ns1", actorID)
+		activations, err = registry.EnsureActivation(ctx, "ns1", actorID, "test-module")
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "server2", activations[0].ServerID())
@@ -169,10 +140,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	var lastServerID string
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("1-%d", i)
-		_, err = registry.CreateActor(ctx, "ns1", actorID, "test-module", types.ActorOptions{})
-		require.NoError(t, err)
-
-		activations, err = registry.EnsureActivation(ctx, "ns1", actorID)
+		activations, err = registry.EnsureActivation(ctx, "ns1", actorID, "test-module")
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations))
 
@@ -207,10 +175,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// server2 because its the only one available.
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("2-%d", i)
-		_, err = registry.CreateActor(ctx, "ns1", actorID, "test-module", types.ActorOptions{})
-		require.NoError(t, err)
-
-		activations, err = registry.EnsureActivation(ctx, "ns1", actorID)
+		activations, err = registry.EnsureActivation(ctx, "ns1", actorID, "test-module")
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "server2", activations[0].ServerID())
@@ -221,7 +186,7 @@ func testKVSimple(t *testing.T, registry Registry) {
 	ctx := context.Background()
 
 	for nsIdx, ns := range []string{"ns1", "ns2"} {
-		_, err := registry.BeginTransaction(ctx, ns, "a", "server1", 0)
+		_, err := registry.BeginTransaction(ctx, ns, "a", "test-moduke", "server1", 0)
 		// Cant start transaction for actor that doesn't exist.
 		require.Error(t, err)
 
@@ -231,14 +196,11 @@ func testKVSimple(t *testing.T, registry Registry) {
 
 		for actorIdx, actor := range []string{"1", "2", "3", "4", "5"} {
 			func() {
-				tr, err := registry.BeginTransaction(ctx, ns, "a", "server1", 0)
+				tr, err := registry.BeginTransaction(ctx, ns, "a", "test-module", "server1", 0)
 				// Cant start transaction for actor that doesn't exist.
 				require.Error(t, err)
 
-				_, err = registry.CreateActor(ctx, ns, actor, "test-module", types.ActorOptions{})
-				require.NoError(t, err)
-
-				tr, err = registry.BeginTransaction(ctx, ns, actor, "server1", 0)
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "test-module", "server1", 0)
 				// Cant start transaction for actor with no activation.
 				require.Error(t, err)
 
@@ -247,7 +209,7 @@ func testKVSimple(t *testing.T, registry Registry) {
 					// first time.
 
 					// Cant ensure activation when no available servers.
-					_, err = registry.EnsureActivation(ctx, ns, actor)
+					_, err = registry.EnsureActivation(ctx, ns, actor, "test-module")
 					require.Error(t, err)
 
 					// Heartbeat server so we can activate.
@@ -258,21 +220,21 @@ func testKVSimple(t *testing.T, registry Registry) {
 					require.NoError(t, err)
 				}
 
-				_, err = registry.EnsureActivation(ctx, ns, actor)
+				_, err = registry.EnsureActivation(ctx, ns, actor, "test-module")
 				require.NoError(t, err)
 
-				tr, err = registry.BeginTransaction(ctx, ns, actor, "server2", 0)
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "test-module", "server2", 0)
 				// Cant start transaction for actor from wrong server.
 				require.Error(t, err)
 
-				tr, err = registry.BeginTransaction(ctx, ns, actor, "server1", 0)
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "test-module", "server1", 0)
 				// Cant start transaction for actor with stale server version.
 				require.Error(t, err)
 
 				// Finally now that we've created the actor, created a live server, ensured the
 				// actor is activated on the live server, and initiate the transaction from the
 				// server the actor should be activated on, we can begin a transaction.
-				tr, err = registry.BeginTransaction(ctx, ns, actor, "server1", 1)
+				tr, err = registry.BeginTransaction(ctx, ns, actor, "test-module", "server1", 1)
 				require.NoError(t, err)
 				defer func() {
 					require.NoError(t, tr.Commit(ctx))

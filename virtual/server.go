@@ -33,7 +33,7 @@ func NewServer(
 // Start starts the server.
 func (s *server) Start(port int) error {
 	http.HandleFunc("/api/v1/register-module", s.registerModule)
-	http.HandleFunc("/api/v1/create-actor", s.createActor)
+	// http.HandleFunc("/api/v1/create-actor", s.createActor)
 	http.HandleFunc("/api/v1/invoke-actor", s.invoke)
 	http.HandleFunc("/api/v1/invoke-actor-direct", s.invokeDirect)
 	http.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
@@ -87,40 +87,40 @@ type createActorRequest struct {
 	ModuleID  string `json:"module_id"`
 }
 
-func (s *server) createActor(w http.ResponseWriter, r *http.Request) {
-	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		w.WriteHeader(500)
-		w.Write([]byte(err.Error()))
-		return
-	}
+// func (s *server) createActor(w http.ResponseWriter, r *http.Request) {
+// 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<20))
+// 	if err != nil {
+// 		w.WriteHeader(500)
+// 		w.Write([]byte(err.Error()))
+// 		return
+// 	}
 
-	var req createActorRequest
-	if err := json.Unmarshal(jsonBytes, &req); err != nil {
-		w.WriteHeader(500)
-		w.Write([]byte(err.Error()))
-		return
-	}
+// 	var req createActorRequest
+// 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
+// 		w.WriteHeader(500)
+// 		w.Write([]byte(err.Error()))
+// 		return
+// 	}
 
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-	result, err := s.registry.CreateActor(ctx, req.Namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
-	if err != nil {
-		w.WriteHeader(500)
-		w.Write([]byte(err.Error()))
-		return
-	}
+// 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
+// 	defer cc()
+// 	result, err := s.registry.CreateActor(ctx, req.Namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
+// 	if err != nil {
+// 		w.WriteHeader(500)
+// 		w.Write([]byte(err.Error()))
+// 		return
+// 	}
 
-	marshaled, err := json.Marshal(result)
-	if err != nil {
-		w.WriteHeader(500)
-		w.Write([]byte(err.Error()))
-		return
-	}
+// 	marshaled, err := json.Marshal(result)
+// 	if err != nil {
+// 		w.WriteHeader(500)
+// 		w.Write([]byte(err.Error()))
+// 		return
+// 	}
 
-	w.WriteHeader(200)
-	w.Write(marshaled)
-}
+// 	w.WriteHeader(200)
+// 	w.Write(marshaled)
+// }
 
 type invokeActorRequest struct {
 	ServerID  string `json:"server_id"`
@@ -160,7 +160,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
 	result, err := s.environment.InvokeActor(
-		ctx, req.Namespace, req.ActorID, req.Operation, req.Payload, req.CreateIfNotExist)
+		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
