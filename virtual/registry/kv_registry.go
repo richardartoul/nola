@@ -142,7 +142,6 @@ func (k *kvRegistry) GetModule(
 	return result.Bytes, result.Opts, nil
 }
 
-// TODO: Should actor keyspace be namespaced by module ID?
 func (k *kvRegistry) CreateActor(
 	ctx context.Context,
 	namespace,
@@ -168,6 +167,7 @@ func (k *kvRegistry) createActor(
 	moduleID string,
 	opts types.ActorOptions,
 ) (CreateActorResult, error) {
+	fmt.Println("creating", actorID, moduleID)
 	var (
 		actorKey  = getActorKey(namespace, actorID, moduleID)
 		moduleKey = getModulePartKey(namespace, moduleID, 0)
@@ -423,7 +423,7 @@ func (k *kvRegistry) BeginTransaction(
 		return nil, fmt.Errorf("kvRegistry: beginTransaction: error getting actor key: %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("kvRegistry: beginTransaction: cannot perform KV Get for actor: %s that does not exist", actorID)
+		return nil, fmt.Errorf("kvRegistry: beginTransaction: cannot perform KV Get for actor: %s(%s) that does not exist", actorID, moduleID)
 	}
 
 	// We treat the tuple of <ServerID, ServerVersion> as a fencing token for all
@@ -443,7 +443,7 @@ func (k *kvRegistry) BeginTransaction(
 			ra.Activation.ServerVersion, serverVersion)
 	}
 
-	tr := newKVTransaction(ctx, namespace, actorID, kvTr)
+	tr := newKVTransaction(ctx, namespace, actorID, moduleID, kvTr)
 	return tr, nil
 }
 
@@ -565,11 +565,11 @@ func getModulePartKey(namespace, moduleID string, part int) []byte {
 }
 
 func getActorKey(namespace, actorID, moduleID string) []byte {
-	return tuple.Tuple{namespace, "actors", actorID, "state"}.Pack()
+	return tuple.Tuple{namespace, "actors", moduleID, actorID, "state"}.Pack()
 }
 
-func getActoKVKey(namespace, actorID string, key []byte) []byte {
-	return tuple.Tuple{namespace, "actors", actorID, "kv", key}.Pack()
+func getActoKVKey(namespace, actorID string, moduleID string, key []byte) []byte {
+	return tuple.Tuple{namespace, "actors", moduleID, actorID, "kv", key}.Pack()
 }
 
 func getServerKey(serverID string) []byte {
@@ -624,6 +624,7 @@ func versionSince(curr, prev int64) time.Duration {
 type kvTransaction struct {
 	namespace string
 	actorID   string
+	moduleID  string
 	tr        transaction
 }
 
@@ -631,11 +632,13 @@ func newKVTransaction(
 	ctx context.Context,
 	namespace string,
 	actorID string,
+	moduleID string,
 	tr transaction,
 ) *kvTransaction {
 	return &kvTransaction{
 		namespace: namespace,
 		actorID:   actorID,
+		moduleID:  moduleID,
 		tr:        tr,
 	}
 }
@@ -644,7 +647,7 @@ func (tr *kvTransaction) Get(
 	ctx context.Context,
 	key []byte,
 ) ([]byte, bool, error) {
-	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, key)
+	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, tr.moduleID, key)
 	return tr.tr.get(ctx, actorKVKey)
 }
 
@@ -653,7 +656,7 @@ func (tr *kvTransaction) Put(
 	key []byte,
 	value []byte,
 ) error {
-	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, key)
+	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, tr.moduleID, key)
 	return tr.tr.put(ctx, actorKVKey, value)
 }
 
