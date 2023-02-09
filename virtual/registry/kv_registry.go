@@ -149,43 +149,8 @@ func (k *kvRegistry) CreateActor(
 	moduleID string,
 	opts types.ActorOptions,
 ) (CreateActorResult, error) {
-	var (
-		actorKey  = getActorKey(namespace, actorID)
-		moduleKey = getModulePartKey(namespace, moduleID, 0)
-	)
 	r, err := k.kv.transact(func(tr transaction) (any, error) {
-		_, ok, err := k.getActorBytes(ctx, tr, actorKey)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			return RegisterModuleResult{}, fmt.Errorf(
-				"error creating actor with ID: %s, already exists in namespace: %s",
-				actorID, namespace)
-		}
-
-		_, ok, err = tr.get(ctx, moduleKey)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return RegisterModuleResult{}, fmt.Errorf(
-				"error creating actor, module: %s does not exist in namespace: %s",
-				moduleID, namespace)
-		}
-
-		ra := registeredActor{
-			Opts:       opts,
-			ModuleID:   moduleID,
-			Generation: 1,
-		}
-		marshaled, err := json.Marshal(&ra)
-		if err != nil {
-			return nil, err
-		}
-
-		tr.put(ctx, actorKey, marshaled)
-		return CreateActorResult{}, err
+		return k.createActor(ctx, tr, namespace, actorID, moduleID, opts)
 	})
 	if err != nil {
 		return CreateActorResult{}, fmt.Errorf("CreateActor: error: %w", err)
@@ -194,12 +159,60 @@ func (k *kvRegistry) CreateActor(
 	return r.(CreateActorResult), nil
 }
 
+func (k *kvRegistry) createActor(
+	ctx context.Context,
+	tr transaction,
+	namespace,
+	actorID,
+	moduleID string,
+	opts types.ActorOptions,
+) (CreateActorResult, error) {
+	fmt.Println("creating", actorID, moduleID)
+	var (
+		actorKey  = getActorKey(namespace, actorID, moduleID)
+		moduleKey = getModulePartKey(namespace, moduleID, 0)
+	)
+	_, ok, err := k.getActorBytes(ctx, tr, actorKey)
+	if err != nil {
+		return CreateActorResult{}, err
+	}
+	if ok {
+		return CreateActorResult{}, fmt.Errorf(
+			"error creating actor with ID: %s, already exists in namespace: %s",
+			actorID, namespace)
+	}
+
+	_, ok, err = tr.get(ctx, moduleKey)
+	if err != nil {
+		return CreateActorResult{}, err
+	}
+	if !ok {
+		return CreateActorResult{}, fmt.Errorf(
+			"error creating actor, module: %s does not exist in namespace: %s",
+			moduleID, namespace)
+	}
+
+	ra := registeredActor{
+		Opts:       opts,
+		ModuleID:   moduleID,
+		Generation: 1,
+	}
+	marshaled, err := json.Marshal(&ra)
+	if err != nil {
+		return CreateActorResult{}, err
+	}
+
+	tr.put(ctx, actorKey, marshaled)
+	return CreateActorResult{}, nil
+}
+
 func (k *kvRegistry) IncGeneration(
 	ctx context.Context,
 	namespace,
 	actorID string,
+	moduleID string,
 ) error {
-	actorKey := getActorKey(namespace, actorID)
+	actorKey := getActorKey(namespace, actorID, moduleID)
 	_, err := k.kv.transact(func(tr transaction) (any, error) {
 		ra, ok, err := k.getActor(ctx, tr, actorKey)
 		if err != nil {
@@ -233,18 +246,34 @@ func (k *kvRegistry) EnsureActivation(
 	ctx context.Context,
 	namespace,
 	actorID string,
+	moduleID string,
 ) ([]types.ActorReference, error) {
-	actorKey := getActorKey(namespace, actorID)
+	actorKey := getActorKey(namespace, actorID, moduleID)
 	references, err := k.kv.transact(func(tr transaction) (any, error) {
 		ra, ok, err := k.getActor(ctx, tr, actorKey)
+		if err == nil && !ok {
+			_, err := k.createActor(ctx, tr, namespace, actorID, moduleID, types.ActorOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("EnsureActivation: error creating actor: %w", err)
+			}
+			ra, ok, err = k.getActor(ctx, tr, actorKey)
+			if err != nil {
+				return nil, fmt.Errorf("EnsureActivation: error getting actor: %w", err)
+			}
+			if !ok {
+				return nil, fmt.Errorf(
+					"[invariant violated] error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
+					actorID, namespace, errActorDoesNotExist)
+			}
+		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("EnsureActivation: error getting actor: %w", err)
 		}
 		if !ok {
 			// Make sure we use %w to wrap the errActorDoesNotExist so the caller can use
 			// errors.Is() on it.
 			return nil, fmt.Errorf(
-				"error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
+				"[invariant violated] error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
 				actorID, namespace, errActorDoesNotExist)
 		}
 
@@ -373,7 +402,7 @@ func (k *kvRegistry) BeginTransaction(
 	ctx context.Context,
 	namespace string,
 	actorID string,
-
+	moduleID string,
 	serverID string,
 	serverVersion int64,
 ) (_ ActorKVTransaction, err error) {
@@ -388,13 +417,13 @@ func (k *kvRegistry) BeginTransaction(
 		}
 	}()
 
-	actorKey := getActorKey(namespace, actorID)
+	actorKey := getActorKey(namespace, actorID, moduleID)
 	ra, ok, err := k.getActor(ctx, kvTr, actorKey)
 	if err != nil {
 		return nil, fmt.Errorf("kvRegistry: beginTransaction: error getting actor key: %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("kvRegistry: beginTransaction: cannot perform KV Get for actor: %s that does not exist", actorID)
+		return nil, fmt.Errorf("kvRegistry: beginTransaction: cannot perform KV Get for actor: %s(%s) that does not exist", actorID, moduleID)
 	}
 
 	// We treat the tuple of <ServerID, ServerVersion> as a fencing token for all
@@ -414,7 +443,7 @@ func (k *kvRegistry) BeginTransaction(
 			ra.Activation.ServerVersion, serverVersion)
 	}
 
-	tr := newKVTransaction(ctx, namespace, actorID, kvTr)
+	tr := newKVTransaction(ctx, namespace, actorID, moduleID, kvTr)
 	return tr, nil
 }
 
@@ -535,12 +564,12 @@ func getModulePartKey(namespace, moduleID string, part int) []byte {
 	return tuple.Tuple{namespace, "modules", moduleID, part}.Pack()
 }
 
-func getActorKey(namespace, actorID string) []byte {
-	return tuple.Tuple{namespace, "actors", actorID, "state"}.Pack()
+func getActorKey(namespace, actorID, moduleID string) []byte {
+	return tuple.Tuple{namespace, "actors", moduleID, actorID, "state"}.Pack()
 }
 
-func getActoKVKey(namespace, actorID string, key []byte) []byte {
-	return tuple.Tuple{namespace, "actors", actorID, "kv", key}.Pack()
+func getActoKVKey(namespace, actorID string, moduleID string, key []byte) []byte {
+	return tuple.Tuple{namespace, "actors", moduleID, actorID, "kv", key}.Pack()
 }
 
 func getServerKey(serverID string) []byte {
@@ -595,6 +624,7 @@ func versionSince(curr, prev int64) time.Duration {
 type kvTransaction struct {
 	namespace string
 	actorID   string
+	moduleID  string
 	tr        transaction
 }
 
@@ -602,11 +632,13 @@ func newKVTransaction(
 	ctx context.Context,
 	namespace string,
 	actorID string,
+	moduleID string,
 	tr transaction,
 ) *kvTransaction {
 	return &kvTransaction{
 		namespace: namespace,
 		actorID:   actorID,
+		moduleID:  moduleID,
 		tr:        tr,
 	}
 }
@@ -615,7 +647,7 @@ func (tr *kvTransaction) Get(
 	ctx context.Context,
 	key []byte,
 ) ([]byte, bool, error) {
-	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, key)
+	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, tr.moduleID, key)
 	return tr.tr.get(ctx, actorKVKey)
 }
 
@@ -624,7 +656,7 @@ func (tr *kvTransaction) Put(
 	key []byte,
 	value []byte,
 ) error {
-	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, key)
+	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, tr.moduleID, key)
 	return tr.tr.put(ctx, actorKVKey, value)
 }
 

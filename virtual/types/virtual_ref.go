@@ -81,8 +81,8 @@ func (l virtualRef) Namespace() string {
 	return l.namespace
 }
 
-func (l virtualRef) ActorID() NamespacedID {
-	return NewNamespacedID(l.namespace, l.actorID, l.idType)
+func (l virtualRef) ActorID() NamespacedActorID {
+	return NewNamespacedActorID(l.namespace, l.actorID, l.moduleID, l.idType)
 }
 
 func (l virtualRef) ModuleID() NamespacedID {

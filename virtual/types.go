@@ -22,6 +22,7 @@ type Environment interface {
 		ctx context.Context,
 		namespace string,
 		actorID string,
+		moduleID string,
 		operation string,
 		payload []byte,
 		createIfNotExist types.CreateIfNotExist,
@@ -133,9 +134,6 @@ type Actor interface {
 // HostCapabilities defines the interface of capabilities exposed by the host to the Actor.
 type HostCapabilities interface {
 	KV
-
-	// CreateActor creates a new actor.
-	CreateActor(context.Context, wapcutils.CreateActorRequest) (CreateActorResult, error)
 
 	// InvokeActor invokes a function on the specified actor.
 	InvokeActor(context.Context, types.InvokeActorRequest) ([]byte, error)

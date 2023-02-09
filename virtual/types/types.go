@@ -29,7 +29,7 @@ type ActorReferenceVirtual interface {
 	// ModuleID is the ID of the WASM module that this actor is instantiated from.
 	ModuleID() NamespacedID
 	// The ID of the referenced actor.
-	ActorID() NamespacedID
+	ActorID() NamespacedActorID
 	// Generation represents the generation count for the actor's activation. This value
 	// may be bumped by the registry at any time to signal to the rest of the system that
 	// all outstanding activations should be recreated for whatever reason.
