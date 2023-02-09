@@ -774,12 +774,6 @@ func (ta *testActor) Invoke(
 			return nil, err
 		}
 		return v, nil
-	// case "fork":
-	// 	_, err := ta.host.CreateActor(ctx, wapcutils.CreateActorRequest{
-	// 		ActorID:  string(payload),
-	// 		ModuleID: "",
-	// 	})
-	// 	return nil, err
 	case "invokeActor":
 		var req types.InvokeActorRequest
 		if err := json.Unmarshal(payload, &req); err != nil {
@@ -803,37 +797,34 @@ func (ta *testActor) Invoke(
 // TestServerVersionIsHonored ensures client-server coordination around server versions by blocking actor invocations if versions don't match,
 // indicating a missed heartbeat by the server and loss of ownership of the actor.
 // This reproduces the bug identified in https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
-// func TestServerVersionIsHonored(t *testing.T) {
-// 	var (
-// 		reg = registry.NewLocalRegistry()
-// 		ctx = context.Background()
-// 	)
+func TestServerVersionIsHonored(t *testing.T) {
+	var (
+		reg = registry.NewLocalRegistry()
+		ctx = context.Background()
+	)
 
-// 	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, EnvironmentOptions{
-// 		ActivationCacheTTL: time.Second * 15,
-// 	})
-// 	require.NoError(t, err)
+	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, EnvironmentOptions{
+		ActivationCacheTTL: time.Second * 15,
+	})
+	require.NoError(t, err)
 
-// 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-// 	require.NoError(t, err)
+	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
 
-// 	_, err = reg.CreateActor(ctx, "ns-1", "a", "test-module", types.ActorOptions{})
-// 	require.NoError(t, err)
+	_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	require.NoError(t, err)
 
-// 	_, err = env1.InvokeActor(ctx, "ns-1", "a", "inc", nil, types.CreateIfNotExist{})
-// 	require.NoError(t, err)
+	env1.pauseHeartbeat()
 
-// 	env1.pauseHeartbeat()
+	time.Sleep(registry.HeartbeatTTL + time.Second)
 
-// 	time.Sleep(registry.HeartbeatTTL + time.Second)
+	env1.resumeHeartbeat()
 
-// 	env1.resumeHeartbeat()
+	require.NoError(t, env1.heartbeat())
 
-// 	require.NoError(t, env1.heartbeat())
-
-// 	_, err = env1.InvokeActor(ctx, "ns-1", "a", "inc", nil, types.CreateIfNotExist{})
-// 	require.EqualErrorf(t, err, "InvokeLocal: server version(2) != server version from reference(1)", "Error should be: %v, got: %v", "InvokeLocal: server version(1) != server version from reference(0)", err)
-// }
+	_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	require.EqualErrorf(t, err, "InvokeLocal: server version(2) != server version from reference(1)", "Error should be: %v, got: %v", "InvokeLocal: server version(1) != server version from reference(0)", err)
+}
 
 func (ta testActor) Close(ctx context.Context) error {
 	return nil
