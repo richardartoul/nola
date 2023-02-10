@@ -27,7 +27,7 @@ func TestDNSRegistrySimple(t *testing.T) {
 		}
 	}()
 
-	_, err = reg.EnsureActivation(context.Background(), "ns1", "a")
+	_, err = reg.EnsureActivation(context.Background(), "ns1", "a", "test-module")
 	require.True(t, strings.Contains(err.Error(), "hashring is empty"))
 
 	// Should be a no-op.
@@ -48,7 +48,7 @@ func TestDNSRegistrySimple(t *testing.T) {
 	})
 
 	for {
-		activations, err := reg.EnsureActivation(context.Background(), "ns1", "a")
+		activations, err := reg.EnsureActivation(context.Background(), "ns1", "a", "test-module")
 		if err != nil {
 			time.Sleep(time.Millisecond)
 			continue
@@ -56,8 +56,8 @@ func TestDNSRegistrySimple(t *testing.T) {
 
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "a", activations[0].ActorID().ID)
-		require.Equal(t, DNSModuleID, activations[0].ModuleID().ID)
-		require.Equal(t, "127.0.0.1:9090", activations[0].Address())
+		require.Equal(t, "test-module", activations[0].ModuleID().ID)
+		require.Equal(t, "127.0.0.3:9090", activations[0].Address())
 		require.Equal(t, DNSServerID, activations[0].ServerID())
 		require.Equal(t, DNSServerVersion, activations[0].ServerVersion())
 		break

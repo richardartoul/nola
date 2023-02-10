@@ -78,25 +78,6 @@ func newHostFnRouter(
 				resp = append(resp, v...)
 				return resp, nil
 			}
-		case wapcutils.CreateActorOperationName:
-			var req wapcutils.CreateActorRequest
-			if err := json.Unmarshal(wapcPayload, &req); err != nil {
-				return nil, fmt.Errorf("error unmarshaling CreateActorRequest: %w", err)
-			}
-
-			if req.ModuleID == "" {
-				// If no module ID was specified then assume the actor is trying to "fork"
-				// itself and create the new actor using the same module as the existing
-				// actor.
-				req.ModuleID = actorModuleID
-			}
-
-			if _, err := reg.CreateActor(
-				ctx, actorNamespace, req.ActorID, req.ModuleID, types.ActorOptions{}); err != nil {
-				return nil, fmt.Errorf("error creating new actor in registry: %w", err)
-			}
-
-			return nil, nil
 
 		case wapcutils.InvokeActorOperationName:
 			var req types.InvokeActorRequest
@@ -104,7 +85,9 @@ func newHostFnRouter(
 				return nil, fmt.Errorf("error unmarshaling InvokeActorRequest: %w", err)
 			}
 
-			return environment.InvokeActor(ctx, actorNamespace, req.ActorID, req.Operation, req.Payload, req.CreateIfNotExist)
+			return environment.InvokeActor(
+				ctx, actorNamespace, req.ActorID, req.ModuleID,
+				req.Operation, req.Payload, req.CreateIfNotExist)
 
 		case wapcutils.ScheduleInvocationOperationName:
 			var req wapcutils.ScheduleInvocationRequest
@@ -128,7 +111,8 @@ func newHostFnRouter(
 				payloadCopy := make([]byte, len(req.Invoke.Payload))
 				copy(payloadCopy, req.Invoke.Payload)
 				_, err := environment.InvokeActor(
-					ctx, actorNamespace, req.Invoke.ActorID, req.Invoke.Operation, payloadCopy, req.Invoke.CreateIfNotExist)
+					ctx, actorNamespace, req.Invoke.ActorID, req.Invoke.ModuleID,
+					req.Invoke.Operation, payloadCopy, req.Invoke.CreateIfNotExist)
 				if err != nil {
 					log.Printf(
 						"error performing scheduled invocation from actor: %s to actor: %s for operation: %s, err: %v\n",

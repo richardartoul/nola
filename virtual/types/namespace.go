@@ -23,6 +23,30 @@ func NewNamespacedID(
 	}
 }
 
+// NamespacedActorID is the same as NamespacedID, but for actor IDs and
+// includes the ModuleID.
+type NamespacedActorID struct {
+	Namespace string
+	ID        string
+	Module    string
+	IDType    string
+}
+
+// NewNamespacedActorID creates a new NamespaceActorID.
+func NewNamespacedActorID(
+	namespace string,
+	id string,
+	module string,
+	idType string,
+) NamespacedActorID {
+	return NamespacedActorID{
+		Namespace: namespace,
+		ID:        id,
+		Module:    module,
+		IDType:    idType,
+	}
+}
+
 // NamespacedIDNoType is the same as NamespacedID, but without the IDType
 // field.
 type NamespacedIDNoType struct {

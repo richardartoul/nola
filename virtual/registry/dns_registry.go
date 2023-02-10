@@ -16,7 +16,6 @@ import (
 const (
 	DNSServerID          = "DNS_SERVER_ID"
 	DNSServerVersion     = int64(-1)
-	DNSModuleID          = "DNS_MODULE_ID"
 	DNS_ACTOR_GENERATION = 1
 	// Must be at least 1 because <= 0 is not a legal versionstamp
 	DNSVersionStamp = 1
@@ -113,6 +112,7 @@ func (d *dnsRegistry) IncGeneration(
 	ctx context.Context,
 	namespace,
 	actorID string,
+	moduleID string,
 ) error {
 	return errors.New("DNSRegistry: IncGeneration: not implemented")
 }
@@ -121,6 +121,7 @@ func (d *dnsRegistry) EnsureActivation(
 	ctx context.Context,
 	namespace,
 	actorID string,
+	moduleID string,
 ) ([]types.ActorReference, error) {
 	d.RLock()
 	ring := d.hashRing
@@ -130,10 +131,10 @@ func (d *dnsRegistry) EnsureActivation(
 		return nil, fmt.Errorf("EnsureActivation: hashring is empty")
 	}
 
-	serverIP := ring.Get(actorID)
+	serverIP := ring.Get(fmt.Sprintf("%s::%s", actorID, moduleID))
 	ref, err := types.NewActorReference(
 		DNSServerID, DNSServerVersion, serverIP, namespace,
-		DNSModuleID, actorID, DNS_ACTOR_GENERATION)
+		moduleID, actorID, DNS_ACTOR_GENERATION)
 	if err != nil {
 		return nil, fmt.Errorf("error creating actor reference: %w", err)
 	}
@@ -153,6 +154,7 @@ func (d *dnsRegistry) BeginTransaction(
 	ctx context.Context,
 	namespace string,
 	actorID string,
+	moduleID string,
 	serverID string,
 	serverVersion int64,
 ) (_ ActorKVTransaction, err error) {
