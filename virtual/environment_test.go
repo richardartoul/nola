@@ -72,7 +72,7 @@ func TestSimpleActor(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, false)
 }
 
 // TestCreateIfNotExist tests that the CreateIfNotExist argument can be used to invoke an actor and
@@ -97,7 +97,7 @@ func TestCreateIfNotExist(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, false)
 }
 
 // TestSimpleWorker is a basic sanity test that verifies the most basic flow for workers.
@@ -127,7 +127,7 @@ func TestSimpleWorker(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, false)
 }
 
 // TestGenerationCountIncInvalidatesActivation ensures that the registry returning a higher
@@ -147,7 +147,7 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 
 			// Increment the generation which should cause the next invocation to recreate the actor
 			// activation from scratch and reset the internal counter back to 0.
-			reg.IncGeneration(ctx, ns, "a", "test-module")
+			require.NoError(t, reg.IncGeneration(ctx, ns, "a", "test-module"))
 
 			for i := 0; i < 100; i++ {
 				if i == 0 {
@@ -171,7 +171,7 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, true)
 }
 
 // TestKVHostFunctions tests whether the KV interfaces from the registry can be used properly as host functions
@@ -230,7 +230,7 @@ func TestKVHostFunctions(t *testing.T) {
 	// Run the test twice with two different environments, but the same registry
 	// to simulate a node restarting and being re-initialized with the same registry
 	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, true)
 }
 
 // TestKVTransactions tests whether the KV interfaces from the registry can be used
@@ -281,7 +281,7 @@ func TestKVTransactions(t *testing.T) {
 	// Run the test twice with two different environments, but the same registry
 	// to simulate a node restarting and being re-initialized with the same registry
 	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, true)
 }
 
 // TestKVHostFunctionsActorsSeparatedRegression is a regression test that ensures each
@@ -326,7 +326,7 @@ func TestKVHostFunctionsActorsSeparatedRegression(t *testing.T) {
 			require.Equal(t, int64(1), val)
 		}
 	}
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, true)
 }
 
 // TestInvokeActorHostFunction tests whether the invoke actor host function can be used
@@ -394,7 +394,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, false)
 }
 
 // TestScheduleInvocationHostFunction tests whether actors can schedule invocations to run
@@ -476,7 +476,7 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, false)
 }
 
 // TestInvokeActorHostFunctionDeadlockRegression is a regression test to ensure that an actor can invoke
@@ -498,7 +498,7 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, false)
 }
 
 // TestHeartbeatAndSelfHealing tests the interaction between the service discovery / heartbeating system
@@ -646,7 +646,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, true)
 }
 
 // TestCustomHostFns tests the ability for users to provide custom host functions that
@@ -660,7 +660,7 @@ func TestCustomHostFns(t *testing.T) {
 		require.Equal(t, []byte("ok"), result)
 	}
 
-	runWithDifferentConfigs(t, testFn)
+	runWithDifferentConfigs(t, testFn, false)
 }
 
 // TestGoModulesRegisterTwice ensures that writing modules in pure Go and registering
@@ -688,44 +688,47 @@ func getCount(t *testing.T, v []byte) int64 {
 func runWithDifferentConfigs(
 	t *testing.T,
 	testFn func(t *testing.T, reg registry.Registry, env Environment),
+	skipDNS bool,
 ) {
-	// t.Run("wasm-local", func(t *testing.T) {
-	// 	reg := registry.NewLocalRegistry()
-	// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
-	// 	require.NoError(t, err)
-	// 	defer env.Close()
+	t.Run("wasm-local", func(t *testing.T) {
+		reg := registry.NewLocalRegistry()
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+		require.NoError(t, err)
+		defer env.Close()
 
-	// 	_, err = reg.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	// 	require.NoError(t, err)
-	// 	_, err = reg.RegisterModule(context.Background(), "ns-2", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	// 	require.NoError(t, err)
-
-	// 	testFn(t, reg, env)
-	// })
-
-	// t.Run("go-local", func(t *testing.T) {
-	// 	reg := registry.NewLocalRegistry()
-	// 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
-	// 	require.NoError(t, err)
-	// 	defer env.Close()
-
-	// 	testFn(t, reg, env)
-	// })
-
-	t.Run("go-dns", func(t *testing.T) {
-		resolver := &fakeResolver{}
-		resolver.setIPs([]net.IP{net.ParseIP("127.0.0.1")})
-
-		reg, err := registry.NewDNSRegistry(resolver, "test", int64(defaultOptsGo.Discovery.Port), registry.DNSRegistryOptions{})
+		_, err = reg.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+		require.NoError(t, err)
+		_, err = reg.RegisterModule(context.Background(), "ns-2", "test-module", utilWasmBytes, registry.ModuleOptions{})
 		require.NoError(t, err)
 
+		testFn(t, reg, env)
+	})
+
+	t.Run("go-local", func(t *testing.T) {
+		reg := registry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
 		require.NoError(t, err)
-
 		defer env.Close()
 
 		testFn(t, reg, env)
 	})
+
+	if !skipDNS {
+		t.Run("go-dns", func(t *testing.T) {
+			resolver := &fakeResolver{}
+			resolver.setIPs([]net.IP{net.ParseIP("127.0.0.1")})
+
+			reg, err := registry.NewDNSRegistry(resolver, "test", int64(defaultOptsGo.Discovery.Port), registry.DNSRegistryOptions{})
+			require.NoError(t, err)
+
+			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
+			require.NoError(t, err)
+
+			defer env.Close()
+
+			testFn(t, reg, env)
+		})
+	}
 }
 
 type testModule struct {
