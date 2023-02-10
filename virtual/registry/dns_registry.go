@@ -183,7 +183,6 @@ func (d *dnsRegistry) Close(ctx context.Context) error {
 }
 
 func (d *dnsRegistry) UnsafeWipeAll() error {
-	// TODO: Implement me.
 	return nil
 }
 
