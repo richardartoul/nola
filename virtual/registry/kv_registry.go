@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry/kv"
+	"github.com/richardartoul/nola/virtual/registry/tuple"
 	"github.com/richardartoul/nola/virtual/types"
 
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"golang.org/x/sync/singleflight"
 )
 
