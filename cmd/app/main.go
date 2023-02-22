@@ -9,10 +9,12 @@ import (
 
 	_ "net/http/pprof"
 
-	"github.com/google/uuid"
-
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/virtual/registry/fdbregistry"
+	"github.com/richardartoul/nola/virtual/registry/localregistry"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -33,10 +35,10 @@ func main() {
 	var reg registry.Registry
 	switch *registryType {
 	case "memory":
-		reg = registry.NewLocalRegistry()
+		reg = localregistry.NewLocalRegistry()
 	case "foundationdb":
 		var err error
-		reg, err = registry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
+		reg, err = fdbregistry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
 		if err != nil {
 			log.Fatalf("error creating FoundationDB registry: %v\n", err)
 		}

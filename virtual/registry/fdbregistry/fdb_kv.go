@@ -1,8 +1,10 @@
-package registry
+package fdbregistry
 
 import (
 	"context"
 	"fmt"
+
+	"github.com/richardartoul/nola/virtual/registry/kv"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 )
@@ -12,7 +14,7 @@ type fdbKV struct {
 	db fdb.Database
 }
 
-func newFDBKV(clusterFile string) (kv, error) {
+func newFDBKV(clusterFile string) (kv.Store, error) {
 	fdb.MustAPIVersion(710)
 	db, err := fdb.OpenDatabase(clusterFile)
 	if err != nil {
@@ -21,7 +23,7 @@ func newFDBKV(clusterFile string) (kv, error) {
 	return &fdbKV{db: db}, nil
 }
 
-func (f *fdbKV) beginTransaction(ctx context.Context) (transaction, error) {
+func (f *fdbKV) BeginTransaction(ctx context.Context) (kv.Transaction, error) {
 	tr, err := f.db.CreateTransaction()
 	if err != nil {
 		return nil, fmt.Errorf("fdbKV: beginTransaction: error creating transaction: %w", err)
@@ -29,19 +31,19 @@ func (f *fdbKV) beginTransaction(ctx context.Context) (transaction, error) {
 	return &fdbTransaction{tr: tr}, nil
 }
 
-func (f *fdbKV) transact(fn func(tr transaction) (any, error)) (any, error) {
+func (f *fdbKV) Transact(fn func(tr kv.Transaction) (any, error)) (any, error) {
 	return f.db.Transact(func(tr fdb.Transaction) (any, error) {
 		return fn(&fdbTransaction{tr})
 	})
 }
 
-func (f *fdbKV) close(ctx context.Context) error {
+func (f *fdbKV) Close(ctx context.Context) error {
 	// TODO: Why does f.db.Close() not exist?
 	// https://pkg.go.dev/github.com/apple/foundationdb/bindings/go/src/fdb#Database.Close
 	return nil
 }
 
-func (f *fdbKV) unsafeWipeAll() error {
+func (f *fdbKV) UnsafeWipeAll() error {
 	_, err := f.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.ClearRange(fdb.KeyRange{Begin: fdb.Key{0x00}, End: fdb.Key{0xFF}})
 		return nil, nil
@@ -53,7 +55,7 @@ type fdbTransaction struct {
 	tr fdb.Transaction
 }
 
-func (tr *fdbTransaction) put(
+func (tr *fdbTransaction) Put(
 	ctx context.Context,
 	k, v []byte,
 ) error {
@@ -61,7 +63,7 @@ func (tr *fdbTransaction) put(
 	return nil
 }
 
-func (tr *fdbTransaction) get(
+func (tr *fdbTransaction) Get(
 	ctx context.Context,
 	k []byte,
 ) ([]byte, bool, error) {
@@ -77,7 +79,7 @@ func (tr *fdbTransaction) get(
 	return v, true, nil
 }
 
-func (tr *fdbTransaction) iterPrefix(
+func (tr *fdbTransaction) IterPrefix(
 	ctx context.Context,
 	prefix []byte,
 	fn func(k, v []byte) error,
@@ -99,7 +101,7 @@ func (tr *fdbTransaction) iterPrefix(
 	return nil
 }
 
-func (tr *fdbTransaction) getVersionStamp() (int64, error) {
+func (tr *fdbTransaction) GetVersionStamp() (int64, error) {
 	readV, err := tr.tr.GetReadVersion().Get()
 	if err != nil {
 		return -1, err
@@ -107,11 +109,11 @@ func (tr *fdbTransaction) getVersionStamp() (int64, error) {
 	return readV, nil
 }
 
-func (tr *fdbTransaction) commit(ctx context.Context) error {
+func (tr *fdbTransaction) Commit(ctx context.Context) error {
 	return tr.tr.Commit().Get()
 }
 
-func (tr *fdbTransaction) cancel(ctx context.Context) error {
+func (tr *fdbTransaction) Cancel(ctx context.Context) error {
 	tr.tr.Cancel()
 	return nil
 }

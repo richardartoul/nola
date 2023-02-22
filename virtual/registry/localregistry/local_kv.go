@@ -1,10 +1,12 @@
-package registry
+package localregistry
 
 import (
 	"bytes"
 	"context"
 	"sync"
 	"time"
+
+	"github.com/richardartoul/nola/virtual/registry/kv"
 
 	"github.com/google/btree"
 )
@@ -19,7 +21,7 @@ type localKV struct {
 	closed  bool
 }
 
-func newLocalKV() kv {
+func newLocalKV() kv.Store {
 	return &localKV{
 		t: time.Now(),
 		b: btree.NewG(16, func(a, b btreeKV) bool {
@@ -28,13 +30,13 @@ func newLocalKV() kv {
 	}
 }
 
-func (l *localKV) beginTransaction(ctx context.Context) (transaction, error) {
+func (l *localKV) BeginTransaction(ctx context.Context) (kv.Transaction, error) {
 	l.Lock()
 	l.trClone = l.b.Clone()
 	return l, nil
 }
 
-func (l *localKV) commit(ctx context.Context) error {
+func (l *localKV) Commit(ctx context.Context) error {
 	defer l.Unlock()
 	if l.trClone == nil {
 		panic("trClone should not be nil")
@@ -44,7 +46,7 @@ func (l *localKV) commit(ctx context.Context) error {
 	return nil
 }
 
-func (l *localKV) cancel(ctx context.Context) error {
+func (l *localKV) Cancel(ctx context.Context) error {
 	defer l.Unlock()
 	if l.trClone == nil {
 		panic("trClone should not be nil")
@@ -55,7 +57,7 @@ func (l *localKV) cancel(ctx context.Context) error {
 	return nil
 }
 
-func (l *localKV) transact(fn func(transaction) (any, error)) (any, error) {
+func (l *localKV) Transact(fn func(kv.Transaction) (any, error)) (any, error) {
 	l.Lock()
 	defer l.Unlock()
 
@@ -67,7 +69,7 @@ func (l *localKV) transact(fn func(transaction) (any, error)) (any, error) {
 	return result, err
 }
 
-func (l *localKV) unsafeWipeAll() error {
+func (l *localKV) UnsafeWipeAll() error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -75,7 +77,7 @@ func (l *localKV) unsafeWipeAll() error {
 	return nil
 }
 
-func (l *localKV) close(ctx context.Context) error {
+func (l *localKV) Close(ctx context.Context) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -84,7 +86,7 @@ func (l *localKV) close(ctx context.Context) error {
 }
 
 // "transaction" method so no lock because we're already locked.
-func (l *localKV) put(
+func (l *localKV) Put(
 	ctx context.Context,
 	k, v []byte,
 ) error {
@@ -98,7 +100,7 @@ func (l *localKV) put(
 }
 
 // "transaction" method so no lock because we're already locked.
-func (l *localKV) get(
+func (l *localKV) Get(
 	ctx context.Context,
 	k []byte,
 ) ([]byte, bool, error) {
@@ -114,7 +116,7 @@ func (l *localKV) get(
 }
 
 // "transaction" method so no lock because we're already locked.
-func (l *localKV) iterPrefix(
+func (l *localKV) IterPrefix(
 	ctx context.Context,
 	prefix []byte, fn func(k, v []byte) error,
 ) error {
@@ -137,7 +139,7 @@ func (l *localKV) iterPrefix(
 }
 
 // "transaction" method so no lock because we're already locked.
-func (l *localKV) getVersionStamp() (int64, error) {
+func (l *localKV) GetVersionStamp() (int64, error) {
 	// Return microseconds since l.t since that will automatically increase at
 	// a rate of ~ 1 million/s just like FDB's versionstamp.
 	return time.Since(l.t).Microseconds(), nil
@@ -146,7 +148,4 @@ func (l *localKV) getVersionStamp() (int64, error) {
 type btreeKV struct {
 	k []byte
 	v []byte
-}
-
-type localKVTransaction struct {
 }

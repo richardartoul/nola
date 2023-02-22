@@ -11,7 +11,9 @@ import (
 
 // TODO: Add some concurrency tests.
 
-func testAllCommon(t *testing.T, registryCtor func() Registry) {
+// This is called from the specific registry implementation subpackages like
+// fdbregistry, localregistry, dnsregistry, etc.
+func TestAllCommon(t *testing.T, registryCtor func() Registry) {
 	t.Run("simple", func(t *testing.T) {
 		testRegistrySimple(t, registryCtor())
 	})

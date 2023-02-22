@@ -1,32 +1,55 @@
-package virtual
+package benchmarks
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/DataDog/sketches-go/ddsketch"
+	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/virtual/registry/fdbregistry"
+	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
 
+	"github.com/DataDog/sketches-go/ddsketch"
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	utilWasmBytes   []byte
+	defaultOptsWASM = virtual.EnvironmentOptions{
+		CustomHostFns: map[string]func([]byte) ([]byte, error){
+			"testCustomFn": func([]byte) ([]byte, error) {
+				return []byte("ok"), nil
+			},
+		},
+	}
+)
+
+func init() {
+	fBytes, err := ioutil.ReadFile("../../../testdata/tinygo/util/main.wasm")
+	if err != nil {
+		panic(err)
+	}
+	utilWasmBytes = fBytes
+}
+
 func BenchmarkLocalInvokeActor(b *testing.B) {
-	reg := registry.NewLocalRegistry()
+	reg := localregistry.NewLocalRegistry()
 	benchmarkInvokeActor(b, reg)
 }
 
 func BenchmarkLocalInvokeWorker(b *testing.B) {
-	reg := registry.NewLocalRegistry()
+	reg := localregistry.NewLocalRegistry()
 	benchmarkInvokeWorker(b, reg)
 }
 
 func BenchmarkFoundationDBRegistryInvokeActor(b *testing.B) {
-	reg, err := registry.NewFoundationDBRegistry("")
+	reg, err := fdbregistry.NewFoundationDBRegistry("")
 	require.NoError(b, err)
 	require.NoError(b, reg.UnsafeWipeAll())
 
@@ -34,7 +57,7 @@ func BenchmarkFoundationDBRegistryInvokeActor(b *testing.B) {
 }
 
 func BenchmarkFoundationDBRegistryInvokeWorker(b *testing.B) {
-	reg, err := registry.NewFoundationDBRegistry("")
+	reg, err := fdbregistry.NewFoundationDBRegistry("")
 	require.NoError(b, err)
 	require.NoError(b, reg.UnsafeWipeAll())
 
@@ -42,7 +65,7 @@ func BenchmarkFoundationDBRegistryInvokeWorker(b *testing.B) {
 }
 
 func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -63,7 +86,7 @@ func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
 }
 
 func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -84,8 +107,8 @@ func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
 }
 
 func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	reg := localregistry.NewLocalRegistry()
+	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -106,8 +129,8 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 }
 
 func BenchmarkLocalActorToActorCommunication(b *testing.B) {
-	reg := registry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	reg := localregistry.NewLocalRegistry()
+	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -162,11 +185,11 @@ func testSimpleBench(
 	// Uncomment to run.
 	t.Skip()
 
-	reg, err := registry.NewFoundationDBRegistry("")
+	reg, err := fdbregistry.NewFoundationDBRegistry("")
 	require.NoError(t, err)
 	require.NoError(t, reg.UnsafeWipeAll())
 
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(t, err)
 	defer env.Close()
 

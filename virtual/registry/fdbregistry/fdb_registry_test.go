@@ -1,4 +1,4 @@
-package registry
+package fdbregistry
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/richardartoul/nola/virtual/registry"
+
 	"github.com/DataDog/sketches-go/ddsketch"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +16,7 @@ import (
 func TestFDBRegistry(t *testing.T) {
 	t.Skip("TODO: Only skip locally, but run in CI")
 
-	testAllCommon(t, func() Registry {
+	registry.TestAllCommon(t, func() registry.Registry {
 		registry, err := NewFoundationDBRegistry("")
 		require.NoError(t, err)
 

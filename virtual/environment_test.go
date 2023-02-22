@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
+	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 
@@ -507,7 +509,7 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 // and that the activation/routing system can accomodate all of this.
 func TestHeartbeatAndSelfHealing(t *testing.T) {
 	var (
-		reg = registry.NewLocalRegistry()
+		reg = localregistry.NewLocalRegistry()
 		ctx = context.Background()
 	)
 	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
@@ -668,7 +670,7 @@ func TestCustomHostFns(t *testing.T) {
 // the registry.
 func TestGoModulesRegisterTwice(t *testing.T) {
 	// Create environment and register modules.
-	reg := registry.NewLocalRegistry()
+	reg := localregistry.NewLocalRegistry()
 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
 	require.NoError(t, err)
 	require.NoError(t, env.Close())
@@ -691,7 +693,7 @@ func runWithDifferentConfigs(
 	skipDNS bool,
 ) {
 	t.Run("wasm-local", func(t *testing.T) {
-		reg := registry.NewLocalRegistry()
+		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 		require.NoError(t, err)
 		defer env.Close()
@@ -705,7 +707,7 @@ func runWithDifferentConfigs(
 	})
 
 	t.Run("go-local", func(t *testing.T) {
-		reg := registry.NewLocalRegistry()
+		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
 		require.NoError(t, err)
 		defer env.Close()
@@ -718,7 +720,7 @@ func runWithDifferentConfigs(
 			resolver := &fakeResolver{}
 			resolver.setIPs([]net.IP{net.ParseIP("127.0.0.1")})
 
-			reg, err := registry.NewDNSRegistry(resolver, "test", int64(defaultOptsGo.Discovery.Port), registry.DNSRegistryOptions{})
+			reg, err := dnsregistry.NewDNSRegistry(resolver, "test", int64(defaultOptsGo.Discovery.Port), dnsregistry.DNSRegistryOptions{})
 			require.NoError(t, err)
 
 			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
@@ -818,7 +820,7 @@ func (ta *testActor) Invoke(
 // This reproduces the bug identified in https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
 func TestServerVersionIsHonored(t *testing.T) {
 	var (
-		reg = registry.NewLocalRegistry()
+		reg = localregistry.NewLocalRegistry()
 		ctx = context.Background()
 	)
 
