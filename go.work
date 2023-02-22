@@ -5,3 +5,5 @@ use (
 	./cmd/app
 	./virtual/registry/fdbregistry
 )
+
+replace github.com/apple/foundationdb/bindings/go => github.com/apple/foundationdb/bindings/go v0.0.0-20220521054011-a88e049b28d8
