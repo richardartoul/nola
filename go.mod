@@ -11,8 +11,8 @@ require (
 	github.com/google/btree v1.1.2
 	github.com/google/uuid v1.3.0
 	github.com/stretchr/testify v1.7.1
-	github.com/tetratelabs/wazero v1.0.0-pre.5
-	github.com/wapc/wapc-go v0.5.6
+	github.com/tetratelabs/wazero v1.0.0-pre.9
+	github.com/wapc/wapc-go v0.5.7
 	github.com/wapc/wapc-guest-tinygo v0.3.3
 	github.com/wasmerio/wasmer-go v1.0.4
 	golang.org/x/sync v0.1.0
@@ -35,6 +35,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.0 // indirect
 )
 
-// wapc-go only works with pre.4 because pre.5 changes the API slightly. Once wapc-go
-// is released to work with pre.5 we can remove this and upgrade.
-replace github.com/tetratelabs/wazero => github.com/tetratelabs/wazero v1.0.0-pre.4
+// wapc-go only works with pre.6 because pre.9 changes the API slightly. Once wapc-go
+// is released to work with pre.9 we can remove this and upgrade.
+replace github.com/tetratelabs/wazero => github.com/tetratelabs/wazero v1.0.0-pre.6
