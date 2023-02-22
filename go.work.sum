@@ -1,1 +1,4 @@
+github.com/bytecodealliance/wasmtime-go v1.0.0/go.mod h1:jjlqQbWUfVSbehpErw3UoWFndBXRRMvfikYH6KsCwOg=
 github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5CcY=
+github.com/tetratelabs/wazero v1.0.0-pre.6 h1:3DRqjuHazHyZmgWCgqu7nKgYIYNEi2+2RQpCwTqbVHs=
+github.com/tetratelabs/wazero v1.0.0-pre.6/go.mod h1:u8wrFmpdrykiFK0DFPiFm5a4+0RzsdmXYVtijBKqUVo=
