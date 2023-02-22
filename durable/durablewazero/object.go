@@ -61,11 +61,11 @@ func (o *object) Snapshot(
 	defer o.Unlock()
 
 	memory := o.instance.(*wazero.Instance).UnwrapModule().Memory()
-	bytes, ok := memory.Read(ctx, 0, memory.Size(ctx))
+	bytes, ok := memory.Read(0, memory.Size())
 	if !ok {
 		return fmt.Errorf(
 			"error snapshotting object: memory.Read() return false for range: %d->%d",
-			0, memory.Size(ctx))
+			0, memory.Size())
 	}
 	_, err := w.Write(bytes)
 	if err != nil {
@@ -86,11 +86,11 @@ func (o *object) SnapshotIncremental(
 	defer o.Unlock()
 
 	memory := o.instance.(*wazero.Instance).UnwrapModule().Memory()
-	memBytes, ok := memory.Read(ctx, 0, memory.Size(ctx))
+	memBytes, ok := memory.Read(0, memory.Size())
 	if !ok {
 		return fmt.Errorf(
 			"error snapshotting object: memory.Read() return false for range: %d->%d",
-			0, memory.Size(ctx))
+			0, memory.Size())
 	}
 
 	for i := 0; i < len(memBytes); i += 128 {
@@ -113,7 +113,7 @@ func (o *object) Hydrate(
 
 	var (
 		memory  = o.instance.(*wazero.Instance).UnwrapModule().Memory()
-		memSize = int(memory.Size(ctx))
+		memSize = int(memory.Size())
 	)
 	if readerSize > memSize {
 		var (
@@ -123,17 +123,17 @@ func (o *object) Hydrate(
 		if additionalBytesNeeded%wasmPageSize > 0 {
 			additionalPagesNeeded++
 		}
-		memory.Grow(ctx, uint32(additionalPagesNeeded))
+		memory.Grow(uint32(additionalPagesNeeded))
 	}
 
 	// Very important we do this *after* calling memory.Grow, otherwise the
 	// memBytes slice may be "detached" from the underlying instance memory
 	// and our writes won't "write through".
-	memBytes, ok := memory.Read(ctx, 0, memory.Size(ctx))
+	memBytes, ok := memory.Read(0, memory.Size())
 	if !ok {
 		return fmt.Errorf(
 			"error hydrating object: memory.Read() return false for range: %d->%d",
-			0, memory.Size(ctx))
+			0, memory.Size())
 	}
 	// Zero out existing memory just in case.
 	for i := range memBytes {
