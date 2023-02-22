@@ -1,4 +1,4 @@
-package registry
+package dnsregistry
 
 // Taken from https://github.com/golang/groupcache/blob/master/consistenthash/consistenthash.go
 // Apache licensed.

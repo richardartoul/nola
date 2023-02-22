@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/richardartoul/nola/virtual/registry/kv"
 	"github.com/richardartoul/nola/virtual/types"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -36,13 +37,14 @@ type kvRegistry struct {
 	versionStampBatcher singleflight.Group
 
 	// State.
-	kv kv
+	kv kv.Store
 }
 
-func newKVRegistry(kv kv) Registry {
-	return &kvRegistry{
+// NewKVRegistry creates a new KV-backed registry.
+func NewKVRegistry(kv kv.Store) Registry {
+	return newValidatedRegistry(&kvRegistry{
 		kv: kv,
-	}
+	})
 }
 
 // TODO: Add compression?
@@ -53,8 +55,8 @@ func (k *kvRegistry) RegisterModule(
 	moduleBytes []byte,
 	opts ModuleOptions,
 ) (RegisterModuleResult, error) {
-	r, err := k.kv.transact(func(tr transaction) (any, error) {
-		_, ok, err := tr.get(ctx, getModulePartKey(namespace, moduleID, 0))
+	r, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
+		_, ok, err := tr.Get(ctx, getModulePartKey(namespace, moduleID, 0))
 		if err != nil {
 			return nil, err
 		}
@@ -90,7 +92,7 @@ func (k *kvRegistry) RegisterModule(
 				numBytes = len(marshaled)
 			}
 			toWrite := marshaled[:numBytes]
-			tr.put(ctx, getModulePartKey(namespace, moduleID, i), toWrite)
+			tr.Put(ctx, getModulePartKey(namespace, moduleID, i), toWrite)
 			marshaled = marshaled[numBytes:]
 		}
 		return RegisterModuleResult{}, err
@@ -109,12 +111,12 @@ func (k *kvRegistry) GetModule(
 	moduleID string,
 ) ([]byte, ModuleOptions, error) {
 	key := getModulePrefix(namespace, moduleID)
-	r, err := k.kv.transact(func(tr transaction) (any, error) {
+	r, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
 		var (
 			moduleBytes []byte
 			i           = 0
 		)
-		err := tr.iterPrefix(ctx, key, func(k, v []byte) error {
+		err := tr.IterPrefix(ctx, key, func(k, v []byte) error {
 			moduleBytes = append(moduleBytes, v...)
 			i++
 			return nil
@@ -149,7 +151,7 @@ func (k *kvRegistry) CreateActor(
 	moduleID string,
 	opts types.ActorOptions,
 ) (CreateActorResult, error) {
-	r, err := k.kv.transact(func(tr transaction) (any, error) {
+	r, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
 		return k.createActor(ctx, tr, namespace, actorID, moduleID, opts)
 	})
 	if err != nil {
@@ -161,7 +163,7 @@ func (k *kvRegistry) CreateActor(
 
 func (k *kvRegistry) createActor(
 	ctx context.Context,
-	tr transaction,
+	tr kv.Transaction,
 	namespace,
 	actorID,
 	moduleID string,
@@ -182,7 +184,7 @@ func (k *kvRegistry) createActor(
 			actorID, namespace)
 	}
 
-	_, ok, err = tr.get(ctx, moduleKey)
+	_, ok, err = tr.Get(ctx, moduleKey)
 	if err != nil {
 		return CreateActorResult{}, err
 	}
@@ -202,7 +204,7 @@ func (k *kvRegistry) createActor(
 		return CreateActorResult{}, err
 	}
 
-	tr.put(ctx, actorKey, marshaled)
+	tr.Put(ctx, actorKey, marshaled)
 	return CreateActorResult{}, nil
 }
 
@@ -213,7 +215,7 @@ func (k *kvRegistry) IncGeneration(
 	moduleID string,
 ) error {
 	actorKey := getActorKey(namespace, actorID, moduleID)
-	_, err := k.kv.transact(func(tr transaction) (any, error) {
+	_, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
 		ra, ok, err := k.getActor(ctx, tr, actorKey)
 		if err != nil {
 			return nil, err
@@ -231,7 +233,7 @@ func (k *kvRegistry) IncGeneration(
 			return nil, fmt.Errorf("error marshaling registered actor: %w", err)
 		}
 
-		tr.put(ctx, actorKey, marshaled)
+		tr.Put(ctx, actorKey, marshaled)
 
 		return nil, nil
 	})
@@ -249,7 +251,7 @@ func (k *kvRegistry) EnsureActivation(
 	moduleID string,
 ) ([]types.ActorReference, error) {
 	actorKey := getActorKey(namespace, actorID, moduleID)
-	references, err := k.kv.transact(func(tr transaction) (any, error) {
+	references, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
 		ra, ok, err := k.getActor(ctx, tr, actorKey)
 		if err == nil && !ok {
 			_, err := k.createActor(ctx, tr, namespace, actorID, moduleID, types.ActorOptions{})
@@ -278,7 +280,7 @@ func (k *kvRegistry) EnsureActivation(
 		}
 
 		serverKey := getServerKey(ra.Activation.ServerID)
-		v, ok, err := tr.get(ctx, serverKey)
+		v, ok, err := tr.Get(ctx, serverKey)
 		if err != nil {
 			return nil, err
 		}
@@ -294,7 +296,7 @@ func (k *kvRegistry) EnsureActivation(
 			serverExists = true
 		}
 
-		vs, err := tr.getVersionStamp()
+		vs, err := tr.GetVersionStamp()
 		if err != nil {
 			return nil, fmt.Errorf("error getting versionstamp: %w", err)
 		}
@@ -318,7 +320,7 @@ func (k *kvRegistry) EnsureActivation(
 		} else {
 			// We need to create a new activation.
 			liveServers := []serverState{}
-			err = tr.iterPrefix(ctx, getServersPrefix(), func(k, v []byte) error {
+			err = tr.IterPrefix(ctx, getServersPrefix(), func(k, v []byte) error {
 				var currServer serverState
 				if err := json.Unmarshal(v, &currServer); err != nil {
 					return fmt.Errorf("error unmarshaling server state: %w", err)
@@ -355,7 +357,7 @@ func (k *kvRegistry) EnsureActivation(
 				return nil, fmt.Errorf("error marshaling activation: %w", err)
 			}
 
-			tr.put(ctx, actorKey, marshaled)
+			tr.Put(ctx, actorKey, marshaled)
 		}
 
 		ref, err := types.NewActorReference(serverID, serverVersion, serverAddress, namespace, ra.ModuleID, actorID, ra.Generation)
@@ -387,8 +389,8 @@ func (k *kvRegistry) GetVersionStamp(
 	//
 	// We pass "" as the key because every call is the same.
 	v, err, _ := k.versionStampBatcher.Do("", func() (any, error) {
-		return k.kv.transact(func(tr transaction) (any, error) {
-			return tr.getVersionStamp()
+		return k.kv.Transact(func(tr kv.Transaction) (any, error) {
+			return tr.GetVersionStamp()
 		})
 	})
 	if err != nil {
@@ -406,14 +408,14 @@ func (k *kvRegistry) BeginTransaction(
 	serverID string,
 	serverVersion int64,
 ) (_ ActorKVTransaction, err error) {
-	var kvTr transaction
-	kvTr, err = k.kv.beginTransaction(ctx)
+	var kvTr kv.Transaction
+	kvTr, err = k.kv.BeginTransaction(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("kvRegistry: beginTransaction: error beginning transaction: %w", err)
 	}
 	defer func() {
 		if err != nil {
-			kvTr.cancel(ctx)
+			kvTr.Cancel(ctx)
 		}
 	}()
 
@@ -454,8 +456,8 @@ func (k *kvRegistry) Heartbeat(
 ) (HeartbeatResult, error) {
 	key := getServerKey(serverID)
 	var serverVersion int64
-	versionStamp, err := k.kv.transact(func(tr transaction) (any, error) {
-		v, ok, err := tr.get(ctx, key)
+	versionStamp, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
+		v, ok, err := tr.Get(ctx, key)
 		if err != nil {
 			return nil, fmt.Errorf("error getting server state: %w", err)
 		}
@@ -467,7 +469,7 @@ func (k *kvRegistry) Heartbeat(
 				ServerID:      serverID,
 				ServerVersion: serverVersion,
 			}
-			vs, err := tr.getVersionStamp()
+			vs, err := tr.GetVersionStamp()
 			if err != nil {
 				return nil, fmt.Errorf("error getting versionstamp: %w", err)
 			}
@@ -478,7 +480,7 @@ func (k *kvRegistry) Heartbeat(
 			}
 		}
 
-		vs, err := tr.getVersionStamp()
+		vs, err := tr.GetVersionStamp()
 		if err != nil {
 			return nil, fmt.Errorf("error getting versionstamp: %w", err)
 		}
@@ -496,9 +498,9 @@ func (k *kvRegistry) Heartbeat(
 			return nil, fmt.Errorf("error marshaling server state: %w", err)
 		}
 
-		tr.put(ctx, key, marshaled)
+		tr.Put(ctx, key, marshaled)
 
-		return tr.getVersionStamp()
+		return tr.GetVersionStamp()
 	})
 	if err != nil {
 		return HeartbeatResult{}, fmt.Errorf("Heartbeat: error: %w", err)
@@ -512,19 +514,19 @@ func (k *kvRegistry) Heartbeat(
 }
 
 func (k *kvRegistry) Close(ctx context.Context) error {
-	return k.kv.close(ctx)
+	return k.kv.Close(ctx)
 }
 
 func (k *kvRegistry) UnsafeWipeAll() error {
-	return k.kv.unsafeWipeAll()
+	return k.kv.UnsafeWipeAll()
 }
 
 func (k *kvRegistry) getActorBytes(
 	ctx context.Context,
-	tr transaction,
+	tr kv.Transaction,
 	actorKey []byte,
 ) ([]byte, bool, error) {
-	actorBytes, ok, err := tr.get(ctx, actorKey)
+	actorBytes, ok, err := tr.Get(ctx, actorKey)
 	if err != nil {
 		return nil, false, fmt.Errorf(
 			"error getting actor bytes for key: %s", string(actorBytes))
@@ -537,7 +539,7 @@ func (k *kvRegistry) getActorBytes(
 
 func (k *kvRegistry) getActor(
 	ctx context.Context,
-	tr transaction,
+	tr kv.Transaction,
 	actorKey []byte,
 ) (registeredActor, bool, error) {
 	actorBytes, ok, err := k.getActorBytes(ctx, tr, actorKey)
@@ -625,7 +627,7 @@ type kvTransaction struct {
 	namespace string
 	actorID   string
 	moduleID  string
-	tr        transaction
+	tr        kv.Transaction
 }
 
 func newKVTransaction(
@@ -633,7 +635,7 @@ func newKVTransaction(
 	namespace string,
 	actorID string,
 	moduleID string,
-	tr transaction,
+	tr kv.Transaction,
 ) *kvTransaction {
 	return &kvTransaction{
 		namespace: namespace,
@@ -648,7 +650,7 @@ func (tr *kvTransaction) Get(
 	key []byte,
 ) ([]byte, bool, error) {
 	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, tr.moduleID, key)
-	return tr.tr.get(ctx, actorKVKey)
+	return tr.tr.Get(ctx, actorKVKey)
 }
 
 func (tr *kvTransaction) Put(
@@ -657,13 +659,13 @@ func (tr *kvTransaction) Put(
 	value []byte,
 ) error {
 	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, tr.moduleID, key)
-	return tr.tr.put(ctx, actorKVKey, value)
+	return tr.tr.Put(ctx, actorKVKey, value)
 }
 
 func (tr *kvTransaction) Commit(ctx context.Context) error {
-	return tr.tr.commit(ctx)
+	return tr.tr.Commit(ctx)
 }
 
 func (tr *kvTransaction) Cancel(ctx context.Context) error {
-	return tr.tr.cancel(ctx)
+	return tr.tr.Cancel(ctx)
 }

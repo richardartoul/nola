@@ -1,4 +1,4 @@
-package registry
+package dnsregistry
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 )
 
@@ -53,7 +54,7 @@ func NewDNSRegistry(
 	host string,
 	port int64,
 	opts DNSRegistryOptions,
-) (Registry, error) {
+) (registry.Registry, error) {
 	if opts.ResolveEvery == 0 {
 		opts.ResolveEvery = 5 * time.Second
 	}
@@ -84,9 +85,9 @@ func (d *dnsRegistry) RegisterModule(
 	namespace,
 	moduleID string,
 	moduleBytes []byte,
-	opts ModuleOptions,
-) (RegisterModuleResult, error) {
-	return RegisterModuleResult{}, nil
+	opts registry.ModuleOptions,
+) (registry.RegisterModuleResult, error) {
+	return registry.RegisterModuleResult{}, nil
 }
 
 // GetModule gets the bytes and options associated with the provided module.
@@ -94,8 +95,8 @@ func (d *dnsRegistry) GetModule(
 	ctx context.Context,
 	namespace,
 	moduleID string,
-) ([]byte, ModuleOptions, error) {
-	return nil, ModuleOptions{}, nil
+) ([]byte, registry.ModuleOptions, error) {
+	return nil, registry.ModuleOptions{}, nil
 }
 
 func (d *dnsRegistry) CreateActor(
@@ -104,8 +105,8 @@ func (d *dnsRegistry) CreateActor(
 	actorID,
 	moduleID string,
 	opts types.ActorOptions,
-) (CreateActorResult, error) {
-	return CreateActorResult{}, nil
+) (registry.CreateActorResult, error) {
+	return registry.CreateActorResult{}, nil
 }
 
 func (d *dnsRegistry) IncGeneration(
@@ -157,16 +158,16 @@ func (d *dnsRegistry) BeginTransaction(
 	moduleID string,
 	serverID string,
 	serverVersion int64,
-) (_ ActorKVTransaction, err error) {
+) (_ registry.ActorKVTransaction, err error) {
 	return nil, errors.New("DNSRegistry: BeginTransaction: not implemented")
 }
 
 func (d *dnsRegistry) Heartbeat(
 	ctx context.Context,
 	serverID string,
-	heartbeatState HeartbeatState,
-) (HeartbeatResult, error) {
-	return HeartbeatResult{
+	heartbeatState registry.HeartbeatState,
+) (registry.HeartbeatResult, error) {
+	return registry.HeartbeatResult{
 		VersionStamp: DNSVersionStamp,
 		// Must be at least 1 so heartbeat.Versionstamp + TTL > DNSVersionStamp
 		HeartbeatTTL:  1,

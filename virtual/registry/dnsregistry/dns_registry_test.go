@@ -1,4 +1,4 @@
-package registry
+package dnsregistry
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +32,7 @@ func TestDNSRegistrySimple(t *testing.T) {
 	require.True(t, strings.Contains(err.Error(), "hashring is empty"))
 
 	// Should be a no-op.
-	_, err = reg.Heartbeat(context.Background(), "serverID", HeartbeatState{})
+	_, err = reg.Heartbeat(context.Background(), "serverID", registry.HeartbeatState{})
 	require.NoError(t, err)
 
 	// Should always return a constant.
