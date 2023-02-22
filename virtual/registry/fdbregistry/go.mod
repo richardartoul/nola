@@ -6,7 +6,7 @@ replace github.com/richardartoul/nola => ../../../
 
 require (
 	github.com/DataDog/sketches-go v1.4.1
-	github.com/apple/foundationdb/bindings/go v0.0.0-20230221214914-bb4fb3d81d44
+	github.com/apple/foundationdb/bindings/go v0.0.0-20220521054011-a88e049b28d8
 	github.com/richardartoul/nola v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.8.1
 )
@@ -20,3 +20,5 @@ require (
 	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/apple/foundationdb/bindings/go => github.com/apple/foundationdb/bindings/go v0.0.0-20220521054011-a88e049b28d8

@@ -1,4 +1,4 @@
+github.com/apple/foundationdb/bindings/go v0.0.0-20220521054011-a88e049b28d8 h1:B1KM1sz2bMjLThSQZSg+2kE2OBFMbtGdDcekqj0t2z0=
+github.com/apple/foundationdb/bindings/go v0.0.0-20220521054011-a88e049b28d8/go.mod h1:w63jdZTFCtvdjsUj5yrdKgjxaAD5uXQX6hJ7EaiLFRs=
 github.com/bytecodealliance/wasmtime-go v1.0.0/go.mod h1:jjlqQbWUfVSbehpErw3UoWFndBXRRMvfikYH6KsCwOg=
 github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5CcY=
-github.com/tetratelabs/wazero v1.0.0-pre.6 h1:3DRqjuHazHyZmgWCgqu7nKgYIYNEi2+2RQpCwTqbVHs=
-github.com/tetratelabs/wazero v1.0.0-pre.6/go.mod h1:u8wrFmpdrykiFK0DFPiFm5a4+0RzsdmXYVtijBKqUVo=
