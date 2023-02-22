@@ -1,4 +1,4 @@
-package virtual
+package benchmarks
 
 import (
 	"context"
@@ -31,7 +31,7 @@ var (
 )
 
 func init() {
-	fBytes, err := ioutil.ReadFile("../testdata/tinygo/util/main.wasm")
+	fBytes, err := ioutil.ReadFile("../../../testdata/tinygo/util/main.wasm")
 	if err != nil {
 		panic(err)
 	}
