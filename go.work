@@ -1,1 +1,7 @@
 go 1.19
+
+use (
+    ./
+    ./virtual/registry/fdbregistry
+    ./cmd/app
+)

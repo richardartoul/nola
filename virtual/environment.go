@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+
+	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 
@@ -281,7 +283,7 @@ func (r *environment) InvokeActorDirect(
 	if serverID == "" {
 		return nil, errors.New("serverID cannot be empty")
 	}
-	if serverID != r.serverID && serverID != registry.DNSServerID {
+	if serverID != r.serverID && serverID != dnsregistry.DNSServerID {
 		// Make sure the client has reached the server it intended. This is an important
 		// check due to the limitations of I.P-based network addressing. For example, if
 		// two pods of NOLA were running in k8s on a shared set of VMs and get
