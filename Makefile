@@ -24,3 +24,6 @@ run-example-semaphore:
 	bash ./examples/semaphore/register_module.sh
 	bash ./examples/semaphore/create_actors.sh
 	bash ./examples/semaphore/acquire.sh
+
+run-example-dns-registry:
+	go run ./examples/dnsregistry/main.go
