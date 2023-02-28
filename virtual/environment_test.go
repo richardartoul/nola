@@ -720,7 +720,7 @@ func runWithDifferentConfigs(
 			resolver := &fakeResolver{}
 			resolver.setIPs([]net.IP{net.ParseIP("127.0.0.1")})
 
-			reg, err := dnsregistry.NewDNSRegistry(resolver, "test", int64(defaultOptsGo.Discovery.Port), dnsregistry.DNSRegistryOptions{})
+			reg, err := dnsregistry.NewDNSRegistry(resolver, "test", defaultOptsGo.Discovery.Port, dnsregistry.DNSRegistryOptions{})
 			require.NoError(t, err)
 
 			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
