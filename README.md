@@ -115,7 +115,7 @@ which will execute `./scripts/playground/basic.sh`. This will register a module 
 
 ## Library Support
 
-TODO: This is implemented, but I don't have a concrete code sample published yet. Will publish an example soon.
+NOLA can be used as an embedded library with dedicated actors written in pure Go instead of WASM. An example of this can be found [in this example](./examples/dnsregistry) which uses the DNS-backed registry to implement a virtual actor system with counters that maintain a simple in-memory counter. Note that the DNS-backed registry does not provide the same linearizability guarantees or built in persistence (transactional KV store) that the FoundationDB backed registry does. However, it is still suitable for use-cases that don't care about strict linearizability or durability. For example, as a coordination point for in-memory state, distributed synchronization primitives (ratelimiting), or for implementing smart/programmable caches.
 
 # Benchmarks
 

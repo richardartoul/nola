@@ -22,7 +22,9 @@ const (
 	DNSVersionStamp = 1
 )
 
-type dnsResolver interface {
+// DNSResolver is the interface that must be implemented by a resolver
+// in order to map a hostname to set of live IPs.
+type DNSResolver interface {
 	LookupIP(host string) ([]net.IP, error)
 }
 
@@ -30,9 +32,9 @@ type dnsRegistry struct {
 	sync.RWMutex
 
 	// Dependencies.
-	resolver dnsResolver
+	resolver DNSResolver
 	host     string
-	port     int64
+	port     int
 	opts     DNSRegistryOptions
 
 	// State.
@@ -45,14 +47,19 @@ type dnsRegistry struct {
 	closedCh         chan struct{}
 }
 
+// DNSRegistryOptions contains the options for the DNS resgistry
+// implementation.
 type DNSRegistryOptions struct {
+	// ResolveEvery controls how often the LookupIP method will be
+	// called on the DNSResolver to detect which IPs are active.
 	ResolveEvery time.Duration
 }
 
+// NewDNSRegistry creates a new registry.Registry backed by DNS.
 func NewDNSRegistry(
-	resolver dnsResolver,
+	resolver DNSResolver,
 	host string,
-	port int64,
+	port int,
 	opts DNSRegistryOptions,
 ) (registry.Registry, error) {
 	if opts.ResolveEvery == 0 {
@@ -71,7 +78,7 @@ func NewDNSRegistry(
 
 	if err := d.discover(); err != nil {
 		return nil, fmt.Errorf(
-			"NewDNSRegistry: error looking up UPs for name: %s, err: %w",
+			"NewDNSRegistry: error looking up IPs for name: %s, err: %w",
 			host, err)
 	}
 
@@ -200,7 +207,13 @@ func (d *dnsRegistry) discover() error {
 	hashRing := NewHashRing(64, crc32.ChecksumIEEE)
 	ipStrs := make([]string, 0, len(ips))
 	for _, ip := range ips {
-		ipStrs = append(ipStrs, fmt.Sprintf("%s:%d", ip.To4().String(), d.port))
+		if ip.To4() != nil {
+			ipStrs = append(ipStrs, fmt.Sprintf("%s:%d", ip.To4().String(), d.port))
+		} else if ip.To16() != nil {
+			ipStrs = append(ipStrs, fmt.Sprintf("[%s]:%d", ip.To16().String(), d.port))
+		} else {
+			log.Printf("[invariant violated] IP is not IP4 or IP6: %s, skipping", ip)
+		}
 	}
 	hashRing.Add(ipStrs...)
 

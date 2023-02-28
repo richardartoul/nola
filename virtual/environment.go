@@ -157,7 +157,11 @@ func NewEnvironment(
 		}
 	}
 
-	log.Printf("registering self with address: %s", address)
+	// Skip confusing log if dnsregistry is being used since it doesn't use the registry-based
+	// registration mechanism in the traditional way.
+	if serverID != dnsregistry.DNSServerID {
+		log.Printf("registering self with address: %s", address)
+	}
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
 	err = env.heartbeat()
