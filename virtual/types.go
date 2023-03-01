@@ -2,6 +2,7 @@ package virtual
 
 import (
 	"context"
+	"io"
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
@@ -13,6 +14,17 @@ import (
 // care of activating it.
 type Environment interface {
 	debug
+
+	// TODO: Comment me.
+	InvokeActorBytes(
+		ctx context.Context,
+		namespace string,
+		actorID string,
+		moduleID string,
+		operation string,
+		payload []byte,
+		createIfNotExist types.CreateIfNotExist,
+	) ([]byte, error)
 
 	// InvokeActor invokes the specified operation on the specified actorID with the
 	// provided payload. If the actor is already activated somewhere in the system,
@@ -26,6 +38,17 @@ type Environment interface {
 		operation string,
 		payload []byte,
 		createIfNotExist types.CreateIfNotExist,
+	) (io.ReadCloser, error)
+
+	// TODO: Comment me.
+	InvokeActorDirectBytes(
+		ctx context.Context,
+		versionStamp int64,
+		serverID string,
+		serverVersion int64,
+		reference types.ActorReferenceVirtual,
+		operation string,
+		payload []byte,
 	) ([]byte, error)
 
 	// InvokeActorDirect is the same as InvokeActor, however, it performs the invocation
@@ -40,6 +63,15 @@ type Environment interface {
 		serverID string,
 		serverVersion int64,
 		reference types.ActorReferenceVirtual,
+		operation string,
+		payload []byte,
+	) (io.ReadCloser, error)
+
+	// TODO: Comment me.
+	InvokeWorkerBytes(
+		ctx context.Context,
+		namespace string,
+		moduleID string,
 		operation string,
 		payload []byte,
 	) ([]byte, error)
@@ -60,7 +92,7 @@ type Environment interface {
 		moduleID string,
 		operation string,
 		payload []byte,
-	) ([]byte, error)
+	) (io.ReadCloser, error)
 
 	// Close closes the Environment and all of its associated resources.
 	Close() error
@@ -101,7 +133,7 @@ type RemoteClient interface {
 		reference types.ActorReference,
 		operation string,
 		payload []byte,
-	) ([]byte, error)
+	) (io.ReadCloser, error)
 }
 
 // Module represents a "module" / template from which new actors are constructed/instantiated.
@@ -127,8 +159,24 @@ type Actor interface {
 		payload []byte,
 		transaction registry.ActorKVTransaction,
 	) ([]byte, error)
+
 	// Close closes the in-memory actor.
 	Close(ctx context.Context) error
+}
+
+// TODO: Comment me.
+// TODO: Remove transaction in invoke.
+type StreamActor interface {
+	// Invoke invokes the specified operation on the in-memory actor with the provided
+	// payload. The transaction is invocation-specific and will automatically be
+	// committed or rolled back / canceled based on whether Invoke returns an error.
+	InvokeStream(
+		ctx context.Context,
+		operation string,
+		payload []byte,
+		transaction registry.ActorKVTransaction,
+		// TODO: Needs to be readcloser?
+	) (io.ReadCloser, error)
 }
 
 // HostCapabilities defines the interface of capabilities exposed by the host to the Actor.

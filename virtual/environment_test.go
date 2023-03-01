@@ -61,12 +61,12 @@ func TestSimpleActor(t *testing.T) {
 		ctx := context.Background()
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			for i := 0; i < 100; i++ {
-				result, err := env.InvokeActor(ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+				result, err := env.InvokeActorBytes(ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				require.Equal(t, int64(i+1), getCount(t, result))
 
 				if i == 0 {
-					result, err = env.InvokeActor(ctx, ns, "a", "test-module", "getStartupWasCalled", nil, types.CreateIfNotExist{})
+					result, err = env.InvokeActorBytes(ctx, ns, "a", "test-module", "getStartupWasCalled", nil, types.CreateIfNotExist{})
 					require.NoError(t, err)
 					require.Equal(t, []byte("true"), result)
 				}
@@ -84,13 +84,13 @@ func TestCreateIfNotExist(t *testing.T) {
 		ctx := context.Background()
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			for i := 0; i < 100; i++ {
-				result, err := env.InvokeActor(
+				result, err := env.InvokeActorBytes(
 					ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				require.Equal(t, int64(i+1), getCount(t, result))
 
 				if i == 0 {
-					result, err = env.InvokeActor(
+					result, err = env.InvokeActorBytes(
 						ctx, ns, "a", "test-module", "getStartupWasCalled", nil, types.CreateIfNotExist{})
 					require.NoError(t, err)
 					require.Equal(t, []byte("true"), result)
@@ -116,12 +116,12 @@ func TestSimpleWorker(t *testing.T) {
 			// depending on which server/environment the call is executed on (unlike actors where the
 			// request is always routed to the single active "global" instance).
 			for i := 0; i < 100; i++ {
-				result, err := env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
+				result, err := env.InvokeWorkerBytes(ctx, ns, "test-module", "inc", nil)
 				require.NoError(t, err)
 				require.Equal(t, int64(i+2), getCount(t, result))
 
 				if i == 0 {
-					result, err = env.InvokeWorker(ctx, ns, "test-module", "getStartupWasCalled", nil)
+					result, err = env.InvokeWorkerBytes(ctx, ns, "test-module", "getStartupWasCalled", nil)
 					require.NoError(t, err)
 					require.Equal(t, []byte("true"), result)
 				}
@@ -141,7 +141,7 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			// Build some state.
 			for i := 0; i < 100; i++ {
-				result, err := env.InvokeActor(
+				result, err := env.InvokeActorBytes(
 					ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				require.Equal(t, int64(i+1), getCount(t, result))
@@ -155,7 +155,7 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 				if i == 0 {
 					for {
 						// Wait for cache to expire.
-						result, err := env.InvokeActor(
+						result, err := env.InvokeActorBytes(
 							ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 						require.NoError(t, err)
 						if getCount(t, result) == 1 {
@@ -165,7 +165,7 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 					}
 					continue
 				}
-				result, err := env.InvokeActor(
+				result, err := env.InvokeActorBytes(
 					ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				require.Equal(t, int64(i+1), getCount(t, result))
@@ -189,18 +189,18 @@ func TestKVHostFunctions(t *testing.T) {
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			if count == 0 {
 				for i := 0; i < 100; i++ {
-					_, err := env.InvokeActor(
+					_, err := env.InvokeActorBytes(
 						ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 					require.NoError(t, err)
 
 					// Write the current count to a key.
 					key := []byte(fmt.Sprintf("key-%d", i))
-					_, err = env.InvokeActor(
+					_, err = env.InvokeActorBytes(
 						ctx, ns, "a", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
 					require.NoError(t, err)
 
 					// Read the key back and make sure the value is == the count
-					payload, err := env.InvokeActor(
+					payload, err := env.InvokeActorBytes(
 						ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
 					require.NoError(t, err)
 					val := getCount(t, payload)
@@ -208,7 +208,7 @@ func TestKVHostFunctions(t *testing.T) {
 
 					if i > 0 {
 						key := []byte(fmt.Sprintf("key-%d", i-1))
-						payload, err := env.InvokeActor(
+						payload, err := env.InvokeActorBytes(
 							ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
 						require.NoError(t, err)
 						val := getCount(t, payload)
@@ -220,7 +220,7 @@ func TestKVHostFunctions(t *testing.T) {
 			// Ensure all previous KV are still readable.
 			for i := 0; i < 100; i++ {
 				key := []byte(fmt.Sprintf("key-%d", i))
-				payload, err := env.InvokeActor(
+				payload, err := env.InvokeActorBytes(
 					ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				val := getCount(t, payload)
@@ -242,18 +242,18 @@ func TestKVTransactions(t *testing.T) {
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
 		ctx := context.Background()
 		for _, ns := range []string{"ns-1"} {
-			_, err := env.InvokeActor(
+			_, err := env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
 			// Write the current count to a key.
 			key := []byte("key")
-			_, err = env.InvokeActor(
+			_, err = env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
 			// Read the key back and make sure the value is == the count
-			payload, err := env.InvokeActor(
+			payload, err := env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
 			require.NoError(t, err)
 			val := getCount(t, payload)
@@ -263,16 +263,16 @@ func TestKVTransactions(t *testing.T) {
 			// returns an error so the updated counter will not be committed to
 			// KV storage. This tests that implicit KV transactions are rolled
 			// back if the actor returns an error.
-			_, err = env.InvokeActor(
+			_, err = env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
-			_, err = env.InvokeActor(
+			_, err = env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "kvPutCountError", key, types.CreateIfNotExist{})
 			require.True(t, strings.Contains(err.Error(), "some fake error"), err.Error())
 
 			// Count should still be 1.
-			payload, err = env.InvokeActor(
+			payload, err = env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
 			require.NoError(t, err)
 			val = getCount(t, payload)
@@ -294,34 +294,34 @@ func TestKVHostFunctionsActorsSeparatedRegression(t *testing.T) {
 		ctx := context.Background()
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			// Inc a twice, but b once.
-			_, err := env.InvokeActor(
+			_, err := env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
-			_, err = env.InvokeActor(
+			_, err = env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
-			_, err = env.InvokeActor(
+			_, err = env.InvokeActorBytes(
 				ctx, ns, "b", "test-module", "inc", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
 			key := []byte("key")
 
 			// Persist each actor's count.
-			_, err = env.InvokeActor(
+			_, err = env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
 			require.NoError(t, err)
-			_, err = env.InvokeActor(
+			_, err = env.InvokeActorBytes(
 				ctx, ns, "b", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
 			// Make sure we can read back the independent counts.
-			payload, err := env.InvokeActor(
+			payload, err := env.InvokeActorBytes(
 				ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
 			require.NoError(t, err)
 			val := getCount(t, payload)
 			require.Equal(t, int64(2), val)
 
-			payload, err = env.InvokeActor(
+			payload, err = env.InvokeActorBytes(
 				ctx, ns, "b", "test-module", "kvGet", key, types.CreateIfNotExist{})
 			require.NoError(t, err)
 			val = getCount(t, payload)
@@ -350,7 +350,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 			marshaled, err := json.Marshal(invokeReq)
 			require.NoError(t, err)
 			_, err = env.
-				InvokeActor(ctx, ns, "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
+				InvokeActorBytes(ctx, ns, "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
 			// Ensure actor b can communicate with actor a.
@@ -363,7 +363,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 			marshaled, err = json.Marshal(invokeReq)
 			require.NoError(t, err)
 			_, err = env.
-				InvokeActor(ctx, ns, "b", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
+				InvokeActorBytes(ctx, ns, "b", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
 			// Ensure both actor's state was actually updated and they can request
@@ -377,7 +377,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 			marshaled, err = json.Marshal(invokeReq)
 			require.NoError(t, err)
 			result, err := env.
-				InvokeActor(ctx, ns, "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
+				InvokeActorBytes(ctx, ns, "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
 			require.NoError(t, err)
 			require.Equal(t, int64(1), getCount(t, result))
 
@@ -390,7 +390,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 			marshaled, err = json.Marshal(invokeReq)
 			require.NoError(t, err)
 			result, err = env.
-				InvokeActor(ctx, ns, "b", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
+				InvokeActorBytes(ctx, ns, "b", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
 			require.NoError(t, err)
 			require.Equal(t, int64(1), getCount(t, result))
 		}
@@ -446,22 +446,22 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 
 			// Schedule both the a::a invocation and the a::b::a invocation.
 			_, err = env.
-				InvokeActor(ctx, ns, "a", "test-module", "scheduleInvocation", marshaledAScheduleB, types.CreateIfNotExist{})
+				InvokeActorBytes(ctx, ns, "a", "test-module", "scheduleInvocation", marshaledAScheduleB, types.CreateIfNotExist{})
 			require.NoError(t, err)
 			_, err = env.
-				InvokeActor(ctx, ns, "a", "test-module", "scheduleInvocation", marshaledAScheduleA, types.CreateIfNotExist{})
+				InvokeActorBytes(ctx, ns, "a", "test-module", "scheduleInvocation", marshaledAScheduleA, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
 			// Make sure a is 0 immediately after scheduling.
 			result, err := env.
-				InvokeActor(ctx, ns, "a", "test-module", "getCount", nil, types.CreateIfNotExist{})
+				InvokeActorBytes(ctx, ns, "a", "test-module", "getCount", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
 			require.Equal(t, int64(0), getCount(t, result))
 
 			// Wait for both the a::a and a::b::a invocations to run.
 			for {
 				result, err := env.
-					InvokeActor(ctx, ns, "a", "test-module", "getCount", nil, types.CreateIfNotExist{})
+					InvokeActorBytes(ctx, ns, "a", "test-module", "getCount", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				if getCount(t, result) != int64(2) {
 					time.Sleep(100 * time.Millisecond)
@@ -470,7 +470,7 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 
 				// We didn't ever schedule an inc for b so it should remain zero.
 				result, err = env.
-					InvokeActor(ctx, ns, "b", "test-module", "getCount", nil, types.CreateIfNotExist{})
+					InvokeActorBytes(ctx, ns, "b", "test-module", "getCount", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				require.Equal(t, int64(0), getCount(t, result))
 				break
@@ -495,7 +495,7 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 		marshaled, err := json.Marshal(invokeReq)
 		require.NoError(t, err)
 
-		_, err = env.InvokeActor(
+		_, err = env.InvokeActorBytes(
 			ctx, "ns-1", "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
 		require.NoError(t, err)
 	}
@@ -542,29 +542,29 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 		// Registry about the server from the server heartbeats. Therefore we need to
 		// heartbeat at least once after every actor is activated if we want to ensure the
 		// registry is able to actually load-balance the activations evenly.
-		_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env1.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		_, err = env2.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env2.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env1.heartbeat())
-		require.NoError(t, env2.heartbeat())
-		require.NoError(t, env3.heartbeat())
-		_, err = env1.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env2.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env3.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		require.NoError(t, env1.heartbeat())
 		require.NoError(t, env2.heartbeat())
 		require.NoError(t, env3.heartbeat())
-		_, err = env1.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env1.InvokeActorBytes(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		_, err = env2.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env2.InvokeActorBytes(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env3.InvokeActorBytes(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+		require.NoError(t, env1.heartbeat())
+		require.NoError(t, env2.heartbeat())
+		require.NoError(t, env3.heartbeat())
+		_, err = env1.InvokeActorBytes(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+		_, err = env2.InvokeActorBytes(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+		_, err = env3.InvokeActorBytes(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		require.NoError(t, env1.heartbeat())
 		require.NoError(t, env2.heartbeat())
@@ -593,7 +593,7 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 			for {
 				// Spin loop until there are no more errors as function calls will fail for
 				// a bit until heartbeat + activation cache expire.
-				_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+				_, err = env3.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 				if err != nil {
 					time.Sleep(100 * time.Millisecond)
 					continue
@@ -603,13 +603,13 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 			continue
 		}
 
-		_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env3.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		require.NoError(t, env3.heartbeat())
-		_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env3.InvokeActorBytes(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		require.NoError(t, env3.heartbeat())
-		_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env3.InvokeActorBytes(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		require.NoError(t, env3.heartbeat())
 	}
@@ -628,7 +628,7 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 func TestVersionStampIsHonored(t *testing.T) {
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
 		ctx := context.Background()
-		_, err := env.InvokeActor(
+		_, err := env.InvokeActorBytes(
 			ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 
@@ -638,7 +638,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 			// Eventually RPCs should start to fail because the server's versionstamp will become
 			// stale and it will no longer be confident that it's allowed to run RPCs for the
 			// actor.
-			_, err = env.InvokeActor(
+			_, err = env.InvokeActorBytes(
 				ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 			if err != nil && strings.Contains(err.Error(), "server heartbeat") {
 				break
@@ -656,7 +656,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 func TestCustomHostFns(t *testing.T) {
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
 		ctx := context.Background()
-		result, err := env.InvokeActor(
+		result, err := env.InvokeActorBytes(
 			ctx, "ns-1", "a", "test-module", "invokeCustomHostFn", []byte("testCustomFn"), types.CreateIfNotExist{})
 		require.NoError(t, err)
 		require.Equal(t, []byte("ok"), result)
@@ -832,7 +832,7 @@ func TestServerVersionIsHonored(t *testing.T) {
 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
-	_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	_, err = env1.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 	require.NoError(t, err)
 
 	env1.pauseHeartbeat()
@@ -843,7 +843,7 @@ func TestServerVersionIsHonored(t *testing.T) {
 
 	require.NoError(t, env1.heartbeat())
 
-	_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	_, err = env1.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 	require.EqualErrorf(t, err, "InvokeLocal: server version(2) != server version from reference(1)", "Error should be: %v, got: %v", "InvokeLocal: server version(1) != server version from reference(0)", err)
 }
 

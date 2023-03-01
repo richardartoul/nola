@@ -24,7 +24,7 @@ func (h *httpClient) InvokeActorRemote(
 	reference types.ActorReference,
 	operation string,
 	payload []byte,
-) ([]byte, error) {
+) (io.ReadCloser, error) {
 	ir := invokeActorDirectRequest{
 		VersionStamp:  versionStamp,
 		ServerID:      reference.ServerID(),
@@ -53,9 +53,9 @@ func (h *httpClient) InvokeActorRemote(
 	if err != nil {
 		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error running request: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
 		var errMsg string
 		body, err := ioutil.ReadAll(resp.Body)
 		if err == nil {
@@ -64,12 +64,7 @@ func (h *httpClient) InvokeActorRemote(
 		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error status code: %d, msg: %s", resp.StatusCode, errMsg)
 	}
 
-	invokeResp, err := ioutil.ReadAll(io.LimitReader(resp.Body, 1<<26))
-	if err != nil {
-		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error reading body: %w", err)
-	}
-
-	return invokeResp, nil
+	return resp.Body, nil
 }
 
 // NewHTTPClient returns a new HTTPClient that implements the RemoteClient interface.

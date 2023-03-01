@@ -89,6 +89,7 @@ type invokeActorRequest struct {
 	PayloadJSON interface{} `json:"payload_json"`
 }
 
+// TODO: Fix me.
 func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
@@ -117,15 +118,17 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	// TODO: This should be configurable, probably in a header with some maximum.
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
-	result, err := s.environment.InvokeActor(
+	result, err := s.environment.InvokeActorBytes(
 		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
 		return
 	}
+	// defer result.Close()
 
 	w.WriteHeader(200)
+	// io.Copy(w, result)
 	w.Write(result)
 }
 
@@ -141,6 +144,7 @@ type invokeActorDirectRequest struct {
 	Payload       []byte `json:"payload"`
 }
 
+// TODO: Fix me.
 func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
@@ -167,7 +171,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.environment.InvokeActorDirect(ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref, req.Operation, req.Payload)
+	result, err := s.environment.InvokeActorDirectBytes(ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref, req.Operation, req.Payload)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -187,6 +191,7 @@ type invokeWorkerRequest struct {
 	Payload   []byte `json:"payload"`
 }
 
+// TODO: Fix me.
 func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
@@ -206,7 +211,7 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
 
-	result, err := s.environment.InvokeWorker(ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload)
+	result, err := s.environment.InvokeWorkerBytes(ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))

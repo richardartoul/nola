@@ -1,8 +1,10 @@
 package virtual
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
@@ -58,7 +60,7 @@ func (a *activations) invoke(
 	reference types.ActorReferenceVirtual,
 	operation string,
 	payload []byte,
-) ([]byte, error) {
+) (io.ReadCloser, error) {
 	a.RLock()
 	actor, ok := a._actors[reference.ActorID()]
 	if ok && actor.reference.Generation() >= reference.Generation() {
@@ -256,21 +258,39 @@ func (a *activatedActor) invoke(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-) ([]byte, error) {
+) (io.ReadCloser, error) {
 	// Workers can't have KV storage because they're not global singletons like actors
 	// are. They're also not registered with the Registry explicitly, so we can skip
 	// this step in that case.
 	if a.reference.ActorID().IDType != types.IDTypeWorker {
 		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
-			return a._a.Invoke(ctx, operation, payload, tr)
+			streamActor, ok := a._a.(StreamActor)
+			if ok {
+				return streamActor.InvokeStream(ctx, operation, payload, nil)
+			}
+
+			return a._a.Invoke(ctx, operation, payload, nil)
 		})
 		if err != nil {
 			return nil, err
 		}
-		return result.([]byte), nil
+		stream, ok := result.(io.ReadCloser)
+		if ok {
+			return stream, nil
+		}
+		return io.NopCloser(bytes.NewBuffer(result.([]byte))), nil
 	}
 
-	return a._a.Invoke(ctx, operation, payload, nil)
+	streamActor, ok := a._a.(StreamActor)
+	if ok {
+		return streamActor.InvokeStream(ctx, operation, payload, nil)
+	}
+
+	resp, err := a._a.Invoke(ctx, operation, payload, nil)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewBuffer(resp)), nil
 }
 
 func (a *activatedActor) close(ctx context.Context) error {

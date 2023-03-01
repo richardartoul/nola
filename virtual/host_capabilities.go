@@ -73,7 +73,7 @@ func (h *hostCapabilities) InvokeActor(
 	ctx context.Context,
 	req types.InvokeActorRequest,
 ) ([]byte, error) {
-	return h.env.InvokeActor(
+	return h.env.InvokeActorBytes(
 		ctx, h.namespace, req.ActorID, req.ModuleID,
 		req.Operation, req.Payload, req.CreateIfNotExist)
 }

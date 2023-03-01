@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"sync"
@@ -206,7 +208,7 @@ var bufPool = sync.Pool{
 	},
 }
 
-func (r *environment) InvokeActor(
+func (r *environment) InvokeActorBytes(
 	ctx context.Context,
 	namespace string,
 	actorID string,
@@ -215,6 +217,29 @@ func (r *environment) InvokeActor(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
+	reader, err := r.InvokeActor(
+		ctx, namespace, actorID, moduleID, operation, payload, create)
+	if err != nil {
+		return nil, fmt.Errorf("error invoking actor: %w", err)
+	}
+
+	b, err := ioutil.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("error reading actor response from stream: %w", err)
+	}
+
+	return b, nil
+}
+
+func (r *environment) InvokeActor(
+	ctx context.Context,
+	namespace string,
+	actorID string,
+	moduleID string,
+	operation string,
+	payload []byte,
+	create types.CreateIfNotExist,
+) (io.ReadCloser, error) {
 	if namespace == "" {
 		return nil, errors.New("InvokeActor: namespace cannot be empty")
 	}
@@ -274,7 +299,7 @@ func (r *environment) InvokeActor(
 	return r.invokeReferences(ctx, vs, references, operation, payload)
 }
 
-func (r *environment) InvokeActorDirect(
+func (r *environment) InvokeActorDirectBytes(
 	ctx context.Context,
 	versionStamp int64,
 	serverID string,
@@ -283,6 +308,30 @@ func (r *environment) InvokeActorDirect(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	reader, err := r.InvokeActorDirect(
+		ctx, versionStamp, serverID, serverVersion,
+		reference, operation, payload)
+	if err != nil {
+		return nil, fmt.Errorf("error invoking actor: %w", err)
+	}
+
+	b, err := ioutil.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("error reading actor response from stream: %w", err)
+	}
+
+	return b, nil
+}
+
+func (r *environment) InvokeActorDirect(
+	ctx context.Context,
+	versionStamp int64,
+	serverID string,
+	serverVersion int64,
+	reference types.ActorReferenceVirtual,
+	operation string,
+	payload []byte,
+) (io.ReadCloser, error) {
 	if serverID == "" {
 		return nil, errors.New("serverID cannot be empty")
 	}
@@ -336,13 +385,34 @@ func (r *environment) InvokeActorDirect(
 	return r.activations.invoke(ctx, reference, operation, payload)
 }
 
-func (r *environment) InvokeWorker(
+func (r *environment) InvokeWorkerBytes(
 	ctx context.Context,
 	namespace string,
 	moduleID string,
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	reader, err := r.InvokeWorker(
+		ctx, namespace, moduleID, operation, payload)
+	if err != nil {
+		return nil, fmt.Errorf("error invoking worker: %w", err)
+	}
+
+	b, err := ioutil.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("error reading worker response from stream: %w", err)
+	}
+
+	return b, nil
+}
+
+func (r *environment) InvokeWorker(
+	ctx context.Context,
+	namespace string,
+	moduleID string,
+	operation string,
+	payload []byte,
+) (io.ReadCloser, error) {
 	// TODO: The implementation of this function is nice because it just reusees a bunch of the
 	//       actor logic. However, it's also less performant than it could be because it still
 	//       effectively makes worker execution single-threaded per-server. We should add the
@@ -416,7 +486,7 @@ func (r *environment) invokeReferences(
 	references []types.ActorReference,
 	operation string,
 	payload []byte,
-) ([]byte, error) {
+) (io.ReadCloser, error) {
 	// TODO: Load balancing or some other strategy if the number of references is > 1?
 	ref := references[0]
 	localEnvironmentsRouterLock.RLock()
