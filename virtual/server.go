@@ -3,6 +3,7 @@ package virtual
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -89,8 +90,12 @@ type invokeActorRequest struct {
 	PayloadJSON interface{} `json:"payload_json"`
 }
 
-// TODO: Fix me.
 func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
+	if err := ensureHijackable(w); err != nil {
+		// Error already written to w.
+		return
+	}
+
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
 		w.WriteHeader(500)
@@ -118,18 +123,19 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	// TODO: This should be configurable, probably in a header with some maximum.
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
-	result, err := s.environment.InvokeActorBytes(
+	result, err := s.environment.InvokeActor(
 		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
 		return
 	}
-	// defer result.Close()
+	defer result.Close()
 
 	w.WriteHeader(200)
-	// io.Copy(w, result)
-	w.Write(result)
+	if _, err := io.Copy(w, result); err != nil {
+		terminateConnection(w)
+	}
 }
 
 type invokeActorDirectRequest struct {
@@ -144,8 +150,12 @@ type invokeActorDirectRequest struct {
 	Payload       []byte `json:"payload"`
 }
 
-// TODO: Fix me.
 func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
+	if err := ensureHijackable(w); err != nil {
+		// Error already written to w.
+		return
+	}
+
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
 		w.WriteHeader(500)
@@ -171,15 +181,18 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.environment.InvokeActorDirectBytes(ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref, req.Operation, req.Payload)
+	result, err := s.environment.InvokeActorDirect(ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref, req.Operation, req.Payload)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
 		return
 	}
+	defer result.Close()
 
 	w.WriteHeader(200)
-	w.Write(result)
+	if _, err := io.Copy(w, result); err != nil {
+		terminateConnection(w)
+	}
 }
 
 type invokeWorkerRequest struct {
@@ -191,8 +204,12 @@ type invokeWorkerRequest struct {
 	Payload   []byte `json:"payload"`
 }
 
-// TODO: Fix me.
 func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
+	if err := ensureHijackable(w); err != nil {
+		// Error already written to w.
+		return
+	}
+
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
 		w.WriteHeader(500)
@@ -211,13 +228,40 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
 
-	result, err := s.environment.InvokeWorkerBytes(ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload)
+	result, err := s.environment.InvokeWorker(ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
 		return
 	}
+	defer result.Close()
 
 	w.WriteHeader(200)
-	w.Write(result)
+	if _, err := io.Copy(w, result); err != nil {
+		terminateConnection(w)
+	}
+}
+
+// ensureHijackable and terminateConnection are used in conjunction to close tcp connections
+// for requests where we've started copying the response stream into the HTTP response body
+// after submitting an HTTP 200 status code, but then encounter an error reading from the
+// stream. In that scenario, we want to be very careful to ensure that the caller observes
+// an error (by closing the TCP connection) instead of a truncated response.
+
+func ensureHijackable(w http.ResponseWriter) error {
+	_, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
+		return errors.New("webserver doesn't support hijacking")
+	}
+	return nil
+}
+
+func terminateConnection(w http.ResponseWriter) {
+	conn, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		// Unclear how to handle this case
+		panic(fmt.Sprintf("[invariant violated] Hijack() returned error: %v", err))
+	}
+	conn.Close()
 }
