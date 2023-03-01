@@ -85,7 +85,7 @@ func newHostFnRouter(
 				return nil, fmt.Errorf("error unmarshaling InvokeActorRequest: %w", err)
 			}
 
-			return environment.InvokeActorBytes(
+			return environment.InvokeActor(
 				ctx, actorNamespace, req.ActorID, req.ModuleID,
 				req.Operation, req.Payload, req.CreateIfNotExist)
 

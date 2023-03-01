@@ -280,7 +280,7 @@ func (a *activatedActor) invoke(
 	// this step in that case.
 	if a.reference.ActorID().IDType != types.IDTypeWorker {
 		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
-			streamActor, ok := a._a.(StreamActor)
+			streamActor, ok := a._a.(ActorStream)
 			if ok {
 				// This actor has support for the streaming interface so we should use that
 				// directly since its more efficient.
@@ -289,7 +289,7 @@ func (a *activatedActor) invoke(
 
 			// The actor doesn't support streaming responses, we'll convert the returned []byte
 			// to a stream ourselves.
-			return a._a.(ByteActor).Invoke(ctx, operation, payload, tr)
+			return a._a.(ActorBytes).Invoke(ctx, operation, payload, tr)
 		})
 		if err != nil {
 			return nil, err
@@ -301,7 +301,7 @@ func (a *activatedActor) invoke(
 		return io.NopCloser(bytes.NewBuffer(result.([]byte))), nil
 	}
 
-	streamActor, ok := a._a.(StreamActor)
+	streamActor, ok := a._a.(ActorStream)
 	if ok {
 		// This actor has support for the streaming interface so we should use that
 		// directly since its more efficient.
@@ -310,7 +310,7 @@ func (a *activatedActor) invoke(
 
 	// The actor doesn't support streaming responses, we'll convert the returned []byte
 	// to a stream ourselves.
-	resp, err := a._a.(ByteActor).Invoke(ctx, operation, payload, nil)
+	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -323,8 +323,8 @@ func (a *activatedActor) close(ctx context.Context) error {
 
 func assertActorIface(actor Actor) error {
 	var (
-		_, implementsByteActor   = actor.(ByteActor)
-		_, implementsStreamActor = actor.(StreamActor)
+		_, implementsByteActor   = actor.(ActorBytes)
+		_, implementsStreamActor = actor.(ActorStream)
 	)
 	if implementsByteActor || implementsStreamActor {
 		return nil

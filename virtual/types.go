@@ -15,17 +15,6 @@ import (
 type Environment interface {
 	debug
 
-	// TODO: Comment me.
-	InvokeActorBytes(
-		ctx context.Context,
-		namespace string,
-		actorID string,
-		moduleID string,
-		operation string,
-		payload []byte,
-		createIfNotExist types.CreateIfNotExist,
-	) ([]byte, error)
-
 	// InvokeActor invokes the specified operation on the specified actorID with the
 	// provided payload. If the actor is already activated somewhere in the system,
 	// the invocation will be routed appropriately. Otherwise, the request will
@@ -38,18 +27,20 @@ type Environment interface {
 		operation string,
 		payload []byte,
 		createIfNotExist types.CreateIfNotExist,
-	) (io.ReadCloser, error)
+	) ([]byte, error)
 
-	// TODO: Comment me.
-	InvokeActorDirectBytes(
+	// InvokeActorStream is the same as InvokeActor, except it uses the streaming
+	// interface instead of returning a []byte directly. This is useful for actors
+	// that need to shuttle large volumes of data around (perhaps in an async manner).
+	InvokeActorStream(
 		ctx context.Context,
-		versionStamp int64,
-		serverID string,
-		serverVersion int64,
-		reference types.ActorReferenceVirtual,
+		namespace string,
+		actorID string,
+		moduleID string,
 		operation string,
 		payload []byte,
-	) ([]byte, error)
+		createIfNotExist types.CreateIfNotExist,
+	) (io.ReadCloser, error)
 
 	// InvokeActorDirect is the same as InvokeActor, however, it performs the invocation
 	// "directly".
@@ -65,16 +56,20 @@ type Environment interface {
 		reference types.ActorReferenceVirtual,
 		operation string,
 		payload []byte,
-	) (io.ReadCloser, error)
+	) ([]byte, error)
 
-	// TODO: Comment me.
-	InvokeWorkerBytes(
+	// InvokeActorDirectStream is the same as InvokeActorDirect, except it uses the streaming
+	// interface instead of returning a []byte directly. This is useful for actors that need
+	// to shuttle large volumes of data around (perhaps in an async manner).
+	InvokeActorDirectStream(
 		ctx context.Context,
-		namespace string,
-		moduleID string,
+		versionStamp int64,
+		serverID string,
+		serverVersion int64,
+		reference types.ActorReferenceVirtual,
 		operation string,
 		payload []byte,
-	) ([]byte, error)
+	) (io.ReadCloser, error)
 
 	// InvokeWorker invokes the specified operation from the specified module. Unlike
 	// actors, workers provide no guarantees about single-threaded execution or only
@@ -87,6 +82,17 @@ type Environment interface {
 	// callers may see "inconsistent" memory state depending on which server/environment
 	// their worker invocation is routed to.
 	InvokeWorker(
+		ctx context.Context,
+		namespace string,
+		moduleID string,
+		operation string,
+		payload []byte,
+	) ([]byte, error)
+
+	// InvokeWorkerStream is the same as InvokeWorker, except it uses the streaming interface
+	// instead of returning a []byte directly. This is useful for actors that need to shuttle
+	// large volumes of data around (perhaps in an async manner).
+	InvokeWorkerStream(
 		ctx context.Context,
 		namespace string,
 		moduleID string,
@@ -154,7 +160,8 @@ type Actor interface {
 	Close(ctx context.Context) error
 }
 
-type ByteActor interface {
+// ActorBytes is the version of Actor that returns responses as a []byte directly.
+type ActorBytes interface {
 	Actor
 
 	// Invoke invokes the specified operation on the in-memory actor with the provided
@@ -168,20 +175,18 @@ type ByteActor interface {
 	) ([]byte, error)
 }
 
-// TODO: Comment me.
-// TODO: Remove transaction in invoke.
-type StreamActor interface {
+// ActorStream is the same as ByteActor, except it can return responses as streams
+// instead of []byte which is useful in scenarios where large amounts of data need
+// to be shuttled around. It also allows the actor to behave in an "async" manner by
+// return streams and then "filling them in" later.
+type ActorStream interface {
 	Actor
 
-	// Invoke invokes the specified operation on the in-memory actor with the provided
-	// payload. The transaction is invocation-specific and will automatically be
-	// committed or rolled back / canceled based on whether Invoke returns an error.
 	InvokeStream(
 		ctx context.Context,
 		operation string,
 		payload []byte,
 		transaction registry.ActorKVTransaction,
-		// TODO: Needs to be readcloser?
 	) (io.ReadCloser, error)
 }
 

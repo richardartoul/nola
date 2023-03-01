@@ -208,7 +208,7 @@ var bufPool = sync.Pool{
 	},
 }
 
-func (r *environment) InvokeActorBytes(
+func (r *environment) InvokeActor(
 	ctx context.Context,
 	namespace string,
 	actorID string,
@@ -217,7 +217,7 @@ func (r *environment) InvokeActorBytes(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
-	reader, err := r.InvokeActor(
+	reader, err := r.InvokeActorStream(
 		ctx, namespace, actorID, moduleID, operation, payload, create)
 	if err != nil {
 		return nil, fmt.Errorf("error invoking actor: %w", err)
@@ -231,7 +231,7 @@ func (r *environment) InvokeActorBytes(
 	return b, nil
 }
 
-func (r *environment) InvokeActor(
+func (r *environment) InvokeActorStream(
 	ctx context.Context,
 	namespace string,
 	actorID string,
@@ -299,7 +299,7 @@ func (r *environment) InvokeActor(
 	return r.invokeReferences(ctx, vs, references, operation, payload)
 }
 
-func (r *environment) InvokeActorDirectBytes(
+func (r *environment) InvokeActorDirect(
 	ctx context.Context,
 	versionStamp int64,
 	serverID string,
@@ -308,7 +308,7 @@ func (r *environment) InvokeActorDirectBytes(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	reader, err := r.InvokeActorDirect(
+	reader, err := r.InvokeActorDirectStream(
 		ctx, versionStamp, serverID, serverVersion,
 		reference, operation, payload)
 	if err != nil {
@@ -323,7 +323,7 @@ func (r *environment) InvokeActorDirectBytes(
 	return b, nil
 }
 
-func (r *environment) InvokeActorDirect(
+func (r *environment) InvokeActorDirectStream(
 	ctx context.Context,
 	versionStamp int64,
 	serverID string,
@@ -385,14 +385,14 @@ func (r *environment) InvokeActorDirect(
 	return r.activations.invoke(ctx, reference, operation, payload)
 }
 
-func (r *environment) InvokeWorkerBytes(
+func (r *environment) InvokeWorker(
 	ctx context.Context,
 	namespace string,
 	moduleID string,
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
-	reader, err := r.InvokeWorker(
+	reader, err := r.InvokeWorkerStream(
 		ctx, namespace, moduleID, operation, payload)
 	if err != nil {
 		return nil, fmt.Errorf("error invoking worker: %w", err)
@@ -406,7 +406,7 @@ func (r *environment) InvokeWorkerBytes(
 	return b, nil
 }
 
-func (r *environment) InvokeWorker(
+func (r *environment) InvokeWorkerStream(
 	ctx context.Context,
 	namespace string,
 	moduleID string,
@@ -493,7 +493,8 @@ func (r *environment) invokeReferences(
 	localEnv, ok := localEnvironmentsRouter[ref.Address()]
 	localEnvironmentsRouterLock.RUnlock()
 	if ok {
-		return localEnv.InvokeActorDirect(ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref, operation, payload)
+		return localEnv.InvokeActorDirectStream(
+			ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref, operation, payload)
 	}
 	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload)
 }
