@@ -134,6 +134,10 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 	if _, err := io.Copy(w, result); err != nil {
+		// If we get any error copying the stream into the response then we
+		// need to terminate the connection to ensure that the caller observes
+		// an error and not a truncated response (that appears successful because
+		// of the 200 status code).
 		terminateConnection(w)
 	}
 }
@@ -191,6 +195,10 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 	if _, err := io.Copy(w, result); err != nil {
+		// If we get any error copying the stream into the response then we
+		// need to terminate the connection to ensure that the caller observes
+		// an error and not a truncated response (that appears successful because
+		// of the 200 status code).
 		terminateConnection(w)
 	}
 }
@@ -238,6 +246,10 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 	if _, err := io.Copy(w, result); err != nil {
+		// If we get any error copying the stream into the response then we
+		// need to terminate the connection to ensure that the caller observes
+		// an error and not a truncated response (that appears successful because
+		// of the 200 status code).
 		terminateConnection(w)
 	}
 }
