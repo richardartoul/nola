@@ -54,7 +54,7 @@ func main() {
 
 			ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 			actorID := fmt.Sprintf("actor-%d", i%10)
-			resp, err := env.InvokeActorBytes(
+			resp, err := env.InvokeActor(
 				ctx,
 				"example", actorID, "test-module", "inc", nil,
 				types.CreateIfNotExist{})
