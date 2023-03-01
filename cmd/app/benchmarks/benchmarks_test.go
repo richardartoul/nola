@@ -167,7 +167,7 @@ func reportOpsPerSecond(b *testing.B) func() {
 
 // Can't use the micro-benchmarking framework because we need concurrency.
 func TestBenchmarkFoundationDBRegistryInvokeActor(t *testing.T) {
-	testSimpleBench(t, 2*time.Microsecond, 10, 15*time.Second, false)
+	testSimpleBench(t, 1*time.Microsecond, 10, 15*time.Second, false)
 }
 
 // Can't use the micro-benchmarking framework because we need concurrency.
