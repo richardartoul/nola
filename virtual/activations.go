@@ -97,6 +97,7 @@ func (a *activations) invoke(
 		hostCapabilities := newHostCapabilities(
 			a.registry, a.environment, a.customHostFns,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID, a.getServerState)
+
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
 			a.Unlock()
@@ -104,6 +105,13 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s, err: %w",
 				reference.ActorID(), reference.ModuleID(), err)
 		}
+		if err := assertActorIface(iActor); err != nil {
+			a.Unlock()
+			return nil, fmt.Errorf(
+				"error instantiating actor: %s from module: %s, err: %w",
+				reference.ActorID(), reference.ModuleID(), err)
+		}
+
 		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
 		if err != nil {
 			a.Unlock()
@@ -181,13 +189,21 @@ func (a *activations) invoke(
 		hostCapabilities := newHostCapabilities(
 			a.registry, a.environment, a.customHostFns,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID, a.getServerState)
+
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf(
-				"error instantiating actor: %s from module: %s",
-				reference.ActorID(), reference.ModuleID())
+				"error instantiating actor: %s from module: %s, err: %w",
+				reference.ActorID(), reference.ModuleID(), err)
 		}
+		if err := assertActorIface(iActor); err != nil {
+			a.Unlock()
+			return nil, fmt.Errorf(
+				"error instantiating actor: %s from module: %s, err: %w",
+				reference.ActorID(), reference.ModuleID(), err)
+		}
+
 		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
 		if err != nil {
 			a.Unlock()
@@ -266,10 +282,14 @@ func (a *activatedActor) invoke(
 		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
 			streamActor, ok := a._a.(StreamActor)
 			if ok {
+				// This actor has support for the streaming interface so we should use that
+				// directly since its more efficient.
 				return streamActor.InvokeStream(ctx, operation, payload, tr)
 			}
 
-			return a._a.Invoke(ctx, operation, payload, tr)
+			// The actor doesn't support streaming responses, we'll convert the returned []byte
+			// to a stream ourselves.
+			return a._a.(ByteActor).Invoke(ctx, operation, payload, tr)
 		})
 		if err != nil {
 			return nil, err
@@ -283,10 +303,14 @@ func (a *activatedActor) invoke(
 
 	streamActor, ok := a._a.(StreamActor)
 	if ok {
+		// This actor has support for the streaming interface so we should use that
+		// directly since its more efficient.
 		return streamActor.InvokeStream(ctx, operation, payload, nil)
 	}
 
-	resp, err := a._a.Invoke(ctx, operation, payload, nil)
+	// The actor doesn't support streaming responses, we'll convert the returned []byte
+	// to a stream ourselves.
+	resp, err := a._a.(ByteActor).Invoke(ctx, operation, payload, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -295,4 +319,16 @@ func (a *activatedActor) invoke(
 
 func (a *activatedActor) close(ctx context.Context) error {
 	return a._a.Close(ctx)
+}
+
+func assertActorIface(actor Actor) error {
+	var (
+		_, implementsByteActor   = actor.(ByteActor)
+		_, implementsStreamActor = actor.(StreamActor)
+	)
+	if implementsByteActor || implementsStreamActor {
+		return nil
+	}
+
+	return fmt.Errorf("%T does not implement ByteActor or StreamActor", actor)
 }

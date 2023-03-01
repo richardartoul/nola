@@ -1,10 +1,12 @@
 package virtual
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"strconv"
@@ -23,6 +25,9 @@ import (
 )
 
 var (
+	streamInterfaceWasCalledMutex sync.Mutex
+	streamInterfaceWasCalled      = false
+
 	utilWasmBytes   []byte
 	defaultOptsWASM = EnvironmentOptions{
 		CustomHostFns: map[string]func([]byte) ([]byte, error){
@@ -31,7 +36,7 @@ var (
 			},
 		},
 	}
-	defaultOptsGo = EnvironmentOptions{
+	defaultOptsGoByte = EnvironmentOptions{
 		CustomHostFns: map[string]func([]byte) ([]byte, error){
 			"testCustomFn": func([]byte) ([]byte, error) {
 				return []byte("ok"), nil
@@ -40,6 +45,17 @@ var (
 		GoModules: map[types.NamespacedIDNoType]Module{
 			{Namespace: "ns-1", ID: "test-module"}: testModule{},
 			{Namespace: "ns-2", ID: "test-module"}: testModule{},
+		},
+	}
+	defaultOptsGoStream = EnvironmentOptions{
+		CustomHostFns: map[string]func([]byte) ([]byte, error){
+			"testCustomFn": func([]byte) ([]byte, error) {
+				return []byte("ok"), nil
+			},
+		},
+		GoModules: map[types.NamespacedIDNoType]Module{
+			{Namespace: "ns-1", ID: "test-module"}: testStreamModule{},
+			{Namespace: "ns-2", ID: "test-module"}: testStreamModule{},
 		},
 	}
 )
@@ -671,14 +687,50 @@ func TestCustomHostFns(t *testing.T) {
 func TestGoModulesRegisterTwice(t *testing.T) {
 	// Create environment and register modules.
 	reg := localregistry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
 	require.NoError(t, err)
 	require.NoError(t, env.Close())
 
 	// Recreate with same registry should not fail.
-	env, err = NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
+	env, err = NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
 	require.NoError(t, err)
 	require.NoError(t, env.Close())
+}
+
+// TestServerVersionIsHonored ensures client-server coordination around server versions by
+// blocking actor invocations if versions don't match, indicating a missed heartbeat by the
+// server and loss of ownership of the actor. This reproduces the bug identified in
+// https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
+func TestServerVersionIsHonored(t *testing.T) {
+	var (
+		reg = localregistry.NewLocalRegistry()
+		ctx = context.Background()
+	)
+
+	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, EnvironmentOptions{
+		ActivationCacheTTL: time.Second * 15,
+	})
+	require.NoError(t, err)
+
+	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	_, err = env1.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	require.NoError(t, err)
+
+	env1.pauseHeartbeat()
+
+	time.Sleep(registry.HeartbeatTTL + time.Second)
+
+	env1.resumeHeartbeat()
+
+	require.NoError(t, env1.heartbeat())
+
+	_, err = env1.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	require.Equal(
+		t,
+		errors.New("error invoking actor: InvokeLocal: server version(2) != server version from reference(1)").Error(),
+		err.Error())
 }
 
 func getCount(t *testing.T, v []byte) int64 {
@@ -706,13 +758,28 @@ func runWithDifferentConfigs(
 		testFn(t, reg, env)
 	})
 
-	t.Run("go-local", func(t *testing.T) {
+	t.Run("go-local-byte", func(t *testing.T) {
 		reg := localregistry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
 		require.NoError(t, err)
 		defer env.Close()
 
 		testFn(t, reg, env)
+	})
+
+	t.Run("go-local-stream", func(t *testing.T) {
+		reg := localregistry.NewLocalRegistry()
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoStream)
+		require.NoError(t, err)
+		defer env.Close()
+
+		testFn(t, reg, env)
+
+		// Ensure that the stream interface is used at least once because it depends on some runtime
+		// type assertions that could easily be messed up / never happen.
+		streamInterfaceWasCalledMutex.Lock()
+		defer streamInterfaceWasCalledMutex.Unlock()
+		require.True(t, streamInterfaceWasCalled)
 	})
 
 	if !skipDNS {
@@ -720,10 +787,10 @@ func runWithDifferentConfigs(
 			resolver := &fakeResolver{}
 			resolver.setIPs([]net.IP{net.ParseIP("127.0.0.1")})
 
-			reg, err := dnsregistry.NewDNSRegistry(resolver, "test", defaultOptsGo.Discovery.Port, dnsregistry.DNSRegistryOptions{})
+			reg, err := dnsregistry.NewDNSRegistry(resolver, "test", defaultOptsGoByte.Discovery.Port, dnsregistry.DNSRegistryOptions{})
 			require.NoError(t, err)
 
-			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGo)
+			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
 			require.NoError(t, err)
 
 			defer env.Close()
@@ -815,42 +882,52 @@ func (ta *testActor) Invoke(
 	}
 }
 
-// TestServerVersionIsHonored ensures client-server coordination around server versions by blocking actor invocations if versions don't match,
-// indicating a missed heartbeat by the server and loss of ownership of the actor.
-// This reproduces the bug identified in https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
-func TestServerVersionIsHonored(t *testing.T) {
-	var (
-		reg = localregistry.NewLocalRegistry()
-		ctx = context.Background()
-	)
-
-	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, EnvironmentOptions{
-		ActivationCacheTTL: time.Second * 15,
-	})
-	require.NoError(t, err)
-
-	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(t, err)
-
-	_, err = env1.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-	require.NoError(t, err)
-
-	env1.pauseHeartbeat()
-
-	time.Sleep(registry.HeartbeatTTL + time.Second)
-
-	env1.resumeHeartbeat()
-
-	require.NoError(t, env1.heartbeat())
-
-	_, err = env1.InvokeActorBytes(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-	require.Equal(
-		t,
-		errors.New("error invoking actor: InvokeLocal: server version(2) != server version from reference(1)").Error(),
-		err.Error())
+func (ta testActor) Close(ctx context.Context) error {
+	return nil
 }
 
-func (ta testActor) Close(ctx context.Context) error {
+// Same as testModule but implements InvokeStream in addition to Invoke.
+type testStreamModule struct {
+}
+
+func (tm testStreamModule) Instantiate(
+	ctx context.Context,
+	id string,
+	host HostCapabilities,
+) (Actor, error) {
+	streamInterfaceWasCalledMutex.Lock()
+	defer streamInterfaceWasCalledMutex.Unlock()
+	streamInterfaceWasCalled = true
+	return &testStreamActor{
+		a: &testActor{
+			host: host,
+		},
+	}, nil
+}
+
+func (tm testStreamModule) Close(ctx context.Context) error {
+	return nil
+}
+
+// Same as testActor, but implement InvokeStream in addition to Invoke.
+type testStreamActor struct {
+	a ByteActor
+}
+
+func (ta *testStreamActor) InvokeStream(
+	ctx context.Context,
+	operation string,
+	payload []byte,
+	transaction registry.ActorKVTransaction,
+) (io.ReadCloser, error) {
+	resp, err := ta.a.Invoke(ctx, operation, payload, transaction)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewBuffer(resp)), nil
+}
+
+func (ta *testStreamActor) Close(ctx context.Context) error {
 	return nil
 }
 

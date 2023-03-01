@@ -150,6 +150,13 @@ type Module interface {
 
 // Actor represents an activated actor in memory.
 type Actor interface {
+	// Close closes the in-memory actor.
+	Close(ctx context.Context) error
+}
+
+type ByteActor interface {
+	Actor
+
 	// Invoke invokes the specified operation on the in-memory actor with the provided
 	// payload. The transaction is invocation-specific and will automatically be
 	// committed or rolled back / canceled based on whether Invoke returns an error.
@@ -159,14 +166,13 @@ type Actor interface {
 		payload []byte,
 		transaction registry.ActorKVTransaction,
 	) ([]byte, error)
-
-	// Close closes the in-memory actor.
-	Close(ctx context.Context) error
 }
 
 // TODO: Comment me.
 // TODO: Remove transaction in invoke.
 type StreamActor interface {
+	Actor
+
 	// Invoke invokes the specified operation on the in-memory actor with the provided
 	// payload. The transaction is invocation-specific and will automatically be
 	// committed or rolled back / canceled based on whether Invoke returns an error.
