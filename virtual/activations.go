@@ -266,10 +266,10 @@ func (a *activatedActor) invoke(
 		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
 			streamActor, ok := a._a.(StreamActor)
 			if ok {
-				return streamActor.InvokeStream(ctx, operation, payload, nil)
+				return streamActor.InvokeStream(ctx, operation, payload, tr)
 			}
 
-			return a._a.Invoke(ctx, operation, payload, nil)
+			return a._a.Invoke(ctx, operation, payload, tr)
 		})
 		if err != nil {
 			return nil, err
