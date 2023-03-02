@@ -1,8 +1,10 @@
 package virtual
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
@@ -58,7 +60,7 @@ func (a *activations) invoke(
 	reference types.ActorReferenceVirtual,
 	operation string,
 	payload []byte,
-) ([]byte, error) {
+) (io.ReadCloser, error) {
 	a.RLock()
 	actor, ok := a._actors[reference.ActorID()]
 	if ok && actor.reference.Generation() >= reference.Generation() {
@@ -95,6 +97,7 @@ func (a *activations) invoke(
 		hostCapabilities := newHostCapabilities(
 			a.registry, a.environment, a.customHostFns,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID, a.getServerState)
+
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
 			a.Unlock()
@@ -102,6 +105,13 @@ func (a *activations) invoke(
 				"error instantiating actor: %s from module: %s, err: %w",
 				reference.ActorID(), reference.ModuleID(), err)
 		}
+		if err := assertActorIface(iActor); err != nil {
+			a.Unlock()
+			return nil, fmt.Errorf(
+				"error instantiating actor: %s from module: %s, err: %w",
+				reference.ActorID(), reference.ModuleID(), err)
+		}
+
 		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
 		if err != nil {
 			a.Unlock()
@@ -179,13 +189,21 @@ func (a *activations) invoke(
 		hostCapabilities := newHostCapabilities(
 			a.registry, a.environment, a.customHostFns,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID, a.getServerState)
+
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf(
-				"error instantiating actor: %s from module: %s",
-				reference.ActorID(), reference.ModuleID())
+				"error instantiating actor: %s from module: %s, err: %w",
+				reference.ActorID(), reference.ModuleID(), err)
 		}
+		if err := assertActorIface(iActor); err != nil {
+			a.Unlock()
+			return nil, fmt.Errorf(
+				"error instantiating actor: %s from module: %s, err: %w",
+				reference.ActorID(), reference.ModuleID(), err)
+		}
+
 		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
 		if err != nil {
 			a.Unlock()
@@ -256,23 +274,61 @@ func (a *activatedActor) invoke(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-) ([]byte, error) {
+) (io.ReadCloser, error) {
 	// Workers can't have KV storage because they're not global singletons like actors
 	// are. They're also not registered with the Registry explicitly, so we can skip
 	// this step in that case.
 	if a.reference.ActorID().IDType != types.IDTypeWorker {
 		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
-			return a._a.Invoke(ctx, operation, payload, tr)
+			streamActor, ok := a._a.(ActorStream)
+			if ok {
+				// This actor has support for the streaming interface so we should use that
+				// directly since its more efficient.
+				return streamActor.InvokeStream(ctx, operation, payload, tr)
+			}
+
+			// The actor doesn't support streaming responses, we'll convert the returned []byte
+			// to a stream ourselves.
+			return a._a.(ActorBytes).Invoke(ctx, operation, payload, tr)
 		})
 		if err != nil {
 			return nil, err
 		}
-		return result.([]byte), nil
+		stream, ok := result.(io.ReadCloser)
+		if ok {
+			return stream, nil
+		}
+		return io.NopCloser(bytes.NewBuffer(result.([]byte))), nil
 	}
 
-	return a._a.Invoke(ctx, operation, payload, nil)
+	streamActor, ok := a._a.(ActorStream)
+	if ok {
+		// This actor has support for the streaming interface so we should use that
+		// directly since its more efficient.
+		return streamActor.InvokeStream(ctx, operation, payload, nil)
+	}
+
+	// The actor doesn't support streaming responses, we'll convert the returned []byte
+	// to a stream ourselves.
+	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload, nil)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewBuffer(resp)), nil
 }
 
 func (a *activatedActor) close(ctx context.Context) error {
 	return a._a.Close(ctx)
+}
+
+func assertActorIface(actor Actor) error {
+	var (
+		_, implementsByteActor   = actor.(ActorBytes)
+		_, implementsStreamActor = actor.(ActorStream)
+	)
+	if implementsByteActor || implementsStreamActor {
+		return nil
+	}
+
+	return fmt.Errorf("%T does not implement ByteActor or StreamActor", actor)
 }
