@@ -1,4 +1,4 @@
-package blobcache
+package filecache
 
 import (
 	"bytes"
