@@ -137,8 +137,8 @@ func (f *FileCacheActor) copyChunk(
 	r, err := f.fetcher.FetchRange(ctx, start, end)
 	if err != nil {
 		return fmt.Errorf(
-			"error fetching range: [%d:%d] for chunk idx: %d",
-			start, end, toRead.idx)
+			"error fetching range: [%d:%d] for chunk idx: %d, err: %w",
+			start, end, toRead.idx, err)
 	}
 
 	// TODO: Pool?

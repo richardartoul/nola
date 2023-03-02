@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -66,6 +68,17 @@ func TestFileCacheActorConcurrency(t *testing.T) {
 				}
 				result, err := ioutil.ReadAll(reader)
 				if err != nil {
+					if strings.Contains(err.Error(), "not in cache after fetch") {
+						// Ignore this error. It happens because we're constantly deleting random
+						// items from the cache as a stress test.
+						continue
+					}
+					if strings.Contains(err.Error(), "fake error") {
+						// Ignore this error. It happens because make the testFetcher randomly
+						// return errors as an additional stress test.
+						continue
+					}
+
 					panic(err)
 				}
 
@@ -73,6 +86,10 @@ func TestFileCacheActorConcurrency(t *testing.T) {
 					t,
 					string(fetcher.(*testFetcher).file[req.StartOffset:req.EndOffset]),
 					string(result), fmt.Sprintf("%d->%d", req.StartOffset, req.EndOffset))
+
+				if j%100 == 0 {
+					cache.deleteRandom()
+				}
 			}
 		}()
 	}
@@ -100,16 +117,21 @@ func newTestFetcher(size int) Fetcher {
 }
 
 func (t *testFetcher) FetchRange(ctx context.Context, start, end int) (io.ReadCloser, error) {
+	if rand.Intn(100) == 0 {
+		return nil, errors.New("fake error")
+	}
+
 	return io.NopCloser(bytes.NewBuffer(t.file[start:end])), nil
 }
 
 type testCache struct {
 	sync.Mutex
 
-	m map[int][]byte
+	m      map[int][]byte
+	maxIdx int
 }
 
-func newTestCache() ChunkCache {
+func newTestCache() *testCache {
 	return &testCache{
 		m: make(map[int][]byte),
 	}
@@ -141,5 +163,18 @@ func (t *testCache) Put(chunkIdx int, v []byte) error {
 	}
 
 	t.m[chunkIdx] = append([]byte(nil), v...)
+
+	if chunkIdx > t.maxIdx {
+		t.maxIdx = chunkIdx
+	}
+
 	return nil
+}
+
+func (t *testCache) deleteRandom() {
+	t.Lock()
+	defer t.Unlock()
+
+	idx := rand.Intn(t.maxIdx)
+	delete(t.m, idx)
 }
