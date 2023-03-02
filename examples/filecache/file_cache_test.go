@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"math/rand"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -17,9 +18,10 @@ import (
 
 func TestFileCacheActorConcurrency(t *testing.T) {
 	var (
-		fileSize  = 1 << 24
-		chunkSize = 1 << 16
-		fetchSize = 1 << 20
+		fileSize     = 1 << 24
+		maxRangeSize = 1 << 10
+		chunkSize    = 1 << 16
+		fetchSize    = 1 << 20
 
 		fetcher = newTestFetcher(fileSize)
 		cache   = newTestCache()
@@ -28,9 +30,10 @@ func TestFileCacheActorConcurrency(t *testing.T) {
 	fileCache, err := NewFileCacheActor(fileSize, chunkSize, fetchSize, fetcher, cache)
 	require.NoError(t, err)
 
+	fmt.Println(string(fetcher.(*testFetcher).file))
 	var (
-		numWorkers      = 16
-		numOpsPerWorker = 10_000
+		numWorkers      = runtime.NumCPU()
+		numOpsPerWorker = 100_000
 		wg              sync.WaitGroup
 	)
 	for i := 0; i < numWorkers; i++ {
@@ -48,11 +51,10 @@ func TestFileCacheActorConcurrency(t *testing.T) {
 				if req.StartOffset >= fileSize-1 {
 					req.StartOffset = fileSize - 10
 				}
-				req.EndOffset = req.StartOffset + 1
-				// req.EndOffset = req.StartOffset + rand.Intn(fileSize-req.StartOffset)
-				// if req.EndOffset == req.StartOffset {
-				// 	req.EndOffset = req.StartOffset + 1
-				// }
+				req.EndOffset = req.StartOffset + rand.Intn(maxRangeSize) + 1
+				if req.EndOffset >= fileSize {
+					req.EndOffset = fileSize - 1
+				}
 
 				marshaled, err := json.Marshal(&req)
 				if err != nil {
@@ -66,11 +68,11 @@ func TestFileCacheActorConcurrency(t *testing.T) {
 				if err != nil {
 					panic(err)
 				}
+
 				require.Equal(
 					t,
 					string(fetcher.(*testFetcher).file[req.StartOffset:req.EndOffset]),
 					string(result), fmt.Sprintf("%d->%d", req.StartOffset, req.EndOffset))
-				fmt.Println("matched!!!")
 			}
 		}()
 	}
@@ -86,6 +88,7 @@ func newTestFetcher(size int) Fetcher {
 	var (
 		runes = "abcdefghijklmnopqrstuvwxyz"
 		file  = make([]byte, size)
+		rand  = rand.New(rand.NewSource(time.Now().UnixNano()))
 	)
 	for i := 0; i < size; i++ {
 		file[i] = runes[rand.Intn(len(runes))]
@@ -125,7 +128,7 @@ func (t *testCache) Get(b []byte, chunkIdx int) ([]byte, bool, error) {
 		panic("should not be empty")
 	}
 
-	b = append(b, existing...)
+	b = append(b[:0], existing...)
 	return b, true, nil
 }
 
@@ -136,6 +139,7 @@ func (t *testCache) Put(chunkIdx int, v []byte) error {
 	if len(v) == 0 {
 		panic("should not be empty")
 	}
+
 	t.m[chunkIdx] = append([]byte(nil), v...)
 	return nil
 }

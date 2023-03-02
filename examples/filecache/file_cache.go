@@ -123,7 +123,7 @@ func (f *FileCacheActor) copyChunk(
 		return fmt.Errorf("error copying chunk from cache: %w", err)
 	}
 	if ok {
-		// Chunk was in the cache so it was copied, we're done.
+		// Chunk was in the cache so we just need to copy it over and we're done.
 		_, err := w.Write(chunk[toRead.start:toRead.end])
 		if err != nil {
 			return fmt.Errorf("error writing chunk to output writer: %w", err)
@@ -207,7 +207,7 @@ func (f *FileCacheActor) rangeToChunkIndexes(start, end int) []chunkToRead {
 			chunkIdx := curr / f.chunkSize
 			chunkStartOffset := curr % f.chunkSize
 			chunkEndOffset := f.chunkSize
-			if remaining < f.chunkSize {
+			if chunkStartOffset+remaining < f.chunkSize {
 				chunkEndOffset = chunkStartOffset + remaining
 			}
 			chunkIndexes = append(chunkIndexes, chunkToRead{
@@ -221,7 +221,7 @@ func (f *FileCacheActor) rangeToChunkIndexes(start, end int) []chunkToRead {
 		}
 
 		chunkIndexes = append(chunkIndexes, chunkToRead{
-			idx:   i / f.chunkSize,
+			idx:   curr / f.chunkSize,
 			start: 0,
 			end:   f.chunkSize,
 		})
@@ -229,8 +229,8 @@ func (f *FileCacheActor) rangeToChunkIndexes(start, end int) []chunkToRead {
 		curr += f.chunkSize
 	}
 	last := chunkIndexes[len(chunkIndexes)-1]
-	if last.end*last.idx > end {
-		last.end = end - last.idx*f.chunkSize
+	if f.chunkSize*(last.idx+1) > end {
+		chunkIndexes[len(chunkIndexes)-1].end = end - last.idx*f.chunkSize
 	}
 
 	return chunkIndexes
