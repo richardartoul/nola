@@ -18,14 +18,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFileCacheActorConcurrency(t *testing.T) {
+func TestFileCacheActorConcurrencyNoFaults(t *testing.T) {
+	testFileCacheActorConcurrency(t, false)
+}
+
+func TestFileCacheActorConcurrencyWithFaults(t *testing.T) {
+	testFileCacheActorConcurrency(t, true)
+}
+
+func testFileCacheActorConcurrency(t *testing.T, injectFaults bool) {
 	var (
 		fileSize     = 1 << 24
 		maxRangeSize = 1 << 10
 		chunkSize    = 1 << 16
 		fetchSize    = 1 << 20
 
-		fetcher = newTestFetcher(fileSize)
+		fetcher = newTestFetcher(fileSize, injectFaults)
 		cache   = newTestCache()
 	)
 
@@ -68,15 +76,17 @@ func TestFileCacheActorConcurrency(t *testing.T) {
 				}
 				result, err := ioutil.ReadAll(reader)
 				if err != nil {
-					if strings.Contains(err.Error(), "not in cache after fetch") {
-						// Ignore this error. It happens because we're constantly deleting random
-						// items from the cache as a stress test.
-						continue
-					}
-					if strings.Contains(err.Error(), "fake error") {
-						// Ignore this error. It happens because make the testFetcher randomly
-						// return errors as an additional stress test.
-						continue
+					if injectFaults {
+						if strings.Contains(err.Error(), "not in cache after fetch") {
+							// Ignore this error. It happens because we're constantly deleting random
+							// items from the cache as a stress test.
+							continue
+						}
+						if strings.Contains(err.Error(), "fake error") {
+							// Ignore this error. It happens because make the testFetcher randomly
+							// return errors as an additional stress test.
+							continue
+						}
 					}
 
 					panic(err)
@@ -87,7 +97,7 @@ func TestFileCacheActorConcurrency(t *testing.T) {
 					string(fetcher.(*testFetcher).file[req.StartOffset:req.EndOffset]),
 					string(result), fmt.Sprintf("%d->%d", req.StartOffset, req.EndOffset))
 
-				if j%100 == 0 {
+				if j%100 == 0 && injectFaults {
 					cache.deleteRandom()
 				}
 			}
@@ -98,10 +108,11 @@ func TestFileCacheActorConcurrency(t *testing.T) {
 }
 
 type testFetcher struct {
-	file []byte
+	file         []byte
+	injectFaults bool
 }
 
-func newTestFetcher(size int) Fetcher {
+func newTestFetcher(size int, injectFaults bool) Fetcher {
 	var (
 		runes = "abcdefghijklmnopqrstuvwxyz"
 		file  = make([]byte, size)
@@ -112,7 +123,8 @@ func newTestFetcher(size int) Fetcher {
 	}
 
 	return &testFetcher{
-		file: file,
+		file:         file,
+		injectFaults: injectFaults,
 	}
 }
 
