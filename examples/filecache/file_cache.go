@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"sync"
 
 	"github.com/richardartoul/nola/virtual"
@@ -19,6 +20,46 @@ type Fetcher interface {
 type ChunkCache interface {
 	Get(b []byte, chunkIdx int) ([]byte, bool, error)
 	Put(chunkIdx int, b []byte) error
+}
+
+type FileCacheModule struct {
+	chunkSize int
+	fetchSize int
+
+	fetcher    Fetcher
+	chunkCache ChunkCache
+}
+
+func NewFileCacheModule(
+	chunkSize int,
+	fetchSize int,
+	fetcher Fetcher,
+	chunkCache ChunkCache,
+) *FileCacheModule {
+	return &FileCacheModule{
+		chunkSize: chunkSize,
+		fetchSize: fetchSize,
+
+		fetcher:    fetcher,
+		chunkCache: chunkCache,
+	}
+}
+
+func (f *FileCacheModule) Instantiate(
+	ctx context.Context,
+	id string,
+	host virtual.HostCapabilities,
+) (virtual.Actor, error) {
+	fileSize, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing file size from ID: %v", err)
+	}
+
+	return NewFileCacheActor(int(fileSize), f.chunkSize, f.fetchSize, f.fetcher, f.chunkCache)
+}
+
+func (f *FileCacheModule) Close(ctx context.Context) error {
+	return nil
 }
 
 type FileCacheActor struct {
