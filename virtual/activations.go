@@ -59,20 +59,21 @@ func (a *activations) invoke(
 	ctx context.Context,
 	reference types.ActorReferenceVirtual,
 	operation string,
-	payload []byte,
+	instantiatePayload []byte,
+	invokePayload []byte,
 ) (io.ReadCloser, error) {
 	a.RLock()
 	actor, ok := a._actors[reference.ActorID()]
 	if ok && actor.reference.Generation() >= reference.Generation() {
 		a.RUnlock()
-		return actor.invoke(ctx, operation, payload)
+		return actor.invoke(ctx, operation, invokePayload)
 	}
 	a.RUnlock()
 
 	a.Lock()
 	if ok && actor.reference.Generation() >= reference.Generation() {
 		a.Unlock()
-		return actor.invoke(ctx, operation, payload)
+		return actor.invoke(ctx, operation, invokePayload)
 	}
 
 	if ok && actor.reference.Generation() < reference.Generation() {
@@ -98,7 +99,7 @@ func (a *activations) invoke(
 			a.registry, a.environment, a.customHostFns,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID, a.getServerState)
 
-		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
+		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, instantiatePayload, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf(
@@ -112,7 +113,7 @@ func (a *activations) invoke(
 				reference.ActorID(), reference.ModuleID(), err)
 		}
 
-		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
+		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities, instantiatePayload)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
@@ -190,7 +191,7 @@ func (a *activations) invoke(
 			a.registry, a.environment, a.customHostFns,
 			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID, a.getServerState)
 
-		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, hostCapabilities)
+		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, instantiatePayload, hostCapabilities)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf(
@@ -204,7 +205,7 @@ func (a *activations) invoke(
 				reference.ActorID(), reference.ModuleID(), err)
 		}
 
-		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities)
+		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities, instantiatePayload)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
@@ -213,7 +214,7 @@ func (a *activations) invoke(
 	}
 
 	a.Unlock()
-	return actor.invoke(ctx, operation, payload)
+	return actor.invoke(ctx, operation, invokePayload)
 }
 
 func (a *activations) numActivatedActors() int {
@@ -254,6 +255,7 @@ func newActivatedActor(
 	actor Actor,
 	reference types.ActorReferenceVirtual,
 	host HostCapabilities,
+	instantiatePayload []byte,
 ) (activatedActor, error) {
 	a := activatedActor{
 		_a:        actor,
@@ -261,7 +263,7 @@ func newActivatedActor(
 		host:      host,
 	}
 
-	_, err := a.invoke(ctx, wapcutils.StartupOperationName, nil)
+	_, err := a.invoke(ctx, wapcutils.StartupOperationName, instantiatePayload)
 	if err != nil {
 		a.close(ctx)
 		return activatedActor{}, fmt.Errorf("newActivatedActor: error invoking startup function: %w", err)

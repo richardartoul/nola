@@ -296,7 +296,7 @@ func (r *environment) InvokeActorStream(
 			"ensureActivation() success with 0 references for actor ID: %s", actorID)
 	}
 
-	return r.invokeReferences(ctx, vs, references, operation, payload)
+	return r.invokeReferences(ctx, vs, references, operation, payload, create)
 }
 
 func (r *environment) InvokeActorDirect(
@@ -307,10 +307,11 @@ func (r *environment) InvokeActorDirect(
 	reference types.ActorReferenceVirtual,
 	operation string,
 	payload []byte,
+	create types.CreateIfNotExist,
 ) ([]byte, error) {
 	reader, err := r.InvokeActorDirectStream(
 		ctx, versionStamp, serverID, serverVersion,
-		reference, operation, payload)
+		reference, operation, payload, create)
 	if err != nil {
 		return nil, fmt.Errorf("error invoking actor: %w", err)
 	}
@@ -331,6 +332,7 @@ func (r *environment) InvokeActorDirectStream(
 	reference types.ActorReferenceVirtual,
 	operation string,
 	payload []byte,
+	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	if serverID == "" {
 		return nil, errors.New("serverID cannot be empty")
@@ -382,7 +384,7 @@ func (r *environment) InvokeActorDirectStream(
 			heartbeatResult.ServerVersion, serverVersion)
 	}
 
-	return r.activations.invoke(ctx, reference, operation, payload)
+	return r.activations.invoke(ctx, reference, operation, create.ActivationPayload, payload)
 }
 
 func (r *environment) InvokeWorker(
@@ -391,9 +393,10 @@ func (r *environment) InvokeWorker(
 	moduleID string,
 	operation string,
 	payload []byte,
+	create types.CreateIfNotExist,
 ) ([]byte, error) {
 	reader, err := r.InvokeWorkerStream(
-		ctx, namespace, moduleID, operation, payload)
+		ctx, namespace, moduleID, operation, payload, create)
 	if err != nil {
 		return nil, fmt.Errorf("error invoking worker: %w", err)
 	}
@@ -412,6 +415,7 @@ func (r *environment) InvokeWorkerStream(
 	moduleID string,
 	operation string,
 	payload []byte,
+	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	// TODO: The implementation of this function is nice because it just reusees a bunch of the
 	//       actor logic. However, it's also less performant than it could be because it still
@@ -426,7 +430,7 @@ func (r *environment) InvokeWorkerStream(
 
 	// Workers provide none of the consistency / linearizability guarantees that actor's do, so we
 	// can bypass the registry entirely and just immediately invoke the function.
-	return r.activations.invoke(ctx, ref, operation, payload)
+	return r.activations.invoke(ctx, ref, operation, create.ActivationPayload, payload)
 }
 
 func (r *environment) Close() error {
@@ -486,6 +490,7 @@ func (r *environment) invokeReferences(
 	references []types.ActorReference,
 	operation string,
 	payload []byte,
+	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	// TODO: Load balancing or some other strategy if the number of references is > 1?
 	ref := references[0]
@@ -494,7 +499,8 @@ func (r *environment) invokeReferences(
 	localEnvironmentsRouterLock.RUnlock()
 	if ok {
 		return localEnv.InvokeActorDirectStream(
-			ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref, operation, payload)
+			ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
+			operation, payload, create)
 	}
 	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload)
 }

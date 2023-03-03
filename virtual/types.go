@@ -56,6 +56,7 @@ type Environment interface {
 		reference types.ActorReferenceVirtual,
 		operation string,
 		payload []byte,
+		createIfNotExist types.CreateIfNotExist,
 	) ([]byte, error)
 
 	// InvokeActorDirectStream is the same as InvokeActorDirect, except it uses the streaming
@@ -69,6 +70,7 @@ type Environment interface {
 		reference types.ActorReferenceVirtual,
 		operation string,
 		payload []byte,
+		createIfNotExist types.CreateIfNotExist,
 	) (io.ReadCloser, error)
 
 	// InvokeWorker invokes the specified operation from the specified module. Unlike
@@ -87,6 +89,7 @@ type Environment interface {
 		moduleID string,
 		operation string,
 		payload []byte,
+		createIfNotExist types.CreateIfNotExist,
 	) ([]byte, error)
 
 	// InvokeWorkerStream is the same as InvokeWorker, except it uses the streaming interface
@@ -98,6 +101,7 @@ type Environment interface {
 		moduleID string,
 		operation string,
 		payload []byte,
+		createIfNotExist types.CreateIfNotExist,
 	) (io.ReadCloser, error)
 
 	// Close closes the Environment and all of its associated resources.
@@ -148,6 +152,7 @@ type Module interface {
 	Instantiate(
 		ctx context.Context,
 		id string,
+		payload []byte,
 		host HostCapabilities,
 	) (Actor, error)
 	// Close closes the modules.

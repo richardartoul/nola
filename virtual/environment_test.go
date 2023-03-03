@@ -77,12 +77,16 @@ func TestSimpleActor(t *testing.T) {
 		ctx := context.Background()
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			for i := 0; i < 100; i++ {
-				result, err := env.InvokeActor(ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+				result, err := env.InvokeActor(
+					ctx, ns, "a", "test-module", "inc",
+					nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				require.Equal(t, int64(i+1), getCount(t, result))
 
 				if i == 0 {
-					result, err = env.InvokeActor(ctx, ns, "a", "test-module", "getStartupWasCalled", nil, types.CreateIfNotExist{})
+					result, err = env.InvokeActor(
+						ctx, ns, "a", "test-module", "getStartupWasCalled",
+						nil, types.CreateIfNotExist{})
 					require.NoError(t, err)
 					require.Equal(t, []byte("true"), result)
 				}
@@ -101,15 +105,50 @@ func TestCreateIfNotExist(t *testing.T) {
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			for i := 0; i < 100; i++ {
 				result, err := env.InvokeActor(
-					ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+					ctx, ns, "a", "test-module",
+					"inc", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				require.Equal(t, int64(i+1), getCount(t, result))
 
 				if i == 0 {
 					result, err = env.InvokeActor(
-						ctx, ns, "a", "test-module", "getStartupWasCalled", nil, types.CreateIfNotExist{})
+						ctx, ns, "a", "test-module",
+						"getStartupWasCalled", nil, types.CreateIfNotExist{})
 					require.NoError(t, err)
 					require.Equal(t, []byte("true"), result)
+				}
+			}
+		}
+	}
+
+	runWithDifferentConfigs(t, testFn, false)
+}
+
+// TestCreateIfNotExistWithInstantiatePayload is the same as TestCreateIfNotExist
+// except it also asserts the instantiation payload is propagated properly also.
+func TestCreateIfNotExistWithInstantiatePayload(t *testing.T) {
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		for _, ns := range []string{"ns-1", "ns-2"} {
+			for i := 0; i < 100; i++ {
+				result, err := env.InvokeActor(
+					ctx, ns, "a", "test-module",
+					"inc", nil, types.CreateIfNotExist{ActivationPayload: []byte("abc")})
+				require.NoError(t, err)
+				require.Equal(t, int64(i+1), getCount(t, result))
+
+				if i == 0 {
+					result, err = env.InvokeActor(
+						ctx, ns, "a", "test-module",
+						"getStartupWasCalled", nil, types.CreateIfNotExist{})
+					require.NoError(t, err)
+					require.Equal(t, []byte("true"), result)
+
+					result, err = env.InvokeActor(
+						ctx, ns, "a", "test-module",
+						"getInstantiatePayload", nil, types.CreateIfNotExist{})
+					require.NoError(t, err)
+					require.Equal(t, []byte("abc"), result)
 				}
 			}
 		}
@@ -125,19 +164,25 @@ func TestSimpleWorker(t *testing.T) {
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			// Can invoke immediately once module exists, no need to "create" a worker or anything
 			// like we do for actors.
-			_, err := env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
+			_, err := env.InvokeWorker(
+				ctx, ns, "test-module",
+				"inc", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
 			// Workers can still "accumulate" in-memory state like actors do, but the state may vary
 			// depending on which server/environment the call is executed on (unlike actors where the
 			// request is always routed to the single active "global" instance).
 			for i := 0; i < 100; i++ {
-				result, err := env.InvokeWorker(ctx, ns, "test-module", "inc", nil)
+				result, err := env.InvokeWorker(
+					ctx, ns, "test-module",
+					"inc", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				require.Equal(t, int64(i+2), getCount(t, result))
 
 				if i == 0 {
-					result, err = env.InvokeWorker(ctx, ns, "test-module", "getStartupWasCalled", nil)
+					result, err = env.InvokeWorker(
+						ctx, ns, "test-module",
+						"getStartupWasCalled", nil, types.CreateIfNotExist{})
 					require.NoError(t, err)
 					require.Equal(t, []byte("true"), result)
 				}
@@ -806,10 +851,12 @@ type testModule struct {
 func (tm testModule) Instantiate(
 	ctx context.Context,
 	id string,
+	payload []byte,
 	host HostCapabilities,
 ) (Actor, error) {
 	return &testActor{
-		host: host,
+		host:               host,
+		instantiatePayload: payload,
 	}, nil
 }
 
@@ -820,8 +867,9 @@ func (tm testModule) Close(ctx context.Context) error {
 type testActor struct {
 	host HostCapabilities
 
-	count            int
-	startupWasCalled bool
+	count              int
+	startupWasCalled   bool
+	instantiatePayload []byte
 }
 
 func (ta *testActor) Invoke(
@@ -836,6 +884,8 @@ func (ta *testActor) Invoke(
 		return nil, nil
 	case wapcutils.ShutdownOperationName:
 		return nil, nil
+	case "getInstantiatePayload":
+		return ta.instantiatePayload, nil
 	case "inc":
 		ta.count++
 		return []byte(strconv.Itoa(ta.count)), nil
@@ -893,6 +943,7 @@ type testStreamModule struct {
 func (tm testStreamModule) Instantiate(
 	ctx context.Context,
 	id string,
+	payload []byte,
 	host HostCapabilities,
 ) (Actor, error) {
 	streamInterfaceWasCalledMutex.Lock()
@@ -900,7 +951,8 @@ func (tm testStreamModule) Instantiate(
 	streamInterfaceWasCalled = true
 	return &testStreamActor{
 		a: &testActor{
-			host: host,
+			host:               host,
+			instantiatePayload: payload,
 		},
 	}, nil
 }

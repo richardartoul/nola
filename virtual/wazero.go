@@ -171,6 +171,7 @@ type wazeroModule struct {
 func (w wazeroModule) Instantiate(
 	ctx context.Context,
 	id string,
+	instantiatePayload []byte,
 	host HostCapabilities,
 ) (Actor, error) {
 	obj, err := w.m.Instantiate(ctx, id)
