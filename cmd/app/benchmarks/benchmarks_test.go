@@ -99,7 +99,9 @@ func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_, err = env.InvokeWorker(ctx, "bench-ns", "test-module", "incFast", nil)
+		_, err = env.InvokeWorker(
+			ctx, "bench-ns", "test-module",
+			"incFast", nil, types.CreateIfNotExist{})
 		if err != nil {
 			panic(err)
 		}
@@ -199,10 +201,14 @@ func testSimpleBench(
 	for i := 0; i < numActors; i++ {
 		actorID := fmt.Sprintf("%d", i)
 		if useWorker {
-			_, err = env.InvokeWorker(context.Background(), "bench-ns", "test-module", "incFast", nil)
+			_, err = env.InvokeWorker(
+				context.Background(), "bench-ns", "test-module",
+				"incFast", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
 		} else {
-			_, err = env.InvokeActor(context.Background(), "bench-ns", actorID, "test-module", "incFast", nil, types.CreateIfNotExist{})
+			_, err = env.InvokeActor(
+				context.Background(), "bench-ns", actorID, "test-module",
+				"incFast", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
 		}
 	}
@@ -234,12 +240,16 @@ func testSimpleBench(
 					start := time.Now()
 					if !useWorker {
 						actorID := fmt.Sprintf("%d", i%numActors)
-						_, err = env.InvokeActor(ctx, "bench-ns", actorID, "test-module", "incFast", nil, types.CreateIfNotExist{})
+						_, err = env.InvokeActor(
+							ctx, "bench-ns", actorID, "test-module",
+							"incFast", nil, types.CreateIfNotExist{})
 						if err != nil {
 							panic(err)
 						}
 					} else {
-						_, err = env.InvokeWorker(ctx, "bench-ns", "test-module", "incFast", nil)
+						_, err = env.InvokeWorker(
+							ctx, "bench-ns", "test-module",
+							"incFast", nil, types.CreateIfNotExist{})
 						if err != nil {
 							panic(err)
 						}

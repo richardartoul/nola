@@ -11,6 +11,7 @@ func main() {
 	wapc.RegisterFunctions(wapc.Functions{
 		wapcutils.StartupOperationName:  startup,
 		wapcutils.ShutdownOperationName: shutdown,
+		"getInstantiatePayload":         getInstantiatePayload,
 		"getStartupWasCalled":           getStartupWasCalled,
 		"inc":                           inc,
 		"incFast":                       incFast,
@@ -29,7 +30,15 @@ func main() {
 	})
 }
 
-var count int64
+var (
+	count              int64
+	instantiatePayload []byte
+)
+
+// getInstantiatePayload returns the payload provided to the Startup invocation.
+func getInstantiatePayload(payload []byte) ([]byte, error) {
+	return instantiatePayload, nil
+}
 
 // inc increments the actor's in-memory global counter.
 func inc(payload []byte) ([]byte, error) {
@@ -138,6 +147,7 @@ var startupWasCalled = false
 
 func startup(payload []byte) ([]byte, error) {
 	startupWasCalled = true
+	instantiatePayload = append([]byte(nil), payload...)
 	return nil, nil
 }
 

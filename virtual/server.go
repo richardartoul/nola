@@ -143,15 +143,16 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 }
 
 type invokeActorDirectRequest struct {
-	VersionStamp  int64  `json:"version_stamp"`
-	ServerID      string `json:"server_id"`
-	ServerVersion int64  `json:"server_version"`
-	Namespace     string `json:"namespace"`
-	ModuleID      string `json:"module_id"`
-	ActorID       string `json:"actor_id"`
-	Generation    uint64 `json:"generation"`
-	Operation     string `json:"operation"`
-	Payload       []byte `json:"payload"`
+	VersionStamp     int64                  `json:"version_stamp"`
+	ServerID         string                 `json:"server_id"`
+	ServerVersion    int64                  `json:"server_version"`
+	Namespace        string                 `json:"namespace"`
+	ModuleID         string                 `json:"module_id"`
+	ActorID          string                 `json:"actor_id"`
+	Generation       uint64                 `json:"generation"`
+	Operation        string                 `json:"operation"`
+	Payload          []byte                 `json:"payload"`
+	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
 }
 
 func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +186,9 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.environment.InvokeActorDirectStream(ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref, req.Operation, req.Payload)
+	result, err := s.environment.InvokeActorDirectStream(
+		ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref,
+		req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -207,9 +210,10 @@ type invokeWorkerRequest struct {
 	Namespace string `json:"namespace"`
 	// TODO: Allow ModuleID to be omitted if the caller provides a WASMExecutable field which contains the
 	//       actual WASM program that should be executed.
-	ModuleID  string `json:"module_id"`
-	Operation string `json:"operation"`
-	Payload   []byte `json:"payload"`
+	ModuleID         string                 `json:"module_id"`
+	Operation        string                 `json:"operation"`
+	Payload          []byte                 `json:"payload"`
+	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
 }
 
 func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
@@ -236,7 +240,8 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cc()
 
-	result, err := s.environment.InvokeWorkerStream(ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload)
+	result, err := s.environment.InvokeWorkerStream(
+		ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
