@@ -86,6 +86,7 @@ type testModule struct {
 func (tm testModule) Instantiate(
 	ctx context.Context,
 	id string,
+	payload []byte,
 	host virtual.HostCapabilities,
 ) (virtual.Actor, error) {
 	return &testActor{
