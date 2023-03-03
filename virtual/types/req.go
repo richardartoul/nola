@@ -22,10 +22,10 @@ type InvokeActorRequest struct {
 // actor if it doesn't already exist.
 type CreateIfNotExist struct {
 	Options ActorOptions `json:"actor_options"`
-	// ActivationPayload is the []byte that will be provided to the actor on
-	// instantiation. It is generally used to provide any actor-specific contructor
-	// arguments that are required.
-	ActivationPayload []byte
+	// InstantiatePayload is the []byte that will be provided to the actor on
+	// instantiation. It is generally used to provide any actor-specific constructor
+	// arguments that are required to instantiate the actor in memory.
+	InstantiatePayload []byte
 }
 
 // ActorOptions contains the options for a given actor.

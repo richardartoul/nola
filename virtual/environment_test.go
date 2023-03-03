@@ -133,7 +133,7 @@ func TestCreateIfNotExistWithInstantiatePayload(t *testing.T) {
 			for i := 0; i < 100; i++ {
 				result, err := env.InvokeActor(
 					ctx, ns, "a", "test-module",
-					"inc", nil, types.CreateIfNotExist{ActivationPayload: []byte("abc")})
+					"inc", nil, types.CreateIfNotExist{InstantiatePayload: []byte("abc")})
 				require.NoError(t, err)
 				require.Equal(t, int64(i+1), getCount(t, result))
 
