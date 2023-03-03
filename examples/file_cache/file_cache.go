@@ -13,15 +13,24 @@ import (
 	"github.com/richardartoul/nola/wapcutils"
 )
 
+// Fetches is the interface that must be implemented to fetch ranges of
+// data from the source.
 type Fetcher interface {
 	FetchRange(ctx context.Context, offset, length int) (io.ReadCloser, error)
 }
 
+// ChunkCache is the interface that must be implemented by the cache
+// that will cache "chunks" of the data fetched from the source via
+// the Fetcher interface.
 type ChunkCache interface {
 	Get(b []byte, chunkIdx int) ([]byte, bool, error)
 	Put(chunkIdx int, b []byte) error
 }
 
+// FileCacheModule implements a file caching module that deduplicates fetches
+// for byte range portions of a file and then caches chunks of data in-memory
+// for subsequent requests. It's designed to drastically reduce load on the
+// source of truth for the file.
 type FileCacheModule struct {
 	chunkSize int
 	fetchSize int
@@ -30,6 +39,7 @@ type FileCacheModule struct {
 	chunkCache ChunkCache
 }
 
+// NewFileCacheModule creates a new FileCacheModule.
 func NewFileCacheModule(
 	chunkSize int,
 	fetchSize int,
@@ -45,6 +55,8 @@ func NewFileCacheModule(
 	}
 }
 
+// FileCacheInstantiatePayload contains the arguments with which the
+// file cache must be instantiated.
 type FileCacheInstantiatePayload struct {
 	FileSize int
 }
@@ -70,6 +82,11 @@ func (f *FileCacheModule) Close(ctx context.Context) error {
 	return nil
 }
 
+// FileCacheActor is the implementation of the file cache actor and will be
+// spawned 1:1 with a corresponding file, I.E we will have one actor per file
+// that needs to have portions of its data cached. The actor deduplicates
+// fetches of ranges of data from the source, and also caches the fetched data
+// as chunks in memory for subsequent reads.
 type FileCacheActor struct {
 	sync.Mutex
 
@@ -86,6 +103,7 @@ type FileCacheActor struct {
 	chunkCache ChunkCache
 }
 
+// NewFileCacheActor creates a new FileCacheActor.
 func NewFileCacheActor(
 	fileSize int,
 	chunkSize int,
@@ -114,6 +132,8 @@ func NewFileCacheActor(
 	}, nil
 }
 
+// GetRangeRequest contains the arguments for a request to read a range
+// of bytes from the file that the FileCacheActor is caching.
 type GetRangeRequest struct {
 	StartOffset int `json:"start_offset"`
 	EndOffset   int `json:"end_offset"`

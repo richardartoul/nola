@@ -11,10 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DataDog/sketches-go/ddsketch"
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
+
+	"github.com/DataDog/sketches-go/ddsketch"
 	"github.com/stretchr/testify/require"
 )
 
