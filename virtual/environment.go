@@ -508,8 +508,8 @@ func (r *environment) invokeReferences(
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	// TODO: Load balancing or some other strategy if the number of references is > 1?
+	ref := references[0]
 	if !r.opts.ForceRemoteProcedureCalls {
-		ref := references[0]
 		localEnvironmentsRouterLock.RLock()
 		localEnv, ok := localEnvironmentsRouter[ref.Address()]
 		localEnvironmentsRouterLock.RUnlock()
