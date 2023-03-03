@@ -87,6 +87,10 @@ type EnvironmentOptions struct {
 	DisableActivationCache bool
 	// Discovery contains the discovery options.
 	Discovery DiscoveryOptions
+	// ForceRemoteProcedureCalls forces the environment to *always* invoke
+	// actors via RPC even if the actor is activated on the node
+	// that originally received the request.
+	ForceRemoteProcedureCalls bool
 
 	// GoModules contains a set of Modules implemented in Go (instead of
 	// WASM). This is useful when using NOLA as a library.
@@ -504,15 +508,18 @@ func (r *environment) invokeReferences(
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	// TODO: Load balancing or some other strategy if the number of references is > 1?
-	ref := references[0]
-	// localEnvironmentsRouterLock.RLock()
-	// localEnv, ok := localEnvironmentsRouter[ref.Address()]
-	// localEnvironmentsRouterLock.RUnlock()
-	// if ok {
-	// 	return localEnv.InvokeActorDirectStream(
-	// 		ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
-	// 		operation, payload, create)
-	// }
+	if !r.opts.ForceRemoteProcedureCalls {
+		ref := references[0]
+		localEnvironmentsRouterLock.RLock()
+		localEnv, ok := localEnvironmentsRouter[ref.Address()]
+		localEnvironmentsRouterLock.RUnlock()
+		if ok {
+			return localEnv.InvokeActorDirectStream(
+				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
+				operation, payload, create)
+		}
+	}
+
 	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
 }
 

@@ -183,8 +183,7 @@ func (f *FileCacheActor) copyChunk(
 	buf := bufI.([]byte)[:0]
 
 	// First try and copy the requested chunk out from the cache.
-	// TODO: pool []byte.
-	chunk, ok, err := f.chunkCache.Get(buf, toRead.idx)
+	chunk, ok, err := f.chunkCache.Get(buf[:0], toRead.idx)
 	if err != nil {
 		return fmt.Errorf("error copying chunk from cache: %w", err)
 	}
@@ -216,9 +215,7 @@ func (f *FileCacheActor) copyChunk(
 		if toCopy > f.chunkSize {
 			toCopy = f.chunkSize
 		}
-		// TODO: Don't allocate.
 		buf := bytes.NewBuffer(buf[:0])
-		// TODO: Use io.CopyBuffer to avoid alloc.
 		n, err := io.CopyN(buf, r, int64(toCopy))
 		if err != nil {
 			return fmt.Errorf("error copying from fetch: %w", err)
@@ -237,8 +234,7 @@ func (f *FileCacheActor) copyChunk(
 		chunkIdx++
 	}
 
-	// TODO: pool []byte.
-	chunk, ok, err = f.chunkCache.Get(nil, toRead.idx)
+	chunk, ok, err = f.chunkCache.Get(buf[:0], toRead.idx)
 	if err != nil {
 		return fmt.Errorf("error copying chunk from cache: %w", err)
 	}

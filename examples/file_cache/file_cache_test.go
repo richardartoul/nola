@@ -129,7 +129,7 @@ func newTestFetcher(size int, injectFaults bool) Fetcher {
 }
 
 func (t *testFetcher) FetchRange(ctx context.Context, start, end int) (io.ReadCloser, error) {
-	if rand.Intn(100) == 0 {
+	if t.injectFaults && rand.Intn(100) == 0 {
 		return nil, errors.New("fake error")
 	}
 

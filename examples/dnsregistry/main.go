@@ -40,6 +40,10 @@ func main() {
 		context.Background(),
 		dnsregistry.DNSServerID, registry,
 		virtual.NewHTTPClient(), virtual.EnvironmentOptions{
+			Discovery: virtual.DiscoveryOptions{
+				DiscoveryType: virtual.DiscoveryTypeRemote,
+				Port:          *port,
+			},
 			GoModules: map[types.NamespacedIDNoType]virtual.Module{
 				types.NewNamespacedIDNoType("example", "test-module"): &testModule{},
 			},

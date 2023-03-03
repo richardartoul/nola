@@ -23,7 +23,7 @@ import (
 // sudo ulimit -n 6049
 // sudo sysctl -w kern.ipc.somaxconn=30000
 func TestFileCacheBenchmark(t *testing.T) {
-	// t.Skip()
+	t.Skip()
 	var (
 		port          = 9090
 		benchDuration = 15 * time.Second
@@ -44,6 +44,9 @@ func TestFileCacheBenchmark(t *testing.T) {
 				DiscoveryType: virtual.DiscoveryTypeLocalHost,
 				Port:          port,
 			},
+			// Make sure the benchmark tests the RPC/HTTP stack, not just the
+			// in-memory virtual.Environment code.
+			ForceRemoteProcedureCalls: true,
 			GoModules: map[types.NamespacedIDNoType]virtual.Module{
 				types.NewNamespacedIDNoType("bench-ns", "file-cache"): NewFileCacheModule(chunkSize, fetchSize, fetcher, cache),
 			},
