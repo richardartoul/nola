@@ -151,9 +151,8 @@ func newTestCache() *testCache {
 
 func (t *testCache) Get(b []byte, chunkIdx int) ([]byte, bool, error) {
 	t.Lock()
-	defer t.Unlock()
-
 	existing, ok := t.m[chunkIdx]
+	t.Unlock()
 	if !ok {
 		return nil, false, nil
 	}
@@ -167,18 +166,18 @@ func (t *testCache) Get(b []byte, chunkIdx int) ([]byte, bool, error) {
 }
 
 func (t *testCache) Put(chunkIdx int, v []byte) error {
-	t.Lock()
-	defer t.Unlock()
-
 	if len(v) == 0 {
 		panic("should not be empty")
 	}
 
-	t.m[chunkIdx] = append([]byte(nil), v...)
+	clone := append([]byte(nil), v...)
 
+	t.Lock()
+	t.m[chunkIdx] = clone
 	if chunkIdx > t.maxIdx {
 		t.maxIdx = chunkIdx
 	}
+	t.Unlock()
 
 	return nil
 }

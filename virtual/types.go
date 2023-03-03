@@ -143,6 +143,7 @@ type RemoteClient interface {
 		reference types.ActorReference,
 		operation string,
 		payload []byte,
+		create types.CreateIfNotExist,
 	) (io.ReadCloser, error)
 }
 

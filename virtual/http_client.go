@@ -24,17 +24,19 @@ func (h *httpClient) InvokeActorRemote(
 	reference types.ActorReference,
 	operation string,
 	payload []byte,
+	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	ir := invokeActorDirectRequest{
-		VersionStamp:  versionStamp,
-		ServerID:      reference.ServerID(),
-		ServerVersion: reference.ServerVersion(),
-		Namespace:     reference.Namespace(),
-		ModuleID:      reference.ModuleID().ID,
-		ActorID:       reference.ActorID().ID,
-		Generation:    reference.Generation(),
-		Operation:     operation,
-		Payload:       payload,
+		VersionStamp:     versionStamp,
+		ServerID:         reference.ServerID(),
+		ServerVersion:    reference.ServerVersion(),
+		Namespace:        reference.Namespace(),
+		ModuleID:         reference.ModuleID().ID,
+		ActorID:          reference.ActorID().ID,
+		Generation:       reference.Generation(),
+		Operation:        operation,
+		Payload:          payload,
+		CreateIfNotExist: create,
 	}
 	marshaled, err := json.Marshal(&ir)
 	if err != nil {

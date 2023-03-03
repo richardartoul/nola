@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
 	"sync"
 
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/wapcutils"
 )
 
 type Fetcher interface {
@@ -45,17 +45,25 @@ func NewFileCacheModule(
 	}
 }
 
+type FileCacheInstantiatePayload struct {
+	FileSize int
+}
+
 func (f *FileCacheModule) Instantiate(
 	ctx context.Context,
 	id string,
+	payload []byte,
 	host virtual.HostCapabilities,
 ) (virtual.Actor, error) {
-	fileSize, err := strconv.ParseInt(id, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing file size from ID: %v", err)
+	p := &FileCacheInstantiatePayload{}
+	if err := json.Unmarshal(payload, p); err != nil {
+		return nil, fmt.Errorf("error unmarshaling FileCacheInstantiatePayload: %w", err)
+	}
+	if p.FileSize <= 0 {
+		return nil, fmt.Errorf("filesize cannot be <= 0, but was: %d", p.FileSize)
 	}
 
-	return NewFileCacheActor(int(fileSize), f.chunkSize, f.fetchSize, f.fetcher, f.chunkCache)
+	return NewFileCacheActor(p.FileSize, f.chunkSize, f.fetchSize, f.fetcher, f.chunkCache)
 }
 
 func (f *FileCacheModule) Close(ctx context.Context) error {
@@ -69,6 +77,9 @@ type FileCacheActor struct {
 	fileSize  int
 	chunkSize int
 	fetchSize int
+
+	// State.
+	bufPool *sync.Pool
 
 	// Dependencies.
 	fetcher    Fetcher
@@ -92,6 +103,12 @@ func NewFileCacheActor(
 		chunkSize: chunkSize,
 		fetchSize: fetchSize,
 
+		bufPool: &sync.Pool{
+			New: func() any {
+				return make([]byte, 0, chunkSize)
+			},
+		},
+
 		fetcher:    fetcher,
 		chunkCache: chunkCache,
 	}, nil
@@ -109,6 +126,8 @@ func (f *FileCacheActor) InvokeStream(
 	transaction registry.ActorKVTransaction,
 ) (io.ReadCloser, error) {
 	switch operation {
+	case wapcutils.StartupOperationName, wapcutils.ShutdownOperationName:
+		return nil, nil
 	case "getRange":
 		req := &GetRangeRequest{}
 		if err := json.Unmarshal(payload, req); err != nil {
@@ -157,9 +176,15 @@ func (f *FileCacheActor) copyChunk(
 	w io.Writer,
 	toRead chunkToRead,
 ) error {
+	// TODO: Do this in caller so we can reuse buffer across many calls to
+	//       copyChunk to avoid going back and forth to the pool.
+	bufI := f.bufPool.Get()
+	defer f.bufPool.Put(bufI)
+	buf := bufI.([]byte)[:0]
+
 	// First try and copy the requested chunk out from the cache.
 	// TODO: pool []byte.
-	chunk, ok, err := f.chunkCache.Get(nil, toRead.idx)
+	chunk, ok, err := f.chunkCache.Get(buf, toRead.idx)
 	if err != nil {
 		return fmt.Errorf("error copying chunk from cache: %w", err)
 	}
@@ -182,9 +207,7 @@ func (f *FileCacheActor) copyChunk(
 			start, end, toRead.idx, err)
 	}
 
-	// TODO: Pool?
 	var (
-		buf       = make([]byte, 0, f.chunkSize)
 		remaining = end - start
 		chunkIdx  = f.offsetToChunkIndex(start)
 	)
@@ -195,7 +218,7 @@ func (f *FileCacheActor) copyChunk(
 		}
 		// TODO: Don't allocate.
 		buf := bytes.NewBuffer(buf[:0])
-		// TODO: Reusable buf.
+		// TODO: Use io.CopyBuffer to avoid alloc.
 		n, err := io.CopyN(buf, r, int64(toCopy))
 		if err != nil {
 			return fmt.Errorf("error copying from fetch: %w", err)
