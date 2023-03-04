@@ -87,6 +87,10 @@ type EnvironmentOptions struct {
 	DisableActivationCache bool
 	// Discovery contains the discovery options.
 	Discovery DiscoveryOptions
+	// ForceRemoteProcedureCalls forces the environment to *always* invoke
+	// actors via RPC even if the actor is activated on the node
+	// that originally received the request.
+	ForceRemoteProcedureCalls bool
 
 	// GoModules contains a set of Modules implemented in Go (instead of
 	// WASM). This is useful when using NOLA as a library.
@@ -96,6 +100,13 @@ type EnvironmentOptions struct {
 	// developeres leveraging NOLA as a library to extend the environment
 	// with additional host functionality.
 	CustomHostFns map[string]func([]byte) ([]byte, error)
+}
+
+func (e *EnvironmentOptions) Validate() error {
+	if err := e.Discovery.Validate(); err != nil {
+		return fmt.Errorf("error validating discovery options: %w", err)
+	}
+	return nil
 }
 
 // NewEnvironment creates a new Environment.
@@ -108,6 +119,10 @@ func NewEnvironment(
 ) (Environment, error) {
 	if opts.ActivationCacheTTL == 0 {
 		opts.ActivationCacheTTL = defaultActivationsCacheTTL
+	}
+
+	if err := opts.Validate(); err != nil {
+		return nil, fmt.Errorf("error validating EnvironmentOptions: %w", err)
 	}
 
 	activationCache, err := ristretto.NewCache(&ristretto.Config{
@@ -174,7 +189,7 @@ func NewEnvironment(
 	localEnvironmentsRouterLock.Lock()
 	defer localEnvironmentsRouterLock.Unlock()
 	if _, ok := localEnvironmentsRouter[address]; ok {
-		return nil, fmt.Errorf("tried to register: %s to local environemnt router twice", address)
+		return nil, fmt.Errorf("tried to register: %s to local environment router twice", address)
 	}
 	localEnvironmentsRouter[address] = env
 
@@ -363,7 +378,7 @@ func (r *environment) InvokeActorDirectStream(
 	}
 
 	// TODO: Delete me, but useful for now.
-	log.Printf("%d::%s:%s::%s::%s\n", versionStamp, serverID, reference.ModuleID().ID, reference.ActorID().ID, operation)
+	// log.Printf("%d::%s:%s::%s::%s\n", versionStamp, serverID, reference.ModuleID().ID, reference.ActorID().ID, operation)
 
 	r.heartbeatState.RLock()
 	heartbeatResult := r.heartbeatState.HeartbeatResult
@@ -494,15 +509,18 @@ func (r *environment) invokeReferences(
 ) (io.ReadCloser, error) {
 	// TODO: Load balancing or some other strategy if the number of references is > 1?
 	ref := references[0]
-	localEnvironmentsRouterLock.RLock()
-	localEnv, ok := localEnvironmentsRouter[ref.Address()]
-	localEnvironmentsRouterLock.RUnlock()
-	if ok {
-		return localEnv.InvokeActorDirectStream(
-			ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
-			operation, payload, create)
+	if !r.opts.ForceRemoteProcedureCalls {
+		localEnvironmentsRouterLock.RLock()
+		localEnv, ok := localEnvironmentsRouter[ref.Address()]
+		localEnvironmentsRouterLock.RUnlock()
+		if ok {
+			return localEnv.InvokeActorDirectStream(
+				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
+				operation, payload, create)
+		}
 	}
-	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload)
+
+	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
 }
 
 func (r *environment) freezeHeartbeatState() {

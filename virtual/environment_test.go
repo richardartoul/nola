@@ -30,6 +30,9 @@ var (
 
 	utilWasmBytes   []byte
 	defaultOptsWASM = EnvironmentOptions{
+		Discovery: DiscoveryOptions{
+			DiscoveryType: DiscoveryTypeLocalHost,
+		},
 		CustomHostFns: map[string]func([]byte) ([]byte, error){
 			"testCustomFn": func([]byte) ([]byte, error) {
 				return []byte("ok"), nil
@@ -37,6 +40,9 @@ var (
 		},
 	}
 	defaultOptsGoByte = EnvironmentOptions{
+		Discovery: DiscoveryOptions{
+			DiscoveryType: DiscoveryTypeLocalHost,
+		},
 		CustomHostFns: map[string]func([]byte) ([]byte, error){
 			"testCustomFn": func([]byte) ([]byte, error) {
 				return []byte("ok"), nil
@@ -48,6 +54,9 @@ var (
 		},
 	}
 	defaultOptsGoStream = EnvironmentOptions{
+		Discovery: DiscoveryOptions{
+			DiscoveryType: DiscoveryTypeLocalHost,
+		},
 		CustomHostFns: map[string]func([]byte) ([]byte, error){
 			"testCustomFn": func([]byte) ([]byte, error) {
 				return []byte("ok"), nil
@@ -752,9 +761,9 @@ func TestServerVersionIsHonored(t *testing.T) {
 		ctx = context.Background()
 	)
 
-	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, EnvironmentOptions{
-		ActivationCacheTTL: time.Second * 15,
-	})
+	opts := defaultOptsWASM
+	opts.ActivationCacheTTL = time.Second * 15
+	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, opts)
 	require.NoError(t, err)
 
 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})

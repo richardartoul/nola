@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"sync"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
@@ -296,6 +297,12 @@ func (a *activatedActor) invoke(
 		if err != nil {
 			return nil, err
 		}
+
+		if result == nil {
+			// Actor returned nil stream, convert it to an empty one.
+			return ioutil.NopCloser(bytes.NewReader(nil)), nil
+		}
+
 		stream, ok := result.(io.ReadCloser)
 		if ok {
 			return stream, nil
