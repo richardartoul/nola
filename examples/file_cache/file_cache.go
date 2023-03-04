@@ -15,7 +15,7 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// Fetches is the interface that must be implemented to fetch ranges of
+// Fetcher is the interface that must be implemented to fetch ranges of
 // data from the source.
 type Fetcher interface {
 	FetchRange(ctx context.Context, offset, length int) (io.ReadCloser, error)
