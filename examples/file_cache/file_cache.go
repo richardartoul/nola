@@ -11,6 +11,8 @@ import (
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/wapcutils"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // Fetches is the interface that must be implemented to fetch ranges of
@@ -96,7 +98,8 @@ type FileCacheActor struct {
 	fetchSize int
 
 	// State.
-	bufPool *sync.Pool
+	bufPool      *sync.Pool
+	fetchDeduper singleflight.Group
 
 	// Dependencies.
 	fetcher    Fetcher
@@ -217,41 +220,61 @@ func (f *FileCacheActor) copyChunk(
 	}
 
 	// Chunk was not in cache, we need to fetch.
-	// TODO: deduplicate fetches.
 	start, end := f.chunkIndexToFetchRange(toRead.idx)
-	r, err := f.fetcher.FetchRange(ctx, start, end)
+
+	// We use a singleflight instance to deduplicate fetches. This will dedupe
+	// many cases, but it is still subject to some race conditions that will
+	// result in duplicate fetches. For example:
+	//
+	//   T1 - Goroutine A: chunkCache.Get() // miss
+	//   T2 - Goroutine A: fetcher.FetchRange() // pending
+	//   T3 - Goroutine B: chunkCache.Get() // miss
+	//   T4 - Goroutine A: fetch.FetchRange() // completes
+	//   T5 - Goroutine B: fetcher.FetchRange() // pending
+	//
+	// Since Goroutine A completed the fetch at T4, the singleflight object will
+	// not deduplicate the identical fetch at T5. This problem could be solved
+	// with some more code and locking, but its ok for now.
+	_, err, _ = f.fetchDeduper.Do(fmt.Sprintf("%d-%d", start, end), func() (any, error) {
+		r, err := f.fetcher.FetchRange(ctx, start, end)
+		if err != nil {
+			return nil, err
+		}
+
+		var (
+			remaining = end - start
+			chunkIdx  = f.offsetToChunkIndex(start)
+		)
+		for i := 0; remaining > 0; i++ {
+			toCopy := remaining
+			if toCopy > f.chunkSize {
+				toCopy = f.chunkSize
+			}
+			buf := bytes.NewBuffer(buf[:0])
+			n, err := io.CopyN(buf, r, int64(toCopy))
+			if err != nil {
+				return nil, fmt.Errorf("error copying from fetch: %w", err)
+			}
+			if n != int64(toCopy) {
+				return nil, fmt.Errorf(
+					"expected to copy: %d bytes but copied: %d",
+					toCopy, n)
+			}
+
+			err = f.chunkCache.Put(chunkIdx, buf.Bytes())
+			if err != nil {
+				return nil, fmt.Errorf("error storing chunk: %d in cache: %w", chunkIdx, err)
+			}
+			remaining -= toCopy
+			chunkIdx++
+		}
+
+		return nil, nil
+	})
 	if err != nil {
 		return fmt.Errorf(
 			"error fetching range: [%d:%d] for chunk idx: %d, err: %w",
 			start, end, toRead.idx, err)
-	}
-
-	var (
-		remaining = end - start
-		chunkIdx  = f.offsetToChunkIndex(start)
-	)
-	for i := 0; remaining > 0; i++ {
-		toCopy := remaining
-		if toCopy > f.chunkSize {
-			toCopy = f.chunkSize
-		}
-		buf := bytes.NewBuffer(buf[:0])
-		n, err := io.CopyN(buf, r, int64(toCopy))
-		if err != nil {
-			return fmt.Errorf("error copying from fetch: %w", err)
-		}
-		if n != int64(toCopy) {
-			return fmt.Errorf(
-				"expected to copy: %d bytes but copied: %d",
-				toCopy, n)
-		}
-
-		err = f.chunkCache.Put(chunkIdx, buf.Bytes())
-		if err != nil {
-			return fmt.Errorf("error storing chunk: %d in cache: %w", chunkIdx, err)
-		}
-		remaining -= toCopy
-		chunkIdx++
 	}
 
 	chunk, ok, err = f.chunkCache.Get(buf[:0], toRead.idx)

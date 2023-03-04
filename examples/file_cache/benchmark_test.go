@@ -106,9 +106,7 @@ func TestFileCacheBenchmark(t *testing.T) {
 							InstantiatePayload: instantiatePayload,
 						})
 					if err != nil {
-						log.Printf("error invoking: %v", err)
-						// panic(err)
-						return
+						panic(err)
 					}
 					defer resultStream.Close()
 
