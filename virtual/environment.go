@@ -83,7 +83,12 @@ type EnvironmentOptions struct {
 	CustomHostFns map[string]func([]byte) ([]byte, error)
 }
 
-// func NewDNSRegistryEnvironment(host string, port int)
+func NewDNSRegistryEnvironment(host string, port int, opts EnvironmentOptions) {
+	// TODO: Implement me as a one lien function that can be used in simple scenarios.
+
+	// TODO: Another function like this, but with no arguments. Can just call it like
+	// NewTestEnvironment or something.
+}
 
 // DiscoveryOptions contains the discovery-related options.
 type DiscoveryOptions struct {
