@@ -15,6 +15,12 @@ import (
 )
 
 const (
+	// Localhost should be provided to the DNSRegistry constructor as the
+	// value for host when using the DNSRegistry in single-node implementations,
+	// in-meomry implementations, or tests.
+	Localhost    = "localhost"
+	LocalAddress = "127.0.0.1"
+
 	DNSServerID          = "DNS_SERVER_ID"
 	DNSServerVersion     = int64(-1)
 	DNS_ACTOR_GENERATION = 1
@@ -57,6 +63,22 @@ type DNSRegistryOptions struct {
 
 // NewDNSRegistry creates a new registry.Registry backed by DNS.
 func NewDNSRegistry(
+	host string,
+	port int,
+	opts DNSRegistryOptions,
+) (registry.Registry, error) {
+	var resolver DNSResolver
+	if host == Localhost {
+		resolver = newConstResolver([]net.IP{net.ParseIP(LocalAddress)})
+	} else {
+		resolver = NewDNSResolver()
+	}
+	return NewDNSRegistryFromResolver(resolver, host, port, opts)
+}
+
+// NewDNSRegistryFromResolver is the same as NewDNSRegistry except it allows
+// a custom implementation of DNSResolver to be provided.
+func NewDNSRegistryFromResolver(
 	resolver DNSResolver,
 	host string,
 	port int,
@@ -252,4 +274,27 @@ func (d *dnsRegistry) discoveryLoop() {
 			return
 		}
 	}
+}
+
+type constResolver struct {
+	sync.Mutex
+	ips []net.IP
+}
+
+func newConstResolver(ips []net.IP) *constResolver {
+	return &constResolver{
+		ips: ips,
+	}
+}
+
+func (f *constResolver) setIPs(ips []net.IP) {
+	f.Lock()
+	defer f.Unlock()
+	f.ips = ips
+}
+
+func (f *constResolver) LookupIP(host string) ([]net.IP, error) {
+	f.Lock()
+	defer f.Unlock()
+	return f.ips, nil
 }

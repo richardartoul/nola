@@ -19,6 +19,8 @@ import (
 )
 
 const (
+	Localhost = "127.0.0.1"
+
 	heartbeatTimeout           = registry.HeartbeatTTL
 	defaultActivationsCacheTTL = heartbeatTimeout
 	maxNumActivationsToCache   = 1e6 // 1 Million.
@@ -58,6 +60,74 @@ const (
 	DiscoveryTypeRemote = "remote"
 )
 
+// EnvironmentOptions is the settings for the Environment.
+type EnvironmentOptions struct {
+	// ActivationCacheTTL is the TTL of the activation cache.
+	ActivationCacheTTL time.Duration
+	// DisableActivationCache disables the activation cache.
+	DisableActivationCache bool
+	// Discovery contains the discovery options.
+	Discovery DiscoveryOptions
+	// ForceRemoteProcedureCalls forces the environment to *always* invoke
+	// actors via RPC even if the actor is activated on the node
+	// that originally received the request.
+	ForceRemoteProcedureCalls bool
+
+	// // GoModules contains a set of Modules implemented in Go (instead of
+	// // WASM). This is useful when using NOLA as a library.
+	// GoModules map[types.NamespacedIDNoType]Module
+	// CustomHostFns contains a set of additional user-defined host
+	// functions that can be exposed to activated actors. This allows
+	// developeres leveraging NOLA as a library to extend the environment
+	// with additional host functionality.
+	CustomHostFns map[string]func([]byte) ([]byte, error)
+}
+
+// NewDNSRegistryEnvironment is a convenience function that creates a virtual environment backed
+// by a DNS-based registry. It is configured with reasonable defaults that make it suitable for
+// production usage. Note that this convenience function is particularly nice because it can also
+// be used for unit/integration tests and local development simply by passing virtual.Localhost
+// as the value of host.
+func NewDNSRegistryEnvironment(
+	ctx context.Context,
+	host string,
+	port int,
+	opts EnvironmentOptions,
+) (Environment, registry.Registry, error) {
+	opts.Discovery.Port = port
+	if host == Localhost || host == dnsregistry.LocalAddress {
+		opts.Discovery.DiscoveryType = DiscoveryTypeLocalHost
+	} else {
+		opts.Discovery.DiscoveryType = DiscoveryTypeRemote
+	}
+
+	if err := opts.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("error validating EnvironmentOptions: %w", err)
+	}
+
+	reg, err := dnsregistry.NewDNSRegistry(host, port, dnsregistry.DNSRegistryOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating DNS registry: %w", err)
+	}
+
+	env, err := NewEnvironment(ctx, dnsregistry.DNSServerID, reg, NewHTTPClient(), opts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating new virtual environment: %w", err)
+	}
+
+	return env, reg, nil
+}
+
+// NewTestDNSRegistryEnvironment is a convenience function that creates a virtual environment
+// backed by a DNS-based registry. It is configured already to generate a suitable setting up
+// for writing unit/integration tests, but not for production usage.
+func NewTestDNSRegistryEnvironment(
+	ctx context.Context,
+	opts EnvironmentOptions,
+) (Environment, registry.Registry, error) {
+	return NewDNSRegistryEnvironment(ctx, Localhost, 9093, opts)
+}
+
 // DiscoveryOptions contains the discovery-related options.
 type DiscoveryOptions struct {
 	// DiscoveryType is one of DiscoveryTypeLocalHost or DiscoveryTypeRemote.
@@ -77,29 +147,6 @@ func (d *DiscoveryOptions) Validate() error {
 	}
 
 	return nil
-}
-
-// EnvironmentOptions is the settings for the Environment.
-type EnvironmentOptions struct {
-	// ActivationCacheTTL is the TTL of the activation cache.
-	ActivationCacheTTL time.Duration
-	// DisableActivationCache disables the activation cache.
-	DisableActivationCache bool
-	// Discovery contains the discovery options.
-	Discovery DiscoveryOptions
-	// ForceRemoteProcedureCalls forces the environment to *always* invoke
-	// actors via RPC even if the actor is activated on the node
-	// that originally received the request.
-	ForceRemoteProcedureCalls bool
-
-	// GoModules contains a set of Modules implemented in Go (instead of
-	// WASM). This is useful when using NOLA as a library.
-	GoModules map[types.NamespacedIDNoType]Module
-	// CustomHostFns contains a set of additional user-defined host
-	// functions that can be exposed to activated actors. This allows
-	// developeres leveraging NOLA as a library to extend the environment
-	// with additional host functionality.
-	CustomHostFns map[string]func([]byte) ([]byte, error)
 }
 
 func (e *EnvironmentOptions) Validate() error {
@@ -138,7 +185,7 @@ func NewEnvironment(
 		return nil, fmt.Errorf("error creating activationCache: %w", err)
 	}
 
-	host := "127.0.0.1"
+	host := Localhost
 	if opts.Discovery.DiscoveryType == DiscoveryTypeRemote {
 		selfIP, err := getSelfIP()
 		if err != nil {
@@ -158,21 +205,8 @@ func NewEnvironment(
 		serverID:        serverID,
 		opts:            opts,
 	}
-	activations := newActivations(reg, env, env.opts.GoModules, env.opts.CustomHostFns)
+	activations := newActivations(reg, env, env.opts.CustomHostFns)
 	env.activations = activations
-
-	for modID := range env.opts.GoModules {
-		// Register all the GoModules in the registry so they're useable with calls to
-		// CreateActor() and EnsureActivation().
-		//
-		// TODO: Need to handle case where already exists.
-		_, err := reg.RegisterModule(ctx, modID.Namespace, modID.ID, nil, registry.ModuleOptions{
-			AllowEmptyModuleBytes: true,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to register go module with ID: %v, err: %w", modID, err)
-		}
-	}
 
 	// Skip confusing log if dnsregistry is being used since it doesn't use the registry-based
 	// registration mechanism in the traditional way.
@@ -221,6 +255,24 @@ var bufPool = sync.Pool{
 	New: func() any {
 		return make([]byte, 0, 128)
 	},
+}
+
+func (r *environment) RegisterGoModule(id types.NamespacedIDNoType, module Module) error {
+	// Register all the GoModules in the registry so they're useable with calls to
+	// CreateActor() and EnsureActivation().
+	//
+	// Note that its safe to do this on every node in the cluster because the registry will
+	// ignore duplicate RegisterModule() calls if AllowEmptyModuleBytes is set to true.
+	_, err := r.registry.RegisterModule(context.TODO(), id.Namespace, id.ID, nil, registry.ModuleOptions{
+		AllowEmptyModuleBytes: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register go module with ID: %v, err: %w", id, err)
+	}
+
+	// After registering the Module with the registry, we also need to register it with the
+	// activations datastructure so it knows how to handle subsequent activations/invocations.
+	return r.activations.registerGoModule(id, module)
 }
 
 func (r *environment) InvokeActor(
@@ -510,10 +562,35 @@ func (r *environment) invokeReferences(
 	// TODO: Load balancing or some other strategy if the number of references is > 1?
 	ref := references[0]
 	if !r.opts.ForceRemoteProcedureCalls {
+		// First check the global localEnvironmentsRouter map for scenarios where we're
+		// potentially trying to communicate between multiple different in-memory
+		// instances of Environment.
 		localEnvironmentsRouterLock.RLock()
 		localEnv, ok := localEnvironmentsRouter[ref.Address()]
 		localEnvironmentsRouterLock.RUnlock()
 		if ok {
+			return localEnv.InvokeActorDirectStream(
+				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
+				operation, payload, create)
+		}
+
+		// Separately, if the registry returned an address that looks like localhost for any
+		// reason, then just route the request to the current node / this instance of
+		// Environment. This prevents unnecessary RPCs when the caller happened to send a
+		// request to the NOLA node that should actually run the actor invocation.
+		//
+		// More importantly, it also dramatically simplifies writing applications that embed
+		// NOLA as a library. This helps enable the ability to write application code that
+		// runs/behaves exactly the same way and follows the same code paths in production
+		// and in tests.
+		//
+		// For example, applications leveraging the DNS-backed registry implementation can
+		// use the exact same code in production and in single-node environments/tests by
+		// passing "localhost" as the hostname to the DNSRegistry which will cause it to
+		// always return dnsregistry.Localhost as the address for all actor references and
+		// thus ensure that tests can be written without having to also ensure that a NOLA
+		// server is running on the appropriate port, among other things.
+		if ref.Address() == Localhost || ref.Address() == dnsregistry.Localhost {
 			return localEnv.InvokeActorDirectStream(
 				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
 				operation, payload, create)

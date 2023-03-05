@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
-	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
 	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
@@ -27,45 +25,30 @@ import (
 var (
 	streamInterfaceWasCalledMutex sync.Mutex
 	streamInterfaceWasCalled      = false
+	customHostFns                 = map[string]func([]byte) ([]byte, error){
+		"testCustomFn": func([]byte) ([]byte, error) {
+			return []byte("ok"), nil
+		},
+	}
 
 	utilWasmBytes   []byte
 	defaultOptsWASM = EnvironmentOptions{
 		Discovery: DiscoveryOptions{
 			DiscoveryType: DiscoveryTypeLocalHost,
 		},
-		CustomHostFns: map[string]func([]byte) ([]byte, error){
-			"testCustomFn": func([]byte) ([]byte, error) {
-				return []byte("ok"), nil
-			},
-		},
+		CustomHostFns: customHostFns,
 	}
 	defaultOptsGoByte = EnvironmentOptions{
 		Discovery: DiscoveryOptions{
 			DiscoveryType: DiscoveryTypeLocalHost,
 		},
-		CustomHostFns: map[string]func([]byte) ([]byte, error){
-			"testCustomFn": func([]byte) ([]byte, error) {
-				return []byte("ok"), nil
-			},
-		},
-		GoModules: map[types.NamespacedIDNoType]Module{
-			{Namespace: "ns-1", ID: "test-module"}: testModule{},
-			{Namespace: "ns-2", ID: "test-module"}: testModule{},
-		},
+		CustomHostFns: customHostFns,
 	}
 	defaultOptsGoStream = EnvironmentOptions{
 		Discovery: DiscoveryOptions{
 			DiscoveryType: DiscoveryTypeLocalHost,
 		},
-		CustomHostFns: map[string]func([]byte) ([]byte, error){
-			"testCustomFn": func([]byte) ([]byte, error) {
-				return []byte("ok"), nil
-			},
-		},
-		GoModules: map[types.NamespacedIDNoType]Module{
-			{Namespace: "ns-1", ID: "test-module"}: testStreamModule{},
-			{Namespace: "ns-2", ID: "test-module"}: testStreamModule{},
-		},
+		CustomHostFns: customHostFns,
 	}
 )
 
@@ -818,6 +801,11 @@ func runWithDifferentConfigs(
 		require.NoError(t, err)
 		defer env.Close()
 
+		env.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
+		env.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testModule{})
+
 		testFn(t, reg, env)
 	})
 
@@ -826,6 +814,11 @@ func runWithDifferentConfigs(
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoStream)
 		require.NoError(t, err)
 		defer env.Close()
+
+		env.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
+		env.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testStreamModule{})
 
 		testFn(t, reg, env)
 
@@ -838,16 +831,16 @@ func runWithDifferentConfigs(
 
 	if !skipDNS {
 		t.Run("go-dns", func(t *testing.T) {
-			resolver := &fakeResolver{}
-			resolver.setIPs([]net.IP{net.ParseIP("127.0.0.1")})
-
-			reg, err := dnsregistry.NewDNSRegistry(resolver, "test", defaultOptsGoByte.Discovery.Port, dnsregistry.DNSRegistryOptions{})
+			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), EnvironmentOptions{
+				CustomHostFns: customHostFns,
+			})
 			require.NoError(t, err)
-
-			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
-			require.NoError(t, err)
-
 			defer env.Close()
+
+			env.RegisterGoModule(
+				types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
+			env.RegisterGoModule(
+				types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testStreamModule{})
 
 			testFn(t, reg, env)
 		})
@@ -990,25 +983,4 @@ func (ta *testStreamActor) InvokeStream(
 
 func (ta *testStreamActor) Close(ctx context.Context) error {
 	return nil
-}
-
-type fakeResolver struct {
-	sync.Mutex
-	ips []net.IP
-}
-
-func (f *fakeResolver) setIPs(ips []net.IP) {
-	f.Lock()
-	defer f.Unlock()
-	f.ips = ips
-}
-
-func (f *fakeResolver) LookupIP(host string) ([]net.IP, error) {
-	if host != "test" {
-		panic(fmt.Sprintf("wrong host: %s", host))
-	}
-
-	f.Lock()
-	defer f.Unlock()
-	return f.ips, nil
 }

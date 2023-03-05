@@ -48,13 +48,14 @@ func TestFileCacheBenchmark(t *testing.T) {
 			// Make sure the benchmark tests the RPC/HTTP stack, not just the
 			// in-memory virtual.Environment code.
 			ForceRemoteProcedureCalls: true,
-			GoModules: map[types.NamespacedIDNoType]virtual.Module{
-				types.NewNamespacedIDNoType("bench-ns", "file-cache"): NewFileCacheModule(chunkSize, fetchSize, fetcher, cache),
-			},
 		})
 	if err != nil {
 		log.Fatalf("error creating virtual environment: %v", err)
 	}
+	err = env.RegisterGoModule(
+		types.NewNamespacedIDNoType("bench-ns", "file-cache"),
+		NewFileCacheModule(chunkSize, fetchSize, fetcher, cache))
+	require.NoError(t, err)
 
 	server := virtual.NewServer(registry, env)
 	go func() {

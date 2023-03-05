@@ -12,6 +12,7 @@ import (
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
+
 	"github.com/wapc/wapc-go/engines/wazero"
 )
 
@@ -37,7 +38,6 @@ type activations struct {
 func newActivations(
 	registry registry.Registry,
 	environment Environment,
-	goModules map[types.NamespacedIDNoType]Module,
 	customHostFns map[string]func([]byte) ([]byte, error),
 ) *activations {
 	return &activations{
@@ -46,9 +46,19 @@ func newActivations(
 
 		registry:      registry,
 		environment:   environment,
-		goModules:     goModules,
+		goModules:     make(map[types.NamespacedIDNoType]Module),
 		customHostFns: customHostFns,
 	}
+}
+
+func (a *activations) registerGoModule(id types.NamespacedIDNoType, module Module) error {
+	a.Lock()
+	defer a.Unlock()
+	if _, ok := a.goModules[id]; ok {
+		return fmt.Errorf("error registering go module with ID: %v, already registered", id)
+	}
+	a.goModules[id] = module
+	return nil
 }
 
 // invoke has a lot of manual locking and unlocking. While error prone, this is intentional
