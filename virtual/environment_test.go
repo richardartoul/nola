@@ -25,37 +25,30 @@ import (
 var (
 	streamInterfaceWasCalledMutex sync.Mutex
 	streamInterfaceWasCalled      = false
+	customHostFns                 = map[string]func([]byte) ([]byte, error){
+		"testCustomFn": func([]byte) ([]byte, error) {
+			return []byte("ok"), nil
+		},
+	}
 
 	utilWasmBytes   []byte
 	defaultOptsWASM = EnvironmentOptions{
 		Discovery: DiscoveryOptions{
 			DiscoveryType: DiscoveryTypeLocalHost,
 		},
-		CustomHostFns: map[string]func([]byte) ([]byte, error){
-			"testCustomFn": func([]byte) ([]byte, error) {
-				return []byte("ok"), nil
-			},
-		},
+		CustomHostFns: customHostFns,
 	}
 	defaultOptsGoByte = EnvironmentOptions{
 		Discovery: DiscoveryOptions{
 			DiscoveryType: DiscoveryTypeLocalHost,
 		},
-		CustomHostFns: map[string]func([]byte) ([]byte, error){
-			"testCustomFn": func([]byte) ([]byte, error) {
-				return []byte("ok"), nil
-			},
-		},
+		CustomHostFns: customHostFns,
 	}
 	defaultOptsGoStream = EnvironmentOptions{
 		Discovery: DiscoveryOptions{
 			DiscoveryType: DiscoveryTypeLocalHost,
 		},
-		CustomHostFns: map[string]func([]byte) ([]byte, error){
-			"testCustomFn": func([]byte) ([]byte, error) {
-				return []byte("ok"), nil
-			},
-		},
+		CustomHostFns: customHostFns,
 	}
 )
 
@@ -838,7 +831,9 @@ func runWithDifferentConfigs(
 
 	if !skipDNS {
 		t.Run("go-dns", func(t *testing.T) {
-			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), EnvironmentOptions{})
+			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), EnvironmentOptions{
+				CustomHostFns: customHostFns,
+			})
 			require.NoError(t, err)
 			defer env.Close()
 

@@ -12,6 +12,7 @@ import (
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
+
 	"github.com/wapc/wapc-go/engines/wazero"
 )
 

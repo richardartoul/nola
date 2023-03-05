@@ -83,7 +83,11 @@ type EnvironmentOptions struct {
 	CustomHostFns map[string]func([]byte) ([]byte, error)
 }
 
-// TODO: Comment me.
+// NewDNSRegistryEnvironment is a convenience function that creates a virtual environment backed
+// by a DNS-based registry. It is configured with reasonable defaults that make it suitable for
+// production usage. Note that this convenience function is particularly nice because it can also
+// be used for unit/integration tests and local development simply by passing virtual.Localhost
+// as the value of host.
 func NewDNSRegistryEnvironment(
 	ctx context.Context,
 	host string,
@@ -114,7 +118,9 @@ func NewDNSRegistryEnvironment(
 	return env, reg, nil
 }
 
-// TODO: Comment me.
+// NewTestDNSRegistryEnvironment is a convenience function that creates a virtual environment
+// backed by a DNS-based registry. It is configured already to generate a suitable setting up
+// for writing unit/integration tests, but not for production usage.
 func NewTestDNSRegistryEnvironment(
 	ctx context.Context,
 	opts EnvironmentOptions,
