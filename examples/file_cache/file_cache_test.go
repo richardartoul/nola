@@ -40,7 +40,6 @@ func testFileCacheActorConcurrency(t *testing.T, injectFaults bool) {
 	fileCache, err := NewFileCacheActor(fileSize, chunkSize, fetchSize, fetcher, cache)
 	require.NoError(t, err)
 
-	fmt.Println(string(fetcher.(*testFetcher).file))
 	var (
 		numWorkers      = runtime.NumCPU()
 		numOpsPerWorker = 100_000

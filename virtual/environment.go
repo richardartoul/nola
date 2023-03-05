@@ -83,11 +83,43 @@ type EnvironmentOptions struct {
 	CustomHostFns map[string]func([]byte) ([]byte, error)
 }
 
-func NewDNSRegistryEnvironment(host string, port int, opts EnvironmentOptions) {
-	// TODO: Implement me as a one lien function that can be used in simple scenarios.
+// TODO: Comment me.
+func NewDNSRegistryEnvironment(
+	ctx context.Context,
+	host string,
+	port int,
+	opts EnvironmentOptions,
+) (Environment, registry.Registry, error) {
+	opts.Discovery.Port = port
+	if host == Localhost || host == dnsregistry.LocalAddress {
+		opts.Discovery.DiscoveryType = DiscoveryTypeLocalHost
+	} else {
+		opts.Discovery.DiscoveryType = DiscoveryTypeRemote
+	}
 
-	// TODO: Another function like this, but with no arguments. Can just call it like
-	// NewTestEnvironment or something.
+	if err := opts.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("error validating EnvironmentOptions: %w", err)
+	}
+
+	reg, err := dnsregistry.NewDNSRegistry(host, port, dnsregistry.DNSRegistryOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating DNS registry: %w", err)
+	}
+
+	env, err := NewEnvironment(ctx, dnsregistry.DNSServerID, reg, NewHTTPClient(), opts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating new virtual environment: %w", err)
+	}
+
+	return env, reg, nil
+}
+
+// TODO: Comment me.
+func NewTestDNSRegistryEnvironment(
+	ctx context.Context,
+	opts EnvironmentOptions,
+) (Environment, registry.Registry, error) {
+	return NewDNSRegistryEnvironment(ctx, Localhost, 9093, EnvironmentOptions{})
 }
 
 // DiscoveryOptions contains the discovery-related options.

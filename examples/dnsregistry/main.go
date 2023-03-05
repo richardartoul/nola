@@ -10,7 +10,6 @@ import (
 
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
-	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 )
@@ -28,22 +27,8 @@ func main() {
 		log.Fatalf("host cannot be empty")
 	}
 
-	registry, err := dnsregistry.NewDNSRegistry(*host, *port, dnsregistry.DNSRegistryOptions{})
-	if err != nil {
-		log.Fatalf(
-			"error creating DNS registry: %v, make sure /etc/hosts contains an entry for host: %s",
-			err, *host)
-	}
-
-	env, err := virtual.NewEnvironment(
-		context.Background(),
-		dnsregistry.DNSServerID, registry,
-		virtual.NewHTTPClient(), virtual.EnvironmentOptions{
-			Discovery: virtual.DiscoveryOptions{
-				DiscoveryType: virtual.DiscoveryTypeRemote,
-				Port:          *port,
-			},
-		})
+	env, registry, err := virtual.NewDNSRegistryEnvironment(
+		context.Background(), *host, *port, virtual.EnvironmentOptions{})
 	if err != nil {
 		log.Fatalf("error creating virtual environment: %v", err)
 	}

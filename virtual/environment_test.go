@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
-	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
 	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
@@ -839,10 +838,7 @@ func runWithDifferentConfigs(
 
 	if !skipDNS {
 		t.Run("go-dns", func(t *testing.T) {
-			reg, err := dnsregistry.NewDNSRegistry(dnsregistry.Localhost, defaultOptsGoByte.Discovery.Port, dnsregistry.DNSRegistryOptions{})
-			require.NoError(t, err)
-
-			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
+			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), EnvironmentOptions{})
 			require.NoError(t, err)
 			defer env.Close()
 
