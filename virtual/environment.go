@@ -19,6 +19,8 @@ import (
 )
 
 const (
+	Localhost = "127.0.0.1"
+
 	heartbeatTimeout           = registry.HeartbeatTTL
 	defaultActivationsCacheTTL = heartbeatTimeout
 	maxNumActivationsToCache   = 1e6 // 1 Million.
@@ -138,7 +140,7 @@ func NewEnvironment(
 		return nil, fmt.Errorf("error creating activationCache: %w", err)
 	}
 
-	host := "127.0.0.1"
+	host := Localhost
 	if opts.Discovery.DiscoveryType == DiscoveryTypeRemote {
 		selfIP, err := getSelfIP()
 		if err != nil {
@@ -514,6 +516,12 @@ func (r *environment) invokeReferences(
 		localEnv, ok := localEnvironmentsRouter[ref.Address()]
 		localEnvironmentsRouterLock.RUnlock()
 		if ok {
+			return localEnv.InvokeActorDirectStream(
+				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
+				operation, payload, create)
+		}
+
+		if ref.Address() == Localhost || ref.Address() == dnsregistry.Localhost {
 			return localEnv.InvokeActorDirectStream(
 				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
 				operation, payload, create)

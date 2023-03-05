@@ -2,10 +2,8 @@ package dnsregistry
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -17,8 +15,8 @@ import (
 // the background discovery loop works and that EnsureActivation uses
 // consistent hashing to pick a server.
 func TestDNSRegistrySimple(t *testing.T) {
-	resolver := &fakeResolver{}
-	reg, err := NewDNSRegistry(resolver, "test", 9090, DNSRegistryOptions{
+	resolver := newConstResolver(nil)
+	reg, err := NewDNSRegistryFromResolver(resolver, "test", 9090, DNSRegistryOptions{
 		ResolveEvery: 100 * time.Millisecond,
 	})
 	require.NoError(t, err)
@@ -63,26 +61,30 @@ func TestDNSRegistrySimple(t *testing.T) {
 		require.Equal(t, DNSServerVersion, activations[0].ServerVersion())
 		break
 	}
-
 }
 
-type fakeResolver struct {
-	sync.Mutex
-	ips []net.IP
-}
+// TestDNSRegistrySingleNode tests that its easy to use the DNSRegistry locally in tests and in
+// single-node implementations without a lot of ceremony. In other words, it ensures that most
+// applications can use the exact same code in production, as well as in their tests and that
+// the DNS registry "just works" without having to setup custom fakes.
+func TestDNSRegistrySingleNode(t *testing.T) {
+	reg, err := NewDNSRegistry(Localhost, 9090, DNSRegistryOptions{
+		ResolveEvery: 100 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	defer func() {
+		if err := reg.Close(context.Background()); err != nil {
+			panic(err)
+		}
+	}()
 
-func (f *fakeResolver) setIPs(ips []net.IP) {
-	f.Lock()
-	defer f.Unlock()
-	f.ips = ips
-}
+	activations, err := reg.EnsureActivation(context.Background(), "ns1", "a", "test-module")
+	require.NoError(t, err)
 
-func (f *fakeResolver) LookupIP(host string) ([]net.IP, error) {
-	if host != "test" {
-		panic(fmt.Sprintf("wrong host: %s", host))
-	}
-
-	f.Lock()
-	defer f.Unlock()
-	return f.ips, nil
+	require.Equal(t, 1, len(activations))
+	require.Equal(t, "a", activations[0].ActorID().ID)
+	require.Equal(t, "test-module", activations[0].ModuleID().ID)
+	require.Equal(t, "127.0.0.1:9090", activations[0].Address())
+	require.Equal(t, DNSServerID, activations[0].ServerID())
+	require.Equal(t, DNSServerVersion, activations[0].ServerVersion())
 }
