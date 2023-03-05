@@ -60,6 +60,31 @@ const (
 	DiscoveryTypeRemote = "remote"
 )
 
+// EnvironmentOptions is the settings for the Environment.
+type EnvironmentOptions struct {
+	// ActivationCacheTTL is the TTL of the activation cache.
+	ActivationCacheTTL time.Duration
+	// DisableActivationCache disables the activation cache.
+	DisableActivationCache bool
+	// Discovery contains the discovery options.
+	Discovery DiscoveryOptions
+	// ForceRemoteProcedureCalls forces the environment to *always* invoke
+	// actors via RPC even if the actor is activated on the node
+	// that originally received the request.
+	ForceRemoteProcedureCalls bool
+
+	// // GoModules contains a set of Modules implemented in Go (instead of
+	// // WASM). This is useful when using NOLA as a library.
+	// GoModules map[types.NamespacedIDNoType]Module
+	// CustomHostFns contains a set of additional user-defined host
+	// functions that can be exposed to activated actors. This allows
+	// developeres leveraging NOLA as a library to extend the environment
+	// with additional host functionality.
+	CustomHostFns map[string]func([]byte) ([]byte, error)
+}
+
+// func NewDNSRegistryEnvironment(host string, port int)
+
 // DiscoveryOptions contains the discovery-related options.
 type DiscoveryOptions struct {
 	// DiscoveryType is one of DiscoveryTypeLocalHost or DiscoveryTypeRemote.
@@ -79,29 +104,6 @@ func (d *DiscoveryOptions) Validate() error {
 	}
 
 	return nil
-}
-
-// EnvironmentOptions is the settings for the Environment.
-type EnvironmentOptions struct {
-	// ActivationCacheTTL is the TTL of the activation cache.
-	ActivationCacheTTL time.Duration
-	// DisableActivationCache disables the activation cache.
-	DisableActivationCache bool
-	// Discovery contains the discovery options.
-	Discovery DiscoveryOptions
-	// ForceRemoteProcedureCalls forces the environment to *always* invoke
-	// actors via RPC even if the actor is activated on the node
-	// that originally received the request.
-	ForceRemoteProcedureCalls bool
-
-	// GoModules contains a set of Modules implemented in Go (instead of
-	// WASM). This is useful when using NOLA as a library.
-	GoModules map[types.NamespacedIDNoType]Module
-	// CustomHostFns contains a set of additional user-defined host
-	// functions that can be exposed to activated actors. This allows
-	// developeres leveraging NOLA as a library to extend the environment
-	// with additional host functionality.
-	CustomHostFns map[string]func([]byte) ([]byte, error)
 }
 
 func (e *EnvironmentOptions) Validate() error {
@@ -160,21 +162,8 @@ func NewEnvironment(
 		serverID:        serverID,
 		opts:            opts,
 	}
-	activations := newActivations(reg, env, env.opts.GoModules, env.opts.CustomHostFns)
+	activations := newActivations(reg, env, env.opts.CustomHostFns)
 	env.activations = activations
-
-	for modID := range env.opts.GoModules {
-		// Register all the GoModules in the registry so they're useable with calls to
-		// CreateActor() and EnsureActivation().
-		//
-		// TODO: Need to handle case where already exists.
-		_, err := reg.RegisterModule(ctx, modID.Namespace, modID.ID, nil, registry.ModuleOptions{
-			AllowEmptyModuleBytes: true,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to register go module with ID: %v, err: %w", modID, err)
-		}
-	}
 
 	// Skip confusing log if dnsregistry is being used since it doesn't use the registry-based
 	// registration mechanism in the traditional way.
@@ -223,6 +212,21 @@ var bufPool = sync.Pool{
 	New: func() any {
 		return make([]byte, 0, 128)
 	},
+}
+
+func (r *environment) RegisterGoModule(id types.NamespacedIDNoType, module Module) error {
+	// Register all the GoModules in the registry so they're useable with calls to
+	// CreateActor() and EnsureActivation().
+	//
+	// Note that its safe to do this on every node in the cluster because the registry will
+	// ignore duplicate RegisterModule() calls if AllowEmptyModuleBytes is set to true.
+	_, err := r.registry.RegisterModule(context.TODO(), id.Namespace, id.ID, nil, registry.ModuleOptions{
+		AllowEmptyModuleBytes: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register go module with ID: %v, err: %w", id, err)
+	}
+	return r.activations.registerGoModule(id, module)
 }
 
 func (r *environment) InvokeActor(

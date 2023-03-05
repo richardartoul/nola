@@ -15,6 +15,10 @@ import (
 type Environment interface {
 	debug
 
+	// RegisterGoModule registers a new Go module in the environment so it can be used in
+	// subsequent calls.
+	RegisterGoModule(id types.NamespacedIDNoType, module Module) error
+
 	// InvokeActor invokes the specified operation on the specified actorID with the
 	// provided payload. If the actor is already activated somewhere in the system,
 	// the invocation will be routed appropriately. Otherwise, the request will

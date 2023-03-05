@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,10 +47,6 @@ var (
 				return []byte("ok"), nil
 			},
 		},
-		GoModules: map[types.NamespacedIDNoType]Module{
-			{Namespace: "ns-1", ID: "test-module"}: testModule{},
-			{Namespace: "ns-2", ID: "test-module"}: testModule{},
-		},
 	}
 	defaultOptsGoStream = EnvironmentOptions{
 		Discovery: DiscoveryOptions{
@@ -61,10 +56,6 @@ var (
 			"testCustomFn": func([]byte) ([]byte, error) {
 				return []byte("ok"), nil
 			},
-		},
-		GoModules: map[types.NamespacedIDNoType]Module{
-			{Namespace: "ns-1", ID: "test-module"}: testStreamModule{},
-			{Namespace: "ns-2", ID: "test-module"}: testStreamModule{},
 		},
 	}
 )
@@ -818,6 +809,11 @@ func runWithDifferentConfigs(
 		require.NoError(t, err)
 		defer env.Close()
 
+		env.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
+		env.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testModule{})
+
 		testFn(t, reg, env)
 	})
 
@@ -826,6 +822,11 @@ func runWithDifferentConfigs(
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoStream)
 		require.NoError(t, err)
 		defer env.Close()
+
+		env.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
+		env.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-2x", ID: "test-module"}, testStreamModule{})
 
 		testFn(t, reg, env)
 
@@ -843,8 +844,12 @@ func runWithDifferentConfigs(
 
 			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
 			require.NoError(t, err)
-
 			defer env.Close()
+
+			env.RegisterGoModule(
+				types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
+			env.RegisterGoModule(
+				types.NamespacedIDNoType{Namespace: "ns-2x", ID: "test-module"}, testStreamModule{})
 
 			testFn(t, reg, env)
 		})
@@ -987,25 +992,4 @@ func (ta *testStreamActor) InvokeStream(
 
 func (ta *testStreamActor) Close(ctx context.Context) error {
 	return nil
-}
-
-type fakeResolver struct {
-	sync.Mutex
-	ips []net.IP
-}
-
-func (f *fakeResolver) setIPs(ips []net.IP) {
-	f.Lock()
-	defer f.Unlock()
-	f.ips = ips
-}
-
-func (f *fakeResolver) LookupIP(host string) ([]net.IP, error) {
-	if host != "test" {
-		panic(fmt.Sprintf("wrong host: %s", host))
-	}
-
-	f.Lock()
-	defer f.Unlock()
-	return f.ips, nil
 }
