@@ -231,6 +231,9 @@ func (r *environment) RegisterGoModule(id types.NamespacedIDNoType, module Modul
 	if err != nil {
 		return fmt.Errorf("failed to register go module with ID: %v, err: %w", id, err)
 	}
+
+	// After registering the Module with the registry, we also need to register it with the
+	// activations datastructure so it knows how to handle subsequent activations/invocations.
 	return r.activations.registerGoModule(id, module)
 }
 
@@ -521,6 +524,9 @@ func (r *environment) invokeReferences(
 	// TODO: Load balancing or some other strategy if the number of references is > 1?
 	ref := references[0]
 	if !r.opts.ForceRemoteProcedureCalls {
+		// First check the global localEnvironmentsRouter map for scenarios where we're
+		// potentially trying to communicate between multiple different in-memory
+		// instances of Environment.
 		localEnvironmentsRouterLock.RLock()
 		localEnv, ok := localEnvironmentsRouter[ref.Address()]
 		localEnvironmentsRouterLock.RUnlock()
@@ -530,6 +536,22 @@ func (r *environment) invokeReferences(
 				operation, payload, create)
 		}
 
+		// Separately, if the registry returned an address that looks like localhost for any
+		// reason, then just route the request to the current node / this instance of
+		// Environment. This prevents unnecessary RPCs when the caller happened to send a
+		// request to the NOLA node that should actually run the actor invocation.
+		//
+		// More importantly, it also dramatically simplifies writing applications that embed
+		// NOLA as a library. This helps enable the ability to write application code that
+		// runs/behaves exactly the same way and follows the same code paths in production
+		// and in tests.
+		//
+		// For example, applications leveraging the DNS-backed registry implementation can
+		// use the exact same code in production and in single-node environments/tests by
+		// passing "localhost" as the hostname to the DNSRegistry which will cause it to
+		// always return dnsregistry.Localhost as the address for all actor references and
+		// thus ensure that tests can be written without having to also ensure that a NOLA
+		// server is running on the appropriate port, among other things.
 		if ref.Address() == Localhost || ref.Address() == dnsregistry.Localhost {
 			return localEnv.InvokeActorDirectStream(
 				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,

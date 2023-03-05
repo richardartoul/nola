@@ -16,7 +16,13 @@ type Environment interface {
 	debug
 
 	// RegisterGoModule registers a new Go module in the environment so it can be used in
-	// subsequent calls.
+	// subsequent calls. RegisterGoModule can be called at any time, even once the
+	// Environmnt has been in use for a long time. However, the primary reason this method
+	// exists (instead of being an argument provided to the Environment constructor) is
+	// so that applications can write many different packages that all accept an instance
+	// of Environment as a dependency and "register" whatever Go modules they need without
+	// having to register all the Go modules for all the different packages in a single
+	// place.
 	RegisterGoModule(id types.NamespacedIDNoType, module Module) error
 
 	// InvokeActor invokes the specified operation on the specified actorID with the
