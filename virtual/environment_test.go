@@ -826,7 +826,7 @@ func runWithDifferentConfigs(
 		env.RegisterGoModule(
 			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
 		env.RegisterGoModule(
-			types.NamespacedIDNoType{Namespace: "ns-2x", ID: "test-module"}, testStreamModule{})
+			types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testStreamModule{})
 
 		testFn(t, reg, env)
 
@@ -849,7 +849,7 @@ func runWithDifferentConfigs(
 			env.RegisterGoModule(
 				types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
 			env.RegisterGoModule(
-				types.NamespacedIDNoType{Namespace: "ns-2x", ID: "test-module"}, testStreamModule{})
+				types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testStreamModule{})
 
 			testFn(t, reg, env)
 		})
