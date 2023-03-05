@@ -125,7 +125,7 @@ func NewTestDNSRegistryEnvironment(
 	ctx context.Context,
 	opts EnvironmentOptions,
 ) (Environment, registry.Registry, error) {
-	return NewDNSRegistryEnvironment(ctx, Localhost, 9093, EnvironmentOptions{})
+	return NewDNSRegistryEnvironment(ctx, Localhost, 9093, opts)
 }
 
 // DiscoveryOptions contains the discovery-related options.
