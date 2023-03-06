@@ -13,9 +13,9 @@ import (
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
-	"golang.org/x/sync/singleflight"
 
 	"github.com/wapc/wapc-go/engines/wazero"
+	"golang.org/x/sync/singleflight"
 )
 
 type activations struct {
@@ -161,6 +161,7 @@ func (a *activations) ensureModule(
 	ctx context.Context,
 	moduleID types.NamespacedID,
 ) (Module, error) {
+	// TODO: Should do this again in the beginning of the singleflight stuff?
 	a.RLock()
 	module, ok := a._modules[moduleID]
 	a.RUnlock()
@@ -196,6 +197,12 @@ func (a *activations) ensureModule(
 
 			// Wrap the wazero module so it implements Module.
 			module = wazeroModule{wazeroMod}
+
+			// Can set unconditionally without checking if it already exists since we're in
+			// the singleflight context.
+			//
+			// TODO: We probably need to acquire lock and check it at the top of the singleflight
+			// callback function?
 			a.Lock()
 			a._modules[moduleID] = module
 			a.Unlock()
@@ -210,6 +217,12 @@ func (a *activations) ensureModule(
 					moduleID)
 			}
 			module = goMod
+
+			// Can set unconditionally without checking if it already exists since we're in
+			// the singleflight context.
+			//
+			// TODO: We probably need to acquire lock and check it at the top of the singleflight
+			// callback function?
 			a.Lock()
 			a._modules[moduleID] = module
 			a.Unlock()
