@@ -81,20 +81,22 @@ func (a *activations) invoke(
 	actor, ok := a._actors[reference.ActorID()]
 	if ok && actor.reference.Generation() >= reference.Generation() {
 		a.RUnlock()
-		return actor.invoke(ctx, operation, invokePayload)
+		return actor.invoke(ctx, operation, invokePayload, false)
 	}
 	a.RUnlock()
 
 	a.Lock()
 	if ok && actor.reference.Generation() >= reference.Generation() {
 		a.Unlock()
-		return actor.invoke(ctx, operation, invokePayload)
+		return actor.invoke(ctx, operation, invokePayload, false)
 	}
 
 	if ok && actor.reference.Generation() < reference.Generation() {
 		// The actor is already activated, however, the generation count has
 		// increased. Therefore we need to pretend like the actor doesn't
 		// already exist and reactivate it.
+		//
+		// TODO: Should not hold global lock while close is called.
 		if err := actor.close(ctx); err != nil {
 			// TODO: This should probably be a warning, but if this happens
 			//       I want to understand why.
@@ -145,7 +147,12 @@ func (a *activations) invoke(
 		if err != nil {
 			return nil, fmt.Errorf("error activating actor: %w", err)
 		}
+
+		// TODO: Explain why can do this unconditionally. Also move this into method above. Also should
+		// probably check this map again at top of this anonymous function.
+		a.Lock()
 		a._actors[reference.ActorID()] = actor
+		a.Unlock()
 
 		return actor, nil
 	})
@@ -154,7 +161,7 @@ func (a *activations) invoke(
 	}
 	actor = actorI.(*activatedActor)
 
-	return actor.invoke(ctx, operation, invokePayload)
+	return actor.invoke(ctx, operation, invokePayload, false)
 }
 
 func (a *activations) ensureModule(
@@ -301,7 +308,7 @@ func newActivatedActor(
 	// 	}
 	// })
 
-	_, err := a.invoke(ctx, wapcutils.StartupOperationName, instantiatePayload)
+	_, err := a.invoke(ctx, wapcutils.StartupOperationName, instantiatePayload, false)
 	if err != nil {
 		a.close(ctx)
 		return nil, fmt.Errorf("newActivatedActor: error invoking startup function: %w", err)
@@ -314,9 +321,13 @@ func (a *activatedActor) invoke(
 	ctx context.Context,
 	operation string,
 	payload []byte,
+	alreadyLocked bool,
 ) (io.ReadCloser, error) {
-	a.Lock()
-	defer a.Unlock()
+	if !alreadyLocked {
+		a.Lock()
+		defer a.Unlock()
+	}
+
 	if a.closed {
 		return nil, fmt.Errorf("tried to invoke actor: %v which has already been closed", a.reference)
 	}
@@ -378,7 +389,7 @@ func (a *activatedActor) close(ctx context.Context) error {
 
 	// TODO: We should let a retry policy be specific for this before the actor is finally
 	// evicted, but we just evict regardless of failure for now.
-	_, err := a.invoke(ctx, wapcutils.ShutdownOperationName, nil)
+	_, err := a.invoke(ctx, wapcutils.ShutdownOperationName, nil, true)
 	if err != nil {
 		log.Printf(
 			"error invoking shutdown operation for actor: %v during close: %v",
