@@ -7,11 +7,14 @@ import (
 	"io"
 	"io/ioutil"
 	"sync"
+	"time"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
+	"golang.org/x/sync/singleflight"
+	"google.golang.org/appengine/log"
 
 	"github.com/wapc/wapc-go/engines/wazero"
 )
@@ -20,9 +23,11 @@ type activations struct {
 	sync.RWMutex
 
 	// State.
-	_modules    map[types.NamespacedID]Module
-	_actors     map[types.NamespacedActorID]activatedActor
-	serverState struct {
+	_modules           map[types.NamespacedID]Module
+	_actors            map[types.NamespacedActorID]activatedActor
+	moduleFetchDeduper singleflight.Group
+	activationDeduper  singleflight.Group
+	serverState        struct {
 		sync.RWMutex
 		serverID      string
 		serverVersion int64
@@ -101,10 +106,34 @@ func (a *activations) invoke(
 		actor = activatedActor{}
 	}
 
-	// Actor was not already activated locally. Check if the module is already
-	// cached.
-	module, ok := a._modules[reference.ModuleID()]
-	if ok {
+	// Actor was not already activated locally. Unlock and then use singleflight to
+	// run all the logic for activating the actor to:
+	//   1. Avoid thundering herd problems by fetching the module repeatedly.
+	//   2. Avoid lock contention so we can scope locking required for creating
+	//      the actor in-memory only to operations on that specific actor instead
+	//      of locking the entire *activations datastructure for the duration.
+	//   3. Perform potentially expensive operations like invoking the actor's
+	//      wapcutils.StartupOperationName function outside of *activations global
+	//      lock.
+	a.Unlock()
+
+	dedupeBy := fmt.Sprintf("%s-%s-%s", reference.Namespace(), reference.ModuleID(), reference.ActorID())
+	a.activationDeduper.Do(dedupeBy, func() (any, error) {
+		// Check if the module is already cached.
+		a.RLock()
+		module, ok := a._modules[reference.ModuleID()]
+		a.RUnlock()
+		if !ok {
+			// Module isn't cached, so we need to go fetch it.
+			moduleBytes, _, err := a.registry.GetModule(
+				ctx, reference.Namespace(), reference.ModuleID().ID)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"error getting module bytes from registry for module: %s, err: %w",
+					reference.ModuleID(), err)
+			}
+		}
+
 		// Module is cached, instantiate the actor then we're done.
 		hostCapabilities := newHostCapabilities(
 			a.registry, a.environment, a.customHostFns,
@@ -112,42 +141,22 @@ func (a *activations) invoke(
 
 		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, instantiatePayload, hostCapabilities)
 		if err != nil {
-			a.Unlock()
 			return nil, fmt.Errorf(
 				"error instantiating actor: %s from module: %s, err: %w",
 				reference.ActorID(), reference.ModuleID(), err)
 		}
 		if err := assertActorIface(iActor); err != nil {
-			a.Unlock()
 			return nil, fmt.Errorf(
 				"error instantiating actor: %s from module: %s, err: %w",
 				reference.ActorID(), reference.ModuleID(), err)
 		}
 
-		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities, instantiatePayload)
+		actor, err = a.newActivatedActor(ctx, iActor, reference, hostCapabilities, instantiatePayload)
 		if err != nil {
-			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
 		}
 		a._actors[reference.ActorID()] = actor
-	}
-
-	// Module is not cached. We may need to load the bytes from a remote store
-	// so lets release the lock before continuing.
-	a.Unlock()
-
-	// TODO: Thundering herd problem here on module load. We should add support
-	//       for automatically deduplicating this fetch. Although, it may actually
-	//       be more prudent to just do that in the Registry implementation so we
-	//       can implement deduplication + on-disk caching transparently in one
-	//       place.
-	moduleBytes, _, err := a.registry.GetModule(
-		ctx, reference.Namespace(), reference.ModuleID().ID)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"error getting module bytes from registry for module: %s, err: %w",
-			reference.ModuleID(), err)
-	}
+	})
 
 	// Now that we've loaded the module bytes from a (potentially remote) store, we
 	// need to reacquire the lock to create the in-memory module + actor. Note that
@@ -216,7 +225,7 @@ func (a *activations) invoke(
 				reference.ActorID(), reference.ModuleID(), err)
 		}
 
-		actor, err = newActivatedActor(ctx, iActor, reference, hostCapabilities, instantiatePayload)
+		actor, err = a.newActivatedActor(ctx, iActor, reference, hostCapabilities, instantiatePayload)
 		if err != nil {
 			a.Unlock()
 			return nil, fmt.Errorf("error activating actor: %w", err)
@@ -226,6 +235,77 @@ func (a *activations) invoke(
 
 	a.Unlock()
 	return actor.invoke(ctx, operation, invokePayload)
+}
+
+func (a *activations) ensureModule(
+	ctx context.Context,
+	moduleID types.NamespacedID,
+) (Module, error) {
+	a.RLock()
+	module, ok := a._modules[moduleID]
+	a.RUnlock()
+	if ok {
+		return module, nil
+	}
+
+	// Module wasn't cached already, we need to go fetch it.
+	dedupeBy := fmt.Sprintf("%s-%s", moduleID.Namespace, moduleID.ID)
+	a.moduleFetchDeduper.Do(dedupeBy, func() (any, error) {
+		moduleBytes, _, err := a.registry.GetModule(
+			ctx, moduleID.Namespace, moduleID.ID)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"error getting module bytes from registry for module: %s, err: %w",
+				moduleID, err)
+		}
+
+		hostFn := newHostFnRouter(
+			a.registry, a.environment, a.customHostFns, moduleID.Namespace, moduleID.ID)
+		if len(moduleBytes) > 0 {
+			// WASM byte codes exists for the module so we should just use that.
+			// TODO: Hard-coded for now, but we should support using different runtimes with
+			//       configuration since we've already abstracted away the module/object
+			//       interfaces.
+			wazeroMod, err := durablewazero.NewModule(ctx, wazero.Engine(), hostFn, moduleBytes)
+			if err != nil {
+				a.Unlock()
+				return nil, fmt.Errorf(
+					"error constructing module: %s from module bytes, err: %w",
+					moduleID, err)
+			}
+
+			// Wrap the wazero module so it implements Module.
+			module = wazeroModule{wazeroMod}
+			a.Lock()
+			a._modules[moduleID] = module
+			a.Unlock()
+		} else {
+			// No WASM code, must be a hard-coded Go module.
+			goModID := types.NewNamespacedIDNoType(moduleID.Namespace, moduleID.ID)
+			goMod, ok := a.goModules[goModID]
+			if !ok {
+				a.Unlock()
+				return nil, fmt.Errorf(
+					"error constructing module: %s, hard-coded Go module does not exist",
+					moduleID)
+			}
+			module = goMod
+			a._modules[moduleID] = module
+		}
+	})
+	if !ok {
+
+	}
+}
+
+func (a *activations) newActivatedActor(
+	ctx context.Context,
+	actor Actor,
+	reference types.ActorReferenceVirtual,
+	host HostCapabilities,
+	instantiatePayload []byte,
+) (activatedActor, error) {
+	return newActivatedActor(ctx, actor, reference, host, instantiatePayload)
 }
 
 func (a *activations) numActivatedActors() int {
@@ -254,11 +334,15 @@ func (a *activations) getServerState() (
 }
 
 type activatedActor struct {
+	sync.Mutex
+
 	// Don't access directly from outside this structs own method implementations,
 	// use methods like invoke() and close() instead.
-	_a        Actor
-	reference types.ActorReferenceVirtual
-	host      HostCapabilities
+	_a            Actor
+	reference     types.ActorReferenceVirtual
+	host          HostCapabilities
+	closed        bool
+	shutdownTimer *time.Timer
 }
 
 func newActivatedActor(
@@ -273,6 +357,11 @@ func newActivatedActor(
 		reference: reference,
 		host:      host,
 	}
+	time.AfterFunc(time.Minute, func() {
+		if err := a.close(context.TODO()); err != nil {
+			log.Infof("error closing actor: %v due to inactivity: %w", reference, err)
+		}
+	})
 
 	_, err := a.invoke(ctx, wapcutils.StartupOperationName, instantiatePayload)
 	if err != nil {
@@ -288,6 +377,12 @@ func (a *activatedActor) invoke(
 	operation string,
 	payload []byte,
 ) (io.ReadCloser, error) {
+	a.Lock()
+	defer a.Unlock()
+	if a.closed {
+		return nil, fmt.Errorf("tried to invoke actor: %v which has already been closed", a.reference)
+	}
+
 	// Workers can't have KV storage because they're not global singletons like actors
 	// are. They're also not registered with the Registry explicitly, so we can skip
 	// this step in that case.
@@ -337,6 +432,21 @@ func (a *activatedActor) invoke(
 }
 
 func (a *activatedActor) close(ctx context.Context) error {
+	a.Lock()
+	defer a.Unlock()
+	if a.closed {
+		return nil
+	}
+
+	// TODO: We should let a retry policy be specific for this before the actor is finally
+	// evicted, but we just evict regardless of failure for now.
+	_, err := a.invoke(ctx, wapcutils.ShutdownOperationName, nil)
+	if err != nil {
+		log.Errorf(
+			"error invoking shutdown operation for actor: %v during close: %w",
+			a.reference, err)
+	}
+
 	return a._a.Close(ctx)
 }
 
