@@ -368,7 +368,7 @@ func (a *activatedActor) close(ctx context.Context) error {
 	_, err := a.invoke(ctx, wapcutils.ShutdownOperationName, nil)
 	if err != nil {
 		log.Printf(
-			"error invoking shutdown operation for actor: %v during close: %w",
+			"error invoking shutdown operation for actor: %v during close: %v",
 			a.reference, err)
 	}
 
