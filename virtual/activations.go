@@ -27,8 +27,7 @@ type activations struct {
 	_modules           map[types.NamespacedID]Module
 	_actors            map[types.NamespacedActorID]futures.Future[*activatedActor]
 	moduleFetchDeduper singleflight.Group
-	// activationDeduper  singleflight.Group
-	serverState struct {
+	serverState        struct {
 		sync.RWMutex
 		serverID      string
 		serverVersion int64
@@ -335,7 +334,6 @@ type activatedActor struct {
 	reference types.ActorReferenceVirtual
 	host      HostCapabilities
 	closed    bool
-	// shutdownTimer *time.Timer
 }
 
 func newActivatedActor(
@@ -350,11 +348,6 @@ func newActivatedActor(
 		reference: reference,
 		host:      host,
 	}
-	// time.AfterFunc(time.Minute, func() {
-	// 	if err := a.close(context.TODO()); err != nil {
-	// 		log.Printf("error closing actor: %v due to inactivity: %w", reference, err)
-	// 	}
-	// })
 
 	_, err := a.invoke(ctx, wapcutils.StartupOperationName, instantiatePayload, false)
 	if err != nil {
