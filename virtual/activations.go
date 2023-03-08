@@ -109,6 +109,7 @@ func (a *activations) invoke(
 
 	// Actor was not already activated locally. Unlock and then use singleflight to
 	// run all the logic for activating the actor to:
+	//
 	//   1. Avoid thundering herd problems by fetching the module repeatedly.
 	//   2. Avoid lock contention so we can scope locking required for creating
 	//      the actor in-memory only to operations on that specific actor instead
@@ -120,6 +121,17 @@ func (a *activations) invoke(
 
 	dedupeBy := fmt.Sprintf("%s-%s-%s", reference.Namespace(), reference.ModuleID(), reference.ActorID())
 	actorI, err, _ := a.activationDeduper.Do(dedupeBy, func() (any, error) {
+		// Need to check map again once we get into singleflight context in
+		// case the actor was instantiated since we released the lock above
+		// and entered the singleflight context.
+		a.RLock()
+		actor, ok := a._actors[reference.ActorID()]
+		if ok && actor.reference.Generation() >= reference.Generation() {
+			a.RUnlock()
+			return actor, nil
+		}
+		a.RUnlock()
+
 		module, err := a.ensureModule(ctx, reference.ModuleID())
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -148,8 +160,8 @@ func (a *activations) invoke(
 			return nil, fmt.Errorf("error activating actor: %w", err)
 		}
 
-		// TODO: Explain why can do this unconditionally. Also move this into method above. Also should
-		// probably check this map again at top of this anonymous function.
+		// Can set unconditionally without checking if it already exists since we're in
+		// the singleflight context.
 		a.Lock()
 		a._actors[reference.ActorID()] = actor
 		a.Unlock()
@@ -168,7 +180,6 @@ func (a *activations) ensureModule(
 	ctx context.Context,
 	moduleID types.NamespacedID,
 ) (Module, error) {
-	// TODO: Should do this again in the beginning of the singleflight stuff?
 	a.RLock()
 	module, ok := a._modules[moduleID]
 	a.RUnlock()
@@ -179,6 +190,16 @@ func (a *activations) ensureModule(
 	// Module wasn't cached already, we need to go fetch it.
 	dedupeBy := fmt.Sprintf("%s-%s", moduleID.Namespace, moduleID.ID)
 	moduleI, err, _ := a.moduleFetchDeduper.Do(dedupeBy, func() (any, error) {
+		// Need to check map again once we get into singleflight context in case
+		// the actor was instantiated since we released the lock above and entered
+		// the singleflight context.
+		a.RLock()
+		module, ok := a._modules[moduleID]
+		a.RUnlock()
+		if ok {
+			return module, nil
+		}
+
 		// TODO: Should consider not using the context from the request here since this
 		// timeout ends up being shared across multiple different requests potentially.
 		moduleBytes, _, err := a.registry.GetModule(ctx, moduleID.Namespace, moduleID.ID)
@@ -204,16 +225,6 @@ func (a *activations) ensureModule(
 
 			// Wrap the wazero module so it implements Module.
 			module = wazeroModule{wazeroMod}
-
-			// Can set unconditionally without checking if it already exists since we're in
-			// the singleflight context.
-			//
-			// TODO: We probably need to acquire lock and check it at the top of the singleflight
-			// callback function?
-			a.Lock()
-			a._modules[moduleID] = module
-			a.Unlock()
-			return module, nil
 		} else {
 			// No WASM code, must be a hard-coded Go module.
 			goModID := types.NewNamespacedIDNoType(moduleID.Namespace, moduleID.ID)
@@ -224,17 +235,14 @@ func (a *activations) ensureModule(
 					moduleID)
 			}
 			module = goMod
-
-			// Can set unconditionally without checking if it already exists since we're in
-			// the singleflight context.
-			//
-			// TODO: We probably need to acquire lock and check it at the top of the singleflight
-			// callback function?
-			a.Lock()
-			a._modules[moduleID] = module
-			a.Unlock()
-			return module, nil
 		}
+
+		// Can set unconditionally without checking if it already exists since we're in
+		// the singleflight context.
+		a.Lock()
+		a._modules[moduleID] = module
+		a.Unlock()
+		return module, nil
 	})
 	if err != nil {
 		return nil, err
