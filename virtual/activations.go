@@ -83,32 +83,9 @@ func (a *activations) invoke(
 		a.RUnlock()
 		return actor.invoke(ctx, operation, invokePayload, false)
 	}
-	a.RUnlock()
-
-	a.Lock()
-	if ok && actor.reference.Generation() >= reference.Generation() {
-		a.Unlock()
-		return actor.invoke(ctx, operation, invokePayload, false)
-	}
-
-	if ok && actor.reference.Generation() < reference.Generation() {
-		// The actor is already activated, however, the generation count has
-		// increased. Therefore we need to pretend like the actor doesn't
-		// already exist and reactivate it.
-		//
-		// TODO: Should not hold global lock while close is called.
-		if err := actor.close(ctx); err != nil {
-			// TODO: This should probably be a warning, but if this happens
-			//       I want to understand why.
-			panic(err)
-		}
-
-		delete(a._actors, reference.ActorID())
-		actor = nil
-	}
-
-	// Actor was not already activated locally. Unlock and then use singleflight to
-	// run all the logic for activating the actor to:
+	// Actor was not already activated locally (at least not with the correct
+	// version). Unlock and then use singleflight to run all the logic for
+	// activating the actor to:
 	//
 	//   1. Avoid thundering herd problems by fetching the module repeatedly.
 	//   2. Avoid lock contention so we can scope locking required for creating
@@ -117,10 +94,35 @@ func (a *activations) invoke(
 	//   3. Perform potentially expensive operations like invoking the actor's
 	//      wapcutils.StartupOperationName function outside of *activations global
 	//      lock.
-	a.Unlock()
+	a.RUnlock()
 
 	dedupeBy := fmt.Sprintf("%s-%s-%s", reference.Namespace(), reference.ModuleID(), reference.ActorID())
 	actorI, err, _ := a.activationDeduper.Do(dedupeBy, func() (any, error) {
+		// Check the map again in case the actor was instantiated between releasing
+		// the RLock() above and entering the singleflight critical path.
+		a.RLock()
+		actor, ok = a._actors[reference.ActorID()]
+		if ok && actor.reference.Generation() >= reference.Generation() {
+			a.RUnlock()
+			return actor.invoke(ctx, operation, invokePayload, false)
+		}
+
+		if ok && actor.reference.Generation() < reference.Generation() {
+			// The actor is already activated, however, the generation count has
+			// increased. Therefore we need to pretend like the actor doesn't
+			// already exist and reactivate it.
+			//
+			// TODO: Should not hold global lock while close is called.
+			if err := actor.close(ctx); err != nil {
+				// TODO: This should probably be a warning, but if this happens
+				//       I want to understand why.
+				panic(err)
+			}
+
+			delete(a._actors, reference.ActorID())
+			actor = nil
+		}
+
 		// Need to check map again once we get into singleflight context in
 		// case the actor was instantiated since we released the lock above
 		// and entered the singleflight context.
@@ -130,6 +132,10 @@ func (a *activations) invoke(
 			a.RUnlock()
 			return actor, nil
 		}
+		// Now that we know the actor was not instantiated before we entered
+		// the singleflight critical path, we can release the lock while we
+		// actually instantiate the actor since no other goroutine can do it
+		// in the meantime.
 		a.RUnlock()
 
 		module, err := a.ensureModule(ctx, reference.ModuleID())
