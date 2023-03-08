@@ -22,6 +22,9 @@ import (
 var (
 	utilWasmBytes   []byte
 	defaultOptsWASM = virtual.EnvironmentOptions{
+		Discovery: virtual.DiscoveryOptions{
+			DiscoveryType: virtual.DiscoveryTypeLocalHost,
+		},
 		CustomHostFns: map[string]func([]byte) ([]byte, error){
 			"testCustomFn": func([]byte) ([]byte, error) {
 				return []byte("ok"), nil
