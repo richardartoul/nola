@@ -78,7 +78,7 @@ func (a *activations) invoke(
 	instantiatePayload []byte,
 	invokePayload []byte,
 ) (io.ReadCloser, error) {
-	// First check if the actor is alread activated.
+	// First check if the actor is already activated.
 	a.Lock()
 	actorF, ok := a._actors[reference.ActorID()]
 	if !ok {
@@ -157,7 +157,8 @@ func (a *activations) invokeNotExistWithLock(
 	a._actors[reference.ActorID()] = fut
 	a.Unlock()
 
-	fut.Go(func() (actor *activatedActor, err error) {
+	// GoSync since this goroutine needs to wait anyways.
+	fut.GoSync(func() (actor *activatedActor, err error) {
 		if prevActor != nil {
 			if err := prevActor.close(ctx); err != nil {
 				log.Printf(

@@ -21,8 +21,14 @@ func New[T any]() Future[T] {
 	return f
 }
 
-func (f *future[T]) Go(fn func() (T, error)) {
+func (f *future[T]) GoSync(fn func() (T, error)) {
 	f.ResolveOrReject(fn())
+}
+
+func (f *future[T]) GoAsync(fn func() (T, error)) {
+	go func() {
+		f.ResolveOrReject(fn())
+	}()
 }
 
 func (f *future[T]) Resolve(result T) {
