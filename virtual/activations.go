@@ -3,6 +3,7 @@ package virtual
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -10,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
+	"github.com/richardartoul/nola/virtual/futures"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
@@ -19,14 +21,14 @@ import (
 )
 
 type activations struct {
-	sync.RWMutex
+	sync.Mutex
 
 	// State.
 	_modules           map[types.NamespacedID]Module
-	_actors            map[types.NamespacedActorID]*activatedActor
+	_actors            map[types.NamespacedActorID]futures.Future[*activatedActor]
 	moduleFetchDeduper singleflight.Group
-	activationDeduper  singleflight.Group
-	serverState        struct {
+	// activationDeduper  singleflight.Group
+	serverState struct {
 		sync.RWMutex
 		serverID      string
 		serverVersion int64
@@ -46,7 +48,7 @@ func newActivations(
 ) *activations {
 	return &activations{
 		_modules: make(map[types.NamespacedID]Module),
-		_actors:  make(map[types.NamespacedActorID]*activatedActor),
+		_actors:  make(map[types.NamespacedActorID]futures.Future[*activatedActor]),
 
 		registry:      registry,
 		environment:   environment,
@@ -77,66 +79,103 @@ func (a *activations) invoke(
 	instantiatePayload []byte,
 	invokePayload []byte,
 ) (io.ReadCloser, error) {
-	a.RLock()
-	actor, ok := a._actors[reference.ActorID()]
-	if ok && actor.reference.Generation() >= reference.Generation() {
-		a.RUnlock()
+	// First check if the actor is alread activated.
+	a.Lock()
+	actorF, ok := a._actors[reference.ActorID()]
+	if !ok {
+		// Actor is not activated, so we can just activate it ourselves.
+		return a.invokeNotExistWithLock(
+			ctx, reference, operation, instantiatePayload, invokePayload, nil)
+	}
+
+	// Actor is activated already (or in the process of being activated). Unlock and
+	// wait for the future to resolve. If the actor is already activated and ready to
+	// go this will resolve immediately, otherwise it will wait for the actor to be
+	// properly instantiated.
+	a.Unlock()
+	actor, err := actorF.Wait()
+	if err != nil {
+		// Something went wrong instantiating the actor, just accept the error. The
+		// goroutine that originally failed to instantiate the actor will take care
+		// of removing the future from the map so that subsequent invocations can try
+		// to re-instantiate.
+		return nil, err
+	}
+
+	// The actor is/was activated without error, but we still need to check the generation
+	// count before we're allowed to invoke it.
+	if actor.reference.Generation() >= reference.Generation() {
+		// The activated actor's generation count is high enough, we can just invoke now.
 		return actor.invoke(ctx, operation, invokePayload, false)
 	}
-	// Actor was not already activated locally (at least not with the correct
-	// version). Unlock and then use singleflight to run all the logic for
-	// activating the actor to:
-	//
-	//   1. Avoid thundering herd problems by fetching the module repeatedly.
-	//   2. Avoid lock contention so we can scope locking required for creating
-	//      the actor in-memory only to operations on that specific actor instead
-	//      of locking the entire *activations datastructure for the duration.
-	//   3. Perform potentially expensive operations like invoking the actor's
-	//      wapcutils.StartupOperationName function outside of *activations global
-	//      lock.
-	a.RUnlock()
 
-	dedupeBy := fmt.Sprintf("%s-%s-%s", reference.Namespace(), reference.ModuleID(), reference.ActorID())
-	actorI, err, _ := a.activationDeduper.Do(dedupeBy, func() (any, error) {
-		// Check the map again in case the actor was instantiated between releasing
-		// the RLock() above and entering the singleflight critical path.
-		a.RLock()
-		actor, ok = a._actors[reference.ActorID()]
-		if ok && actor.reference.Generation() >= reference.Generation() {
-			a.RUnlock()
-			return actor.invoke(ctx, operation, invokePayload, false)
-		}
+	// The activated actor's generation count is too low. We need to reinstantiate it.
+	// First, we reacquire the lock since we can't do anything outside of the critical
+	// loop.
+	a.Lock()
 
-		if ok && actor.reference.Generation() < reference.Generation() {
-			// The actor is already activated, however, the generation count has
-			// increased. Therefore we need to pretend like the actor doesn't
-			// already exist and reactivate it.
-			//
-			// TODO: Should not hold global lock while close is called.
-			if err := actor.close(ctx); err != nil {
-				// TODO: This should probably be a warning, but if this happens
-				//       I want to understand why.
-				panic(err)
+	// Next, we check if the actor is still in the map (since we released and re-acquired
+	// the lock, anything could have happened in the meantime).
+	actorF2, ok := a._actors[reference.ActorID()]
+	if !ok {
+		// Actor is no longer in the map. We can just proceed with a normal activation then.
+		return a.invokeNotExistWithLock(
+			ctx, reference, operation, instantiatePayload, invokePayload, nil)
+	}
+
+	// Actor is still in the map. We need to know if it has changed since we last checked.
+	// Pointer comparison is fine here since if it was changed then the future pointer will
+	// have changed also.
+	if actorF2 == actorF {
+		// If it hasn't changed then we can just pretend it does not exist.
+		// invokeNotExistWithLock will ensure the old activation is properly closed as
+		// well.
+		return a.invokeNotExistWithLock(
+			ctx, reference, operation, instantiatePayload, invokePayload, actor)
+	}
+
+	// The future has changed, the generation count should be high enough now and
+	// we can just ignore the old actor (whichever Goroutine increased the generation
+	// count will have closed it already)
+	if actor.reference.Generation() >= reference.Generation() {
+		return actor.invoke(ctx, operation, invokePayload, false)
+	}
+
+	// Something weird happened. Just return an error and let the caller retry.
+	return nil, errors.New(
+		"[invariant violated] actor generation count too low after reactivation, caller should retry")
+}
+
+func (a *activations) invokeNotExistWithLock(
+	ctx context.Context,
+	reference types.ActorReferenceVirtual,
+	operation string,
+	instantiatePayload []byte,
+	invokePayload []byte,
+	prevActor *activatedActor,
+) (io.ReadCloser, error) {
+	fut := futures.New[*activatedActor]()
+	a._actors[reference.ActorID()] = fut
+	a.Unlock()
+
+	fut.Go(func() (actor *activatedActor, err error) {
+		if prevActor != nil {
+			if err := prevActor.close(ctx); err != nil {
+				log.Printf(
+					"error closing previous instance of actor: %v, err: %v",
+					reference, err)
 			}
-
-			delete(a._actors, reference.ActorID())
-			actor = nil
 		}
 
-		// Need to check map again once we get into singleflight context in
-		// case the actor was instantiated since we released the lock above
-		// and entered the singleflight context.
-		a.RLock()
-		actor, ok := a._actors[reference.ActorID()]
-		if ok && actor.reference.Generation() >= reference.Generation() {
-			a.RUnlock()
-			return actor, nil
-		}
-		// Now that we know the actor was not instantiated before we entered
-		// the singleflight critical path, we can release the lock while we
-		// actually instantiate the actor since no other goroutine can do it
-		// in the meantime.
-		a.RUnlock()
+		defer func() {
+			if err != nil {
+				// If resolving the future results in an error, ensure that
+				// the future gets cleared from the map so that subsequent
+				// invocations will try to recreate the actor instead of
+				// receiving the same hard-coded over and over again.
+				delete(a._actors, reference.ActorID())
+			}
+		}()
 
 		module, err := a.ensureModule(ctx, reference.ModuleID())
 		if err != nil {
@@ -166,18 +205,13 @@ func (a *activations) invoke(
 			return nil, fmt.Errorf("error activating actor: %w", err)
 		}
 
-		// Can set unconditionally without checking if it already exists since we're in
-		// the singleflight context.
-		a.Lock()
-		a._actors[reference.ActorID()] = actor
-		a.Unlock()
-
 		return actor, nil
 	})
+
+	actor, err := fut.Wait()
 	if err != nil {
-		return nil, fmt.Errorf("error deduping actor activation: %w", err)
+		return nil, err
 	}
-	actor = actorI.(*activatedActor)
 
 	return actor.invoke(ctx, operation, invokePayload, false)
 }
@@ -186,9 +220,9 @@ func (a *activations) ensureModule(
 	ctx context.Context,
 	moduleID types.NamespacedID,
 ) (Module, error) {
-	a.RLock()
+	a.Lock()
 	module, ok := a._modules[moduleID]
-	a.RUnlock()
+	a.Unlock()
 	if ok {
 		return module, nil
 	}
@@ -199,9 +233,9 @@ func (a *activations) ensureModule(
 		// Need to check map again once we get into singleflight context in case
 		// the actor was instantiated since we released the lock above and entered
 		// the singleflight context.
-		a.RLock()
+		a.Lock()
 		module, ok := a._modules[moduleID]
-		a.RUnlock()
+		a.Unlock()
 		if ok {
 			return module, nil
 		}
@@ -268,8 +302,8 @@ func (a *activations) newActivatedActor(
 }
 
 func (a *activations) numActivatedActors() int {
-	a.RLock()
-	defer a.RUnlock()
+	a.Lock()
+	defer a.Unlock()
 	return len(a._actors)
 }
 
