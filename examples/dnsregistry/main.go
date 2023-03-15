@@ -77,7 +77,7 @@ type testModule struct {
 
 func (tm testModule) Instantiate(
 	ctx context.Context,
-	id string,
+	reference types.ActorReferenceVirtual,
 	payload []byte,
 	host virtual.HostCapabilities,
 ) (virtual.Actor, error) {

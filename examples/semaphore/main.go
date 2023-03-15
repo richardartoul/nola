@@ -194,14 +194,13 @@ var scheduleHousecleanBytes = []byte(`
 {
 	"invocation": {
 		"operation": "houseclean",
-		"module_id": "semaphore"
 	},
 	"after_millis": 10000
 }`)
 
 func scheduleNextHouseclean() error {
 	_, err := wapc.HostCall(
-		"wapc", "nola", wapcutils.ScheduleInvocationOperationName, scheduleHousecleanBytes)
+		"wapc", "nola", wapcutils.ScheduleSelfTimerOperationName, scheduleHousecleanBytes)
 	if err != nil {
 		return fmt.Errorf("error scheduling next houseclean: %w", err)
 	}

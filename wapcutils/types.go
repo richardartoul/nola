@@ -19,7 +19,7 @@ const (
 	// shutdown function which should be run once right before a worker/actor is evicted
 	// from memory.
 	ShutdownOperationName = "SHUTDOWN"
-	// ScheduleInvocationOperationName is the string that indicates the operation in WAPC
-	// is to schedule an invocation for later.
-	ScheduleInvocationOperationName = "SCHEDULE-INVOCATION"
+	// ScheduleSelfTimerOperationName is the string that indicates the operation in WAPC is to schedule
+	// a self timer.
+	ScheduleSelfTimerOperationName = "SCHEDULE-SELF-TIMER"
 )

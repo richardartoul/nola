@@ -452,57 +452,23 @@ func TestInvokeActorHostFunction(t *testing.T) {
 	runWithDifferentConfigs(t, testFn, false)
 }
 
-// TestScheduleInvocationHostFunction tests whether actors can schedule invocations to run
+// TestScheduleSelfTimers tests whether actors can schedule invocations for themselves to run
 // sometime in the future as a way to implement timers.
-func TestScheduleInvocationHostFunction(t *testing.T) {
+func TestScheduleSelfTimers(t *testing.T) {
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
 		ctx := context.Background()
 		for _, ns := range []string{"ns-1", "ns-2"} {
-			// A bit meta, but tell a to schedule an invocation on b to schedule an invocation
-			// back on a. This ensures that actor's can schedule invocations on other actors.
-			bScheduleA := wapcutils.ScheduleInvocationRequest{
-				Invoke: types.InvokeActorRequest{
-					ActorID:   "a",
-					ModuleID:  "test-module",
-					Operation: "inc",
-					Payload:   nil,
-				},
+			selfTimerReq := wapcutils.ScheduleSelfTimer{
+				Operation:   "inc",
+				Payload:     nil,
 				AfterMillis: 1000,
 			}
-			marshaledBScheduleA, err := json.Marshal(bScheduleA)
-			require.NoError(t, err)
-			aScheduleB := wapcutils.ScheduleInvocationRequest{
-				Invoke: types.InvokeActorRequest{
-					ActorID:   "b",
-					ModuleID:  "test-module",
-					Operation: "scheduleInvocation",
-					Payload:   marshaledBScheduleA,
-				},
-				AfterMillis: 1000,
-			}
-			marshaledAScheduleB, err := json.Marshal(aScheduleB)
+			marshaledSelfTimerReq, err := json.Marshal(selfTimerReq)
 			require.NoError(t, err)
 
-			// In addition, tell a to schedule an invocation on itself to ensure we
-			// can support "self timers".
-			aScheduleA := wapcutils.ScheduleInvocationRequest{
-				Invoke: types.InvokeActorRequest{
-					ActorID:   "a",
-					ModuleID:  "test-module",
-					Operation: "inc",
-					Payload:   nil,
-				},
-				AfterMillis: 1000,
-			}
-			marshaledAScheduleA, err := json.Marshal(aScheduleA)
-			require.NoError(t, err)
-
-			// Schedule both the a::a invocation and the a::b::a invocation.
+			// Schedule self increment in 1s.
 			_, err = env.
-				InvokeActor(ctx, ns, "a", "test-module", "scheduleInvocation", marshaledAScheduleB, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			_, err = env.
-				InvokeActor(ctx, ns, "a", "test-module", "scheduleInvocation", marshaledAScheduleA, types.CreateIfNotExist{})
+				InvokeActor(ctx, ns, "a", "test-module", "scheduleSelfTimer", marshaledSelfTimerReq, types.CreateIfNotExist{})
 			require.NoError(t, err)
 
 			// Make sure a is 0 immediately after scheduling.
@@ -511,21 +477,15 @@ func TestScheduleInvocationHostFunction(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, int64(0), getCount(t, result))
 
-			// Wait for both the a::a and a::b::a invocations to run.
+			// Wait for timer to fire.
 			for {
 				result, err := env.
 					InvokeActor(ctx, ns, "a", "test-module", "getCount", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
-				if getCount(t, result) != int64(2) {
+				if getCount(t, result) != int64(1) {
 					time.Sleep(100 * time.Millisecond)
 					continue
 				}
-
-				// We didn't ever schedule an inc for b so it should remain zero.
-				result, err = env.
-					InvokeActor(ctx, ns, "b", "test-module", "getCount", nil, types.CreateIfNotExist{})
-				require.NoError(t, err)
-				require.Equal(t, int64(0), getCount(t, result))
 				break
 			}
 		}
@@ -852,7 +812,7 @@ type testModule struct {
 
 func (tm testModule) Instantiate(
 	ctx context.Context,
-	id string,
+	reference types.ActorReferenceVirtual,
 	payload []byte,
 	host HostCapabilities,
 ) (Actor, error) {
@@ -920,12 +880,12 @@ func (ta *testActor) Invoke(
 			return nil, err
 		}
 		return ta.host.InvokeActor(ctx, req)
-	case "scheduleInvocation":
-		var req wapcutils.ScheduleInvocationRequest
+	case "scheduleSelfTimer":
+		var req wapcutils.ScheduleSelfTimer
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, err
 		}
-		err := ta.host.ScheduleInvokeActor(ctx, req)
+		err := ta.host.ScheduleSelfTimer(ctx, req)
 		return nil, err
 	case "invokeCustomHostFn":
 		return ta.host.CustomFn(ctx, string(payload), payload)
@@ -944,7 +904,7 @@ type testStreamModule struct {
 
 func (tm testStreamModule) Instantiate(
 	ctx context.Context,
-	id string,
+	reference types.ActorReferenceVirtual,
 	payload []byte,
 	host HostCapabilities,
 ) (Actor, error) {

@@ -13,9 +13,9 @@ import (
 	"github.com/richardartoul/nola/wapcutils"
 )
 
-// hostFnActorIDCtxKey is the key that is used to store/retrieve the actorID field
-// from the context.
-type hostFnActorIDCtxKey struct{}
+// hostFnActorReferenceCtxKey is the key that is used to store/retrieve the actor reference
+// field from the context.
+type hostFnActorReferenceCtxKey struct{}
 
 // hostFnActorTxnKey is the key that is used to store/retrieve the actor's per-invocation
 // lazyTransaction from the context.
@@ -26,6 +26,7 @@ type hostFnActorTxnKey struct{}
 func newHostFnRouter(
 	reg registry.Registry,
 	environment Environment,
+	activations *activations,
 	customHostFns map[string]func([]byte) ([]byte, error),
 	actorNamespace string,
 	actorModuleID string,
@@ -37,9 +38,9 @@ func newHostFnRouter(
 		wapcOperation string,
 		wapcPayload []byte,
 	) ([]byte, error) {
-		actorID, err := extractActorID(ctx)
+		actorRef, err := extractActorRef(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("error extracting actorID from context: %w", err)
+			return nil, fmt.Errorf("error extracting actor reference from context: %w", err)
 		}
 
 		switch wapcOperation {
@@ -89,17 +90,12 @@ func newHostFnRouter(
 				ctx, actorNamespace, req.ActorID, req.ModuleID,
 				req.Operation, req.Payload, req.CreateIfNotExist)
 
-		case wapcutils.ScheduleInvocationOperationName:
-			var req wapcutils.ScheduleInvocationRequest
+		case wapcutils.ScheduleSelfTimerOperationName:
+			var req wapcutils.ScheduleSelfTimer
 			if err := json.Unmarshal(wapcPayload, &req); err != nil {
 				return nil, fmt.Errorf(
 					"error unmarshaling ScheduleInvocationRequest: %w, payload: %s",
 					err, string(wapcPayload))
-			}
-
-			if req.Invoke.ActorID == "" {
-				// Omitted if the actor wants to schedule a delayed invocation (timer) for itself.
-				req.Invoke.ActorID = actorID
 			}
 
 			// TODO: When the actor gets GC'd (which is not currently implemented), this
@@ -108,15 +104,16 @@ func newHostFnRouter(
 			//       killed.
 			time.AfterFunc(time.Duration(req.AfterMillis)*time.Millisecond, func() {
 				// Copy the payload to make sure its safe to retain across invocations.
-				payloadCopy := make([]byte, len(req.Invoke.Payload))
-				copy(payloadCopy, req.Invoke.Payload)
-				_, err := environment.InvokeActor(
-					ctx, actorNamespace, req.Invoke.ActorID, req.Invoke.ModuleID,
-					req.Invoke.Operation, payloadCopy, req.Invoke.CreateIfNotExist)
+				payloadCopy := make([]byte, len(req.Payload))
+				copy(payloadCopy, req.Payload)
+				// TODO: Fix generation number.
+				reader, err := activations.invoke(context.Background(), actorRef, req.Operation, nil, payloadCopy, true)
+				if err == nil {
+					defer reader.Close()
+				}
 				if err != nil {
 					log.Printf(
-						"error performing scheduled invocation from actor: %s to actor: %s for operation: %s, err: %v\n",
-						actorID, req.Invoke.ActorID, req.Invoke.Operation, err)
+						"error firing timer for actor %s, err: %v\n", actorRef, err)
 				}
 			})
 
@@ -137,19 +134,16 @@ func newHostFnRouter(
 	}
 }
 
-func extractActorID(ctx context.Context) (string, error) {
-	actorIDIface := ctx.Value(hostFnActorIDCtxKey{})
-	if actorIDIface == nil {
-		return "", fmt.Errorf("wazeroHostFnRouter: could not find non-empty actor ID in context")
+func extractActorRef(ctx context.Context) (types.ActorReferenceVirtual, error) {
+	actorRefIface := ctx.Value(hostFnActorReferenceCtxKey{})
+	if actorRefIface == nil {
+		return nil, fmt.Errorf("wazeroHostFnRouter: could not find non-empty actor reference in context")
 	}
-	actorID, ok := actorIDIface.(string)
+	actorRef, ok := actorRefIface.(types.ActorReferenceVirtual)
 	if !ok {
-		return "", fmt.Errorf("wazeroHostFnRouter: wrong type for actor ID in context: %T", actorIDIface)
+		return nil, fmt.Errorf("wazeroHostFnRouter: wrong type for actor reference in context: %T", actorRef)
 	}
-	if actorID == "" {
-		return "", fmt.Errorf("wazeroHostFnRouter: could not find non-empty actor ID in context")
-	}
-	return actorID, nil
+	return actorRef, nil
 }
 
 func extractTransaction(ctx context.Context) (registry.ActorKVTransaction, error) {
@@ -170,16 +164,16 @@ type wazeroModule struct {
 
 func (w wazeroModule) Instantiate(
 	ctx context.Context,
-	id string,
+	reference types.ActorReferenceVirtual,
 	instantiatePayload []byte,
 	host HostCapabilities,
 ) (Actor, error) {
-	obj, err := w.m.Instantiate(ctx, id)
+	obj, err := w.m.Instantiate(ctx, reference.ActorID().ID)
 	if err != nil {
 		return nil, err
 	}
 
-	return wazeroActor{obj, id}, nil
+	return wazeroActor{obj, reference}, nil
 }
 
 func (w wazeroModule) Close(ctx context.Context) error {
@@ -187,8 +181,8 @@ func (w wazeroModule) Close(ctx context.Context) error {
 }
 
 type wazeroActor struct {
-	obj durable.Object
-	id  string
+	obj       durable.Object
+	reference types.ActorReferenceVirtual
 }
 
 func (w wazeroActor) Invoke(
@@ -203,7 +197,7 @@ func (w wazeroActor) Invoke(
 	// per-module instead of per-actor, so we use the context.Context to "smuggle"
 	// the actor ID into each invocation. See newHostFnRouter in wazero.go to see
 	// the implementation.
-	ctx = context.WithValue(ctx, hostFnActorIDCtxKey{}, w.id)
+	ctx = context.WithValue(ctx, hostFnActorReferenceCtxKey{}, w.reference)
 
 	// This is required for modules that are using WASM/wazero so we can propagate a
 	// per-invocation transaction to the hostFnRouter. The reason this is required is

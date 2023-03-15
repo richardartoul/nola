@@ -10,6 +10,7 @@ import (
 
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 
 	"golang.org/x/sync/singleflight"
@@ -65,7 +66,7 @@ type FileCacheInstantiatePayload struct {
 
 func (f *FileCacheModule) Instantiate(
 	ctx context.Context,
-	id string,
+	reference types.ActorReferenceVirtual,
 	payload []byte,
 	host virtual.HostCapabilities,
 ) (virtual.Actor, error) {
