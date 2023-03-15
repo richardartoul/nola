@@ -108,26 +108,21 @@ func (a *activations) invoke(
 		return nil, err
 	}
 
-	// This is not a bug, we are *intentionally* doing pointer comparison here to ensure
-	// that the reference provided by the timer invocation is the exact same pointer /
-	// object reference as the activated actor's internal reference. This *guarantees*
-	// that a timer is "pinned" to the instance of the actor that created it and even
-	// if an actor with the same exact ID and generation count is activated, then deactivated,
-	// then reactivated again, a timer created by the first activation will not invoke a
-	// function on the second "instance" of the actor that did not create it. This is important
-	// because it ensures that actors that schedule timers then get GC'd and subsequently
-	// reactivated in-memory before that timer fires will not observe timers from previous
-	// activations of themselves even if those timers are still "scheduled" in the Go
-	// runtime.
-	//
-	// TODO: Update TestScheduleSelfTimers to actually assert on this behavior since it is
-	//       currently untested.
 	if isTimer && actor.reference() != reference {
-		// Timers should invoke already activated actors, but not instantiate them
-		// so if the current actor's generation count doesn't match the timer then
-		// we can just act like the actor is not activated and do nothing since this
-		// timer was created for a different activation of the actor that no longer
-		// exists.
+		// This is not a bug, we are *intentionally* doing pointer comparison here to ensure
+		// that the reference provided by the timer invocation is the exact same pointer /
+		// object reference as the activated actor's internal reference. This *guarantees*
+		// that a timer is "pinned" to the instance of the actor that created it and even
+		// if an actor with the same exact ID and generation count is activated, then deactivated,
+		// then reactivated again, a timer created by the first activation will not invoke a
+		// function on the second "instance" of the actor that did not create it. This is important
+		// because it ensures that actors that schedule timers then get GC'd and subsequently
+		// reactivated in-memory before that timer fires will not observe timers from previous
+		// activations of themselves even if those timers are still "scheduled" in the Go
+		// runtime.
+		//
+		// TODO: Update TestScheduleSelfTimers to actually assert on this behavior since it is
+		//       currently untested.
 		return nil, nil
 	}
 
