@@ -15,29 +15,26 @@ import (
 type hostCapabilities struct {
 	reg              registry.Registry
 	env              Environment
+	activations      *activations
 	customHostFns    map[string]func([]byte) ([]byte, error)
-	namespace        string
-	actorID          string
-	actorModuleID    string
+	reference        types.ActorReferenceVirtual
 	getServerStateFn func() (string, int64)
 }
 
 func newHostCapabilities(
 	reg registry.Registry,
 	env Environment,
+	activations *activations,
 	customHostFns map[string]func([]byte) ([]byte, error),
-	namespace string,
-	actorID string,
-	actorModuleID string,
+	reference types.ActorReferenceVirtual,
 	getServerStateFn func() (string, int64),
 ) HostCapabilities {
 	return &hostCapabilities{
 		reg:              reg,
 		env:              env,
+		activations:      activations,
 		customHostFns:    customHostFns,
-		namespace:        namespace,
-		actorID:          actorID,
-		actorModuleID:    actorModuleID,
+		reference:        reference,
 		getServerStateFn: getServerStateFn,
 	}
 }
@@ -48,7 +45,7 @@ func (h *hostCapabilities) BeginTransaction(
 	// Use lazy implementation because we create an implicit transaction for every
 	// invocation which would be extremely expensive if it were not for the fact that
 	// the transaction is never actually begun unless a KV operation is initiated.
-	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.namespace, h.actorID, h.actorModuleID)
+	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.reference)
 	return tr, nil
 }
 
@@ -57,7 +54,7 @@ func (h *hostCapabilities) Transact(
 	fn func(tr registry.ActorKVTransaction) (any, error),
 ) (any, error) {
 	// Use lazy implementation for same reason described in BeginTransaction() above.
-	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.namespace, h.actorID, h.actorModuleID)
+	tr := newLazyActorTransaction(h.reg, h.getServerStateFn, h.reference)
 	result, err := fn(tr)
 	if err != nil {
 		tr.Cancel(ctx)
@@ -74,34 +71,31 @@ func (h *hostCapabilities) InvokeActor(
 	req types.InvokeActorRequest,
 ) ([]byte, error) {
 	return h.env.InvokeActor(
-		ctx, h.namespace, req.ActorID, req.ModuleID,
+		ctx, h.reference.Namespace(), req.ActorID, req.ModuleID,
 		req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
-func (h *hostCapabilities) ScheduleInvokeActor(
+func (h *hostCapabilities) ScheduleSelfTimer(
 	ctx context.Context,
-	req wapcutils.ScheduleInvocationRequest,
+	req wapcutils.ScheduleSelfTimer,
 ) error {
-	if req.Invoke.ActorID == "" {
-		// Omitted if the actor wants to schedule a delayed invocation (timer) for itself.
-		req.Invoke.ActorID = h.actorID
-	}
+	// Copy the payload to make sure its safe to retain across invocations.
+	payloadCopy := make([]byte, len(req.Payload))
+	copy(payloadCopy, req.Payload)
 
 	// TODO: When the actor gets GC'd (which is not currently implemented), this
 	//       timer won't get GC'd with it. We should keep track of all outstanding
 	//       timers with the instantiation and terminate them if the actor is
 	//       killed.
 	time.AfterFunc(time.Duration(req.AfterMillis)*time.Millisecond, func() {
-		// Copy the payload to make sure its safe to retain across invocations.
-		payloadCopy := make([]byte, len(req.Invoke.Payload))
-		copy(payloadCopy, req.Invoke.Payload)
-		_, err := h.env.InvokeActor(
-			ctx, h.namespace, req.Invoke.ActorID, req.Invoke.ModuleID,
-			req.Invoke.Operation, req.Invoke.Payload, req.Invoke.CreateIfNotExist)
+		reader, err := h.activations.invoke(
+			context.Background(), h.reference, req.Operation, nil, payloadCopy, true)
+		if err == nil {
+			defer reader.Close()
+		}
 		if err != nil {
 			log.Printf(
-				"error performing scheduled invocation from actor: %s to actor: %s for operation: %s, err: %v\n",
-				h.actorID, req.Invoke.ActorID, req.Invoke.Operation, err)
+				"error firing timer for actor %s, err: %v\n", h.reference, err)
 		}
 	})
 
@@ -123,7 +117,7 @@ func (h *hostCapabilities) CustomFn(
 	}
 	return nil, fmt.Errorf(
 		"unknown host function: %s::%s::%s",
-		h.namespace, operation, payload)
+		h.reference.Namespace(), operation, payload)
 }
 
 // lazyActorTransaction wraps registry.ActorKVTransaction such that the transaction is not
@@ -132,9 +126,7 @@ type lazyActorTransaction struct {
 	// Dependencies.
 	store            registry.ActorStorage
 	getServerStateFn func() (string, int64)
-	namespace        string
-	actorID          string
-	moduleID         string
+	reference        types.ActorReferenceVirtual
 
 	// State.
 	//
@@ -147,16 +139,12 @@ type lazyActorTransaction struct {
 func newLazyActorTransaction(
 	store registry.ActorStorage,
 	getServerStateFn func() (string, int64),
-	namespace string,
-	actorID string,
-	moduleID string,
+	reference types.ActorReferenceVirtual,
 ) registry.ActorKVTransaction {
 	return &lazyActorTransaction{
 		store:            store,
 		getServerStateFn: getServerStateFn,
-		namespace:        namespace,
-		actorID:          actorID,
-		moduleID:         moduleID,
+		reference:        reference,
 	}
 }
 
@@ -236,7 +224,9 @@ func (l *lazyActorTransaction) maybeInitTr(
 
 		serverID, serverVersion := l.getServerStateFn()
 		l.tr, l.err = l.store.BeginTransaction(
-			ctx, l.namespace, l.actorID, l.moduleID, serverID, serverVersion)
+			ctx,
+			l.reference.Namespace(), l.reference.ActorID().ID, l.reference.ModuleID().ID,
+			serverID, serverVersion)
 	})
 	if l.err != nil {
 		return fmt.Errorf("maybeInitTr: error beginning lazy transaction: %w", l.err)

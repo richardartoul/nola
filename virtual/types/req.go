@@ -3,8 +3,7 @@ package types
 // InvokeActorRequest is the JSON struct that represents a request from an existing
 // actor to invoke an operation on another one.
 type InvokeActorRequest struct {
-	// ActorID is the ID of the target actor. Omit when being used inside of
-	// ScheduleInvocationRequest to target self.
+	// ActorID is the ID of the target actor.
 	ActorID string `json:"actor_id"`
 	// ModuleID is the ID of the module for which the actor should be activated.
 	ModuleID string `json:"module_id"`

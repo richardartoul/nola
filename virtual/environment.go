@@ -451,7 +451,7 @@ func (r *environment) InvokeActorDirectStream(
 			heartbeatResult.ServerVersion, serverVersion)
 	}
 
-	return r.activations.invoke(ctx, reference, operation, create.InstantiatePayload, payload)
+	return r.activations.invoke(ctx, reference, operation, create.InstantiatePayload, payload, false)
 }
 
 func (r *environment) InvokeWorker(
@@ -497,7 +497,7 @@ func (r *environment) InvokeWorkerStream(
 
 	// Workers provide none of the consistency / linearizability guarantees that actor's do, so we
 	// can bypass the registry entirely and just immediately invoke the function.
-	return r.activations.invoke(ctx, ref, operation, create.InstantiatePayload, payload)
+	return r.activations.invoke(ctx, ref, operation, create.InstantiatePayload, payload, false)
 }
 
 func (r *environment) Close() error {

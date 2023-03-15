@@ -77,11 +77,18 @@ func (a *activations) invoke(
 	operation string,
 	instantiatePayload []byte,
 	invokePayload []byte,
+	isTimer bool,
 ) (io.ReadCloser, error) {
 	// First check if the actor is already activated.
 	a.Lock()
 	actorF, ok := a._actors[reference.ActorID()]
 	if !ok {
+		if isTimer {
+			// Timers should invoke already activated actors, but not instantiate them
+			// so if the actor is not already activated then we're done.
+			return nil, nil
+		}
+
 		// Actor is not activated, so we can just activate it ourselves.
 		return a.invokeNotExistWithLock(
 			ctx, reference, operation, instantiatePayload, invokePayload, nil)
@@ -101,9 +108,27 @@ func (a *activations) invoke(
 		return nil, err
 	}
 
+	if isTimer && actor.reference() != reference {
+		// This is not a bug, we are *intentionally* doing pointer comparison here to ensure
+		// that the reference provided by the timer invocation is the exact same pointer /
+		// object reference as the activated actor's internal reference. This *guarantees*
+		// that a timer is "pinned" to the instance of the actor that created it and even
+		// if an actor with the same exact ID and generation count is activated, then deactivated,
+		// then reactivated again, a timer created by the first activation will not invoke a
+		// function on the second "instance" of the actor that did not create it. This is important
+		// because it ensures that actors that schedule timers then get GC'd and subsequently
+		// reactivated in-memory before that timer fires will not observe timers from previous
+		// activations of themselves even if those timers are still "scheduled" in the Go
+		// runtime.
+		//
+		// TODO: Update TestScheduleSelfTimers to actually assert on this behavior since it is
+		//       currently untested.
+		return nil, nil
+	}
+
 	// The actor is/was activated without error, but we still need to check the generation
 	// count before we're allowed to invoke it.
-	if actor.reference.Generation() >= reference.Generation() {
+	if actor.reference().Generation() >= reference.Generation() {
 		// The activated actor's generation count is high enough, we can just invoke now.
 		return actor.invoke(ctx, operation, invokePayload, false)
 	}
@@ -136,7 +161,7 @@ func (a *activations) invoke(
 	// The future has changed, the generation count should be high enough now and
 	// we can just ignore the old actor (whichever Goroutine increased the generation
 	// count will have closed it already)
-	if actor.reference.Generation() >= reference.Generation() {
+	if actor.reference().Generation() >= reference.Generation() {
 		return actor.invoke(ctx, operation, invokePayload, false)
 	}
 
@@ -185,10 +210,8 @@ func (a *activations) invokeNotExistWithLock(
 		}
 
 		hostCapabilities := newHostCapabilities(
-			a.registry, a.environment, a.customHostFns,
-			reference.Namespace(), reference.ActorID().ID, reference.ModuleID().ID, a.getServerState)
-
-		iActor, err := module.Instantiate(ctx, reference.ActorID().ID, instantiatePayload, hostCapabilities)
+			a.registry, a.environment, a, a.customHostFns, reference, a.getServerState)
+		iActor, err := module.Instantiate(ctx, reference, instantiatePayload, hostCapabilities)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"error instantiating actor: %s from module: %s, err: %w",
@@ -250,7 +273,7 @@ func (a *activations) ensureModule(
 		}
 
 		hostFn := newHostFnRouter(
-			a.registry, a.environment, a.customHostFns, moduleID.Namespace, moduleID.ID)
+			a.registry, a.environment, a, a.customHostFns, moduleID.Namespace, moduleID.ID)
 		if len(moduleBytes) > 0 {
 			// WASM byte codes exists for the module so we should just use that.
 			// TODO: Hard-coded for now, but we should support using different runtimes with
@@ -331,10 +354,10 @@ type activatedActor struct {
 
 	// Don't access directly from outside this structs own method implementations,
 	// use methods like invoke() and close() instead.
-	_a        Actor
-	reference types.ActorReferenceVirtual
-	host      HostCapabilities
-	closed    bool
+	_a         Actor
+	_reference types.ActorReferenceVirtual
+	_host      HostCapabilities
+	_closed    bool
 }
 
 func newActivatedActor(
@@ -345,9 +368,9 @@ func newActivatedActor(
 	instantiatePayload []byte,
 ) (*activatedActor, error) {
 	a := &activatedActor{
-		_a:        actor,
-		reference: reference,
-		host:      host,
+		_a:         actor,
+		_reference: reference,
+		_host:      host,
 	}
 
 	_, err := a.invoke(ctx, wapcutils.StartupOperationName, instantiatePayload, false)
@@ -357,6 +380,9 @@ func newActivatedActor(
 	}
 
 	return a, nil
+}
+func (a *activatedActor) reference() types.ActorReferenceVirtual {
+	return a._reference
 }
 
 func (a *activatedActor) invoke(
@@ -370,15 +396,15 @@ func (a *activatedActor) invoke(
 		defer a.Unlock()
 	}
 
-	if a.closed {
-		return nil, fmt.Errorf("tried to invoke actor: %v which has already been closed", a.reference)
+	if a._closed {
+		return nil, fmt.Errorf("tried to invoke actor: %v which has already been closed", a._reference)
 	}
 
 	// Workers can't have KV storage because they're not global singletons like actors
 	// are. They're also not registered with the Registry explicitly, so we can skip
 	// this step in that case.
-	if a.reference.ActorID().IDType != types.IDTypeWorker {
-		result, err := a.host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
+	if a.reference().ActorID().IDType != types.IDTypeWorker {
+		result, err := a._host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
 			streamActor, ok := a._a.(ActorStream)
 			if ok {
 				// This actor has support for the streaming interface so we should use that
@@ -425,7 +451,7 @@ func (a *activatedActor) invoke(
 func (a *activatedActor) close(ctx context.Context) error {
 	a.Lock()
 	defer a.Unlock()
-	if a.closed {
+	if a._closed {
 		return nil
 	}
 
@@ -435,7 +461,7 @@ func (a *activatedActor) close(ctx context.Context) error {
 	if err != nil {
 		log.Printf(
 			"error invoking shutdown operation for actor: %v during close: %v",
-			a.reference, err)
+			a._reference, err)
 	}
 
 	return a._a.Close(ctx)

@@ -162,7 +162,7 @@ type Module interface {
 	// Instantiate instantiates a new in-memory actor from the module.
 	Instantiate(
 		ctx context.Context,
-		id string,
+		reference types.ActorReferenceVirtual,
 		payload []byte,
 		host HostCapabilities,
 	) (Actor, error)
@@ -213,9 +213,10 @@ type HostCapabilities interface {
 	// InvokeActor invokes a function on the specified actor.
 	InvokeActor(context.Context, types.InvokeActorRequest) ([]byte, error)
 
-	// ScheduleInvokeActor is the same as InvokeActor, except the invocation is scheduled
-	// in memory to be run later.
-	ScheduleInvokeActor(context.Context, wapcutils.ScheduleInvocationRequest) error
+	// ScheduleSelfTimer is the same as InvokeActor, except the invocation is scheduled
+	// in memory to be run later on the calling actor, and only if the actor is still
+	// instantiated / activated in-memory when the timer fires.
+	ScheduleSelfTimer(context.Context, wapcutils.ScheduleSelfTimer) error
 
 	// CustomFn invoke a custom (user defined) host function. This will only work if the
 	// custom host function was registered with the environment when it was instantiated.
