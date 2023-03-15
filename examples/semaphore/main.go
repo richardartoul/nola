@@ -192,9 +192,7 @@ func decrKV(kv kv) error {
 
 var scheduleHousecleanBytes = []byte(`
 {
-	"invocation": {
-		"operation": "houseclean",
-	},
+	"operation": "houseclean",
 	"after_millis": 10000
 }`)
 

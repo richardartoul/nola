@@ -94,18 +94,25 @@ func newHostFnRouter(
 			var req wapcutils.ScheduleSelfTimer
 			if err := json.Unmarshal(wapcPayload, &req); err != nil {
 				return nil, fmt.Errorf(
-					"error unmarshaling ScheduleInvocationRequest: %w, payload: %s",
+					"error unmarshaling ScheduleSelfTimer: %w, payload: %s",
 					err, string(wapcPayload))
 			}
+			if req.Operation == "" {
+				return nil, fmt.Errorf("cant schedule self timer with empty operation name")
+			}
+			if req.AfterMillis <= 0 {
+				return nil, fmt.Errorf("cant schedule self timer with AfterMillis <= 0")
+			}
+
+			// Copy the payload to make sure its safe to retain across invocations.
+			payloadCopy := make([]byte, len(req.Payload))
+			copy(payloadCopy, req.Payload)
 
 			// TODO: When the actor gets GC'd (which is not currently implemented), this
 			//       timer won't get GC'd with it. We should keep track of all outstanding
 			//       timers with the instantiation and terminate them if the actor is
 			//       killed.
 			time.AfterFunc(time.Duration(req.AfterMillis)*time.Millisecond, func() {
-				// Copy the payload to make sure its safe to retain across invocations.
-				payloadCopy := make([]byte, len(req.Payload))
-				copy(payloadCopy, req.Payload)
 				// TODO: Fix generation number.
 				reader, err := activations.invoke(context.Background(), actorRef, req.Operation, nil, payloadCopy, true)
 				if err == nil {
