@@ -488,6 +488,9 @@ func TestScheduleSelfTimers(t *testing.T) {
 				}
 				break
 			}
+
+			// TODO: Wait for actor to be evicted and then make sure timer stops.
+			// TODO: Make sure outstanding timer does not fire even if actor is evicted.
 		}
 	}
 
