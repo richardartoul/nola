@@ -91,7 +91,14 @@ func (h *hostCapabilities) ScheduleSelfTimer(
 		reader, err := h.activations.invoke(
 			context.Background(), h.reference, req.Operation, nil, payloadCopy, true)
 		if err == nil {
-			defer reader.Close()
+			// This is weird, but the reader can be nil in the case where the actor the timer is
+			// associated with is no longer activated in memory anymore.
+			//
+			// TestScheduleSelfTimersAndGC intentionally triggers this behavior to ensure that timers
+			// never trigger reactivation of deactivated actors.
+			if reader != nil {
+				defer reader.Close()
+			}
 		}
 		if err != nil {
 			log.Printf(

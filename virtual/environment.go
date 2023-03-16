@@ -81,6 +81,16 @@ type EnvironmentOptions struct {
 	// developeres leveraging NOLA as a library to extend the environment
 	// with additional host functionality.
 	CustomHostFns map[string]func([]byte) ([]byte, error)
+
+	// GCActorsAfterDurationWithNoInvocations is the duration after which an
+	// activated actor that receives no invocations will be GC'd out of memory.
+	//
+	// The actor's shutdown function will be invoked before the actor is GC'd.
+	//
+	// A value of 0 will be ignored and replaced with the default value of
+	// DefaultGCActorsAfterDurationWithNoInvocations. To disable this
+	// functionality entirely, just use a really large value.
+	GCActorsAfterDurationWithNoInvocations time.Duration
 }
 
 // NewDNSRegistryEnvironment is a convenience function that creates a virtual environment backed
@@ -153,6 +163,11 @@ func (e *EnvironmentOptions) Validate() error {
 	if err := e.Discovery.Validate(); err != nil {
 		return fmt.Errorf("error validating discovery options: %w", err)
 	}
+
+	if e.GCActorsAfterDurationWithNoInvocations < 0 {
+		return fmt.Errorf("GCActorsAfterDurationWithNoInvocations must be >= 0")
+	}
+
 	return nil
 }
 
@@ -166,6 +181,9 @@ func NewEnvironment(
 ) (Environment, error) {
 	if opts.ActivationCacheTTL == 0 {
 		opts.ActivationCacheTTL = defaultActivationsCacheTTL
+	}
+	if opts.GCActorsAfterDurationWithNoInvocations == 0 {
+		opts.GCActorsAfterDurationWithNoInvocations = time.Minute
 	}
 
 	if err := opts.Validate(); err != nil {
@@ -205,7 +223,8 @@ func NewEnvironment(
 		serverID:        serverID,
 		opts:            opts,
 	}
-	activations := newActivations(reg, env, env.opts.CustomHostFns)
+	activations := newActivations(
+		reg, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
 	env.activations = activations
 
 	// Skip confusing log if dnsregistry is being used since it doesn't use the registry-based

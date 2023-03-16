@@ -116,7 +116,14 @@ func newHostFnRouter(
 				// TODO: Fix generation number.
 				reader, err := activations.invoke(context.Background(), actorRef, req.Operation, nil, payloadCopy, true)
 				if err == nil {
-					defer reader.Close()
+					if reader != nil {
+						// This is weird, but the reader can be nil in the case where the actor the timer is
+						// associated with is no longer activated in memory anymore.
+						//
+						// TestScheduleSelfTimersAndGC intentionally triggers this behavior to ensure that timers
+						// never trigger reactivation of deactivated actors.
+						defer reader.Close()
+					}
 				}
 				if err != nil {
 					log.Printf(
