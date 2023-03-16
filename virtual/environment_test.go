@@ -31,24 +31,31 @@ var (
 		},
 	}
 
+	testDiscovery = DiscoveryOptions{
+		DiscoveryType: DiscoveryTypeLocalHost,
+	}
+	// Override with a low default value to prevent tests from being slow.
+	testGCActorsAfterDurationWithNoInvocations = 2 * time.Second
+
 	utilWasmBytes   []byte
 	defaultOptsWASM = EnvironmentOptions{
-		Discovery: DiscoveryOptions{
-			DiscoveryType: DiscoveryTypeLocalHost,
-		},
-		CustomHostFns: customHostFns,
+		Discovery:                              testDiscovery,
+		CustomHostFns:                          customHostFns,
+		GCActorsAfterDurationWithNoInvocations: testGCActorsAfterDurationWithNoInvocations,
 	}
 	defaultOptsGoByte = EnvironmentOptions{
-		Discovery: DiscoveryOptions{
-			DiscoveryType: DiscoveryTypeLocalHost,
-		},
-		CustomHostFns: customHostFns,
+		Discovery:                              testDiscovery,
+		CustomHostFns:                          customHostFns,
+		GCActorsAfterDurationWithNoInvocations: testGCActorsAfterDurationWithNoInvocations,
 	}
 	defaultOptsGoStream = EnvironmentOptions{
-		Discovery: DiscoveryOptions{
-			DiscoveryType: DiscoveryTypeLocalHost,
-		},
-		CustomHostFns: customHostFns,
+		Discovery:                              testDiscovery,
+		CustomHostFns:                          customHostFns,
+		GCActorsAfterDurationWithNoInvocations: testGCActorsAfterDurationWithNoInvocations,
+	}
+	defaultOptsGoDNS = EnvironmentOptions{
+		CustomHostFns:                          customHostFns,
+		GCActorsAfterDurationWithNoInvocations: testGCActorsAfterDurationWithNoInvocations,
 	}
 )
 
@@ -86,7 +93,7 @@ func TestSimpleActor(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false)
+	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCreateIfNotExist tests that the CreateIfNotExist argument can be used to invoke an actor and
@@ -113,7 +120,7 @@ func TestCreateIfNotExist(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false)
+	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCreateIfNotExistWithInstantiatePayload is the same as TestCreateIfNotExist
@@ -146,7 +153,7 @@ func TestCreateIfNotExistWithInstantiatePayload(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false)
+	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestSimpleWorker is a basic sanity test that verifies the most basic flow for workers.
@@ -182,7 +189,7 @@ func TestSimpleWorker(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false)
+	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestGenerationCountIncInvalidatesActivation ensures that the registry returning a higher
@@ -226,7 +233,7 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, true)
+	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestKVHostFunctions tests whether the KV interfaces from the registry can be used properly as host functions
@@ -285,7 +292,7 @@ func TestKVHostFunctions(t *testing.T) {
 	// Run the test twice with two different environments, but the same registry
 	// to simulate a node restarting and being re-initialized with the same registry
 	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn, true)
+	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestKVTransactions tests whether the KV interfaces from the registry can be used
@@ -336,7 +343,7 @@ func TestKVTransactions(t *testing.T) {
 	// Run the test twice with two different environments, but the same registry
 	// to simulate a node restarting and being re-initialized with the same registry
 	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn, true)
+	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestKVHostFunctionsActorsSeparatedRegression is a regression test that ensures each
@@ -381,7 +388,7 @@ func TestKVHostFunctionsActorsSeparatedRegression(t *testing.T) {
 			require.Equal(t, int64(1), val)
 		}
 	}
-	runWithDifferentConfigs(t, testFn, true)
+	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestInvokeActorHostFunction tests whether the invoke actor host function can be used
@@ -449,24 +456,28 @@ func TestInvokeActorHostFunction(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false)
+	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
-// TestScheduleSelfTimers tests whether actors can schedule invocations for themselves to run
-// sometime in the future as a way to implement timers.
-func TestScheduleSelfTimers(t *testing.T) {
+// TestScheduleSelfTimersAndGC tests whether actors can schedule invocations for themselves to run
+// sometime in the future as a way to implement timers. It also tests the functionality of GCing
+// actors after they receive no invocations for a period of time, as well as the interaction between
+// timers and GC to ensure that timers that fire after an actor has been GC'd do not reinstantiate the actor.
+func TestScheduleSelfTimersAndGC(t *testing.T) {
+	gcDuration := 100 * time.Millisecond
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
 		ctx := context.Background()
 		for _, ns := range []string{"ns-1", "ns-2"} {
 			selfTimerReq := wapcutils.ScheduleSelfTimer{
-				Operation:   "inc",
-				Payload:     nil,
-				AfterMillis: 1000,
+				Operation: "inc",
+				Payload:   nil,
+				// Make the timer fire before the actor is GC'd.
+				AfterMillis: int(gcDuration.Milliseconds()) / 2,
 			}
 			marshaledSelfTimerReq, err := json.Marshal(selfTimerReq)
 			require.NoError(t, err)
 
-			// Schedule self increment in 1s.
+			// Schedule self increment in future.
 			_, err = env.
 				InvokeActor(ctx, ns, "a", "test-module", "scheduleSelfTimer", marshaledSelfTimerReq, types.CreateIfNotExist{})
 			require.NoError(t, err)
@@ -483,18 +494,75 @@ func TestScheduleSelfTimers(t *testing.T) {
 					InvokeActor(ctx, ns, "a", "test-module", "getCount", nil, types.CreateIfNotExist{})
 				require.NoError(t, err)
 				if getCount(t, result) != int64(1) {
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(10 * time.Millisecond)
 					continue
 				}
 				break
 			}
 
-			// TODO: Wait for actor to be evicted and then make sure timer stops.
-			// TODO: Make sure outstanding timer does not fire even if actor is evicted.
+			numActors := env.numActivatedActors()
+			require.Equal(t, 1, numActors)
+			// Wait for actor to be GC'd.
+			for {
+				numActors := env.numActivatedActors()
+				if numActors != 0 {
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
+
+				break
+			}
+
+			timerDelay := gcDuration * 3
+			selfTimerReq = wapcutils.ScheduleSelfTimer{
+				Operation: "inc",
+				Payload:   nil,
+				// Make the timer fires after the actor is GC'd.
+				AfterMillis: int(timerDelay.Milliseconds()),
+			}
+			marshaledSelfTimerReq, err = json.Marshal(selfTimerReq)
+			require.NoError(t, err)
+
+			// Schedule self increment in future.
+			_, err = env.
+				InvokeActor(ctx, ns, "a", "test-module", "scheduleSelfTimer", marshaledSelfTimerReq, types.CreateIfNotExist{})
+			require.NoError(t, err)
+
+			// Make sure a is 0 immediately after scheduling.
+			result, err = env.
+				InvokeActor(ctx, ns, "a", "test-module", "getCount", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			require.Equal(t, int64(0), getCount(t, result))
+
+			numActors = env.numActivatedActors()
+			require.Equal(t, 1, numActors)
+			// Wait for actor to be GC'd.
+			for {
+				numActors := env.numActivatedActors()
+				if numActors != 0 {
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
+
+				break
+			}
+
+			gcTime := time.Now()
+
+			// Make sure the timer does not reactivate the actor.
+			for time.Since(gcTime) < timerDelay {
+				numActors := env.numActivatedActors()
+				if numActors != 0 {
+					t.Fatal("actor was reactivated by timer!")
+				}
+
+				time.Sleep(10 * time.Millisecond)
+			}
+
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false)
+	runWithDifferentConfigs(t, testFn, false, gcDuration)
 }
 
 // TestInvokeActorHostFunctionDeadlockRegression is a regression test to ensure that an actor can invoke
@@ -516,7 +584,7 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	runWithDifferentConfigs(t, testFn, false)
+	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestHeartbeatAndSelfHealing tests the interaction between the service discovery / heartbeating system
@@ -664,7 +732,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, true)
+	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCustomHostFns tests the ability for users to provide custom host functions that
@@ -678,7 +746,7 @@ func TestCustomHostFns(t *testing.T) {
 		require.Equal(t, []byte("ok"), result)
 	}
 
-	runWithDifferentConfigs(t, testFn, false)
+	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestGoModulesRegisterTwice ensures that writing modules in pure Go and registering
@@ -743,8 +811,12 @@ func runWithDifferentConfigs(
 	t *testing.T,
 	testFn func(t *testing.T, reg registry.Registry, env Environment),
 	skipDNS bool,
+	gcDurationOverride time.Duration,
 ) {
 	t.Run("wasm-local", func(t *testing.T) {
+		opts := defaultOptsWASM
+		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
+
 		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 		require.NoError(t, err)
@@ -759,6 +831,9 @@ func runWithDifferentConfigs(
 	})
 
 	t.Run("go-local-byte", func(t *testing.T) {
+		opts := defaultOptsGoByte
+		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
+
 		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
 		require.NoError(t, err)
@@ -773,6 +848,9 @@ func runWithDifferentConfigs(
 	})
 
 	t.Run("go-local-stream", func(t *testing.T) {
+		opts := defaultOptsGoStream
+		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
+
 		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoStream)
 		require.NoError(t, err)
@@ -794,9 +872,10 @@ func runWithDifferentConfigs(
 
 	if !skipDNS {
 		t.Run("go-dns", func(t *testing.T) {
-			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), EnvironmentOptions{
-				CustomHostFns: customHostFns,
-			})
+			opts := defaultOptsGoDNS
+			opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
+
+			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), defaultOptsGoDNS)
 			require.NoError(t, err)
 			defer env.Close()
 

@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
 	"github.com/richardartoul/nola/virtual/futures"
@@ -38,13 +39,19 @@ type activations struct {
 	environment   Environment
 	goModules     map[types.NamespacedIDNoType]Module
 	customHostFns map[string]func([]byte) ([]byte, error)
+	gcActorsAfter time.Duration
 }
 
 func newActivations(
 	registry registry.Registry,
 	environment Environment,
 	customHostFns map[string]func([]byte) ([]byte, error),
+	gcActorsAfter time.Duration,
 ) *activations {
+	if gcActorsAfter < 0 {
+		panic(fmt.Sprintf("[invariant violated] illegal value for gcActorsAfter: %d", gcActorsAfter))
+	}
+
 	return &activations{
 		_modules: make(map[types.NamespacedID]Module),
 		_actors:  make(map[types.NamespacedActorID]futures.Future[*activatedActor]),
@@ -53,6 +60,7 @@ func newActivations(
 		environment:   environment,
 		goModules:     make(map[types.NamespacedIDNoType]Module),
 		customHostFns: customHostFns,
+		gcActorsAfter: gcActorsAfter,
 	}
 }
 
@@ -86,6 +94,7 @@ func (a *activations) invoke(
 		if isTimer {
 			// Timers should invoke already activated actors, but not instantiate them
 			// so if the actor is not already activated then we're done.
+			a.Unlock()
 			return nil, nil
 		}
 
@@ -130,7 +139,7 @@ func (a *activations) invoke(
 	// count before we're allowed to invoke it.
 	if actor.reference().Generation() >= reference.Generation() {
 		// The activated actor's generation count is high enough, we can just invoke now.
-		return actor.invoke(ctx, operation, invokePayload, false)
+		return actor.invoke(ctx, operation, invokePayload, false, false)
 	}
 
 	// The activated actor's generation count is too low. We need to reinstantiate it.
@@ -162,7 +171,7 @@ func (a *activations) invoke(
 	// we can just ignore the old actor (whichever Goroutine increased the generation
 	// count will have closed it already)
 	if actor.reference().Generation() >= reference.Generation() {
-		return actor.invoke(ctx, operation, invokePayload, false)
+		return actor.invoke(ctx, operation, invokePayload, false, false)
 	}
 
 	// Something weird happened. Just return an error and let the caller retry.
@@ -223,7 +232,29 @@ func (a *activations) invokeNotExistWithLock(
 				reference.ActorID(), reference.ModuleID(), err)
 		}
 
-		actor, err = a.newActivatedActor(ctx, iActor, reference, hostCapabilities, instantiatePayload)
+		onGc := func() {
+			a.Lock()
+			defer a.Unlock()
+
+			existing, ok := a._actors[reference.ActorID()]
+			if !ok {
+				// Actor has already been removed from the map, nothing else to do.
+				return
+			}
+
+			if existing != fut {
+				// Pointer comparison indicates that while the actor is in the map, its not
+				// the *same* instance that the GC function is running for, therefore we should
+				// just ignore it and do nothing.
+				return
+			}
+
+			// The actor is in the map and the future pointers match so we know its the same
+			// instance of the actor that created this onGc function so we should remove it.
+			delete(a._actors, reference.ActorID())
+		}
+		actor, err = a.newActivatedActor(
+			ctx, iActor, reference, hostCapabilities, instantiatePayload, onGc)
 		if err != nil {
 			return nil, fmt.Errorf("error activating actor: %w", err)
 		}
@@ -236,7 +267,7 @@ func (a *activations) invokeNotExistWithLock(
 		return nil, err
 	}
 
-	return actor.invoke(ctx, operation, invokePayload, false)
+	return actor.invoke(ctx, operation, invokePayload, false, false)
 }
 
 func (a *activations) ensureModule(
@@ -320,8 +351,10 @@ func (a *activations) newActivatedActor(
 	reference types.ActorReferenceVirtual,
 	host HostCapabilities,
 	instantiatePayload []byte,
+	onGc func(),
 ) (*activatedActor, error) {
-	return newActivatedActor(ctx, actor, reference, host, instantiatePayload)
+	return newActivatedActor(
+		ctx, actor, reference, host, instantiatePayload, a.gcActorsAfter, onGc)
 }
 
 func (a *activations) numActivatedActors() int {
@@ -354,10 +387,13 @@ type activatedActor struct {
 
 	// Don't access directly from outside this structs own method implementations,
 	// use methods like invoke() and close() instead.
-	_a         Actor
-	_reference types.ActorReferenceVirtual
-	_host      HostCapabilities
-	_closed    bool
+	_a          Actor
+	_reference  types.ActorReferenceVirtual
+	_host       HostCapabilities
+	_closed     bool
+	_lastInvoke time.Time
+	_gcAfter    time.Duration
+	_gcTimer    *time.Timer
 }
 
 func newActivatedActor(
@@ -366,14 +402,42 @@ func newActivatedActor(
 	reference types.ActorReferenceVirtual,
 	host HostCapabilities,
 	instantiatePayload []byte,
+	gcAfter time.Duration,
+	onGc func(),
 ) (*activatedActor, error) {
 	a := &activatedActor{
-		_a:         actor,
-		_reference: reference,
-		_host:      host,
+		_a:          actor,
+		_reference:  reference,
+		_host:       host,
+		_lastInvoke: time.Now(),
+		_gcAfter:    gcAfter,
 	}
 
-	_, err := a.invoke(ctx, wapcutils.StartupOperationName, instantiatePayload, false)
+	var gcFunc func()
+	gcFunc = func() {
+		a.Lock()
+		defer a.Unlock()
+
+		if a._closed {
+			// Actor is already closed, nothing to do.
+			return
+		}
+
+		if time.Since(a._lastInvoke) > gcAfter {
+			// The actor has not been invoked recently, GC it.
+			if err := a.closeWithLock(context.Background()); err != nil {
+				log.Printf("error closing GC'd actor: %v", err)
+			}
+			onGc()
+		} else {
+			// Actor was invoked recently, schedule a new GC check later.
+			time.AfterFunc(gcAfter, gcFunc)
+		}
+	}
+	gcTimer := time.AfterFunc(gcAfter, gcFunc)
+	a._gcTimer = gcTimer
+
+	_, err := a.invoke(ctx, wapcutils.StartupOperationName, instantiatePayload, false, false)
 	if err != nil {
 		a.close(ctx)
 		return nil, fmt.Errorf("newActivatedActor: error invoking startup function: %w", err)
@@ -390,6 +454,7 @@ func (a *activatedActor) invoke(
 	operation string,
 	payload []byte,
 	alreadyLocked bool,
+	isClosing bool,
 ) (io.ReadCloser, error) {
 	if !alreadyLocked {
 		a.Lock()
@@ -398,6 +463,19 @@ func (a *activatedActor) invoke(
 
 	if a._closed {
 		return nil, fmt.Errorf("tried to invoke actor: %v which has already been closed", a._reference)
+	}
+
+	// Set a._lastInvoke to now so that if the timer function runs after we release the lock it will
+	// immediately see that an invocation has run recently.
+	a._lastInvoke = time.Now()
+	if !isClosing {
+		// In addition, Reset the timer manually for the common case in which the actor has not expired
+		// yet which spares the runtime the cost of spawning a goroutine to run the GC function just to
+		// immediately check a._lastInvoke and see that it is recent.
+		//
+		// Note that we skip this branch if the actor is closed to prevent invoking the Shutdown
+		// operation during close from triggering an additional GC reschedule.
+		a._gcTimer.Reset(a._gcAfter)
 	}
 
 	// Workers can't have KV storage because they're not global singletons like actors
@@ -451,18 +529,24 @@ func (a *activatedActor) invoke(
 func (a *activatedActor) close(ctx context.Context) error {
 	a.Lock()
 	defer a.Unlock()
+	return a.closeWithLock(ctx)
+}
+
+func (a *activatedActor) closeWithLock(ctx context.Context) error {
 	if a._closed {
 		return nil
 	}
 
 	// TODO: We should let a retry policy be specific for this before the actor is finally
 	// evicted, but we just evict regardless of failure for now.
-	_, err := a.invoke(ctx, wapcutils.ShutdownOperationName, nil, true)
+	_, err := a.invoke(ctx, wapcutils.ShutdownOperationName, nil, true, true)
 	if err != nil {
 		log.Printf(
 			"error invoking shutdown operation for actor: %v during close: %v",
 			a._reference, err)
 	}
+
+	a._closed = true
 
 	return a._a.Close(ctx)
 }

@@ -3,7 +3,7 @@ compile-wasm:
 	tinygo build -target=wasi -o examples/semaphore/main.wasm examples/semaphore/main.go
 
 test:
-	go test ./...
+	go test -timeout 5m ./...
 
 run-server-local-registry:
 	go run cmd/app/main.go --discoveryType=localhost --registryBackend=memory
