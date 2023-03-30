@@ -3,11 +3,12 @@ module github.com/richardartoul/nola
 go 1.19
 
 require (
+	github.com/DataDog/sketches-go v1.4.1
 	github.com/buger/jsonparser v1.1.1
 	github.com/dgraph-io/ristretto v0.1.1
 	github.com/google/btree v1.1.2
 	github.com/stretchr/testify v1.8.1
-	github.com/tetratelabs/wazero v1.0.0-pre.6
+	github.com/tetratelabs/wazero v1.0.1
 	github.com/wapc/wapc-go v0.5.7
 	github.com/wapc/wapc-guest-tinygo v0.3.3
 	github.com/wasmerio/wasmer-go v1.0.4
@@ -25,6 +26,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/sys v0.0.0-20221010170243-090e33056c14 // indirect
+	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20200902074654-038fdea0a05b // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
