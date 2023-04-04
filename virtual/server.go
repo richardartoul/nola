@@ -41,12 +41,12 @@ func (s *server) Start(port int) error {
 	mux.HandleFunc("/api/v1/invoke-actor-direct", s.invokeDirect)
 	mux.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
 
-	server := &http.Server{
+	s.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
 	}
 
-	if err := server.ListenAndServe(); err != nil {
+	if err := s.server.ListenAndServe(); err != nil {
 		return err
 	}
 
