@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"runtime"
 	"sync"
 	"time"
 
@@ -519,7 +520,7 @@ func (r *environment) InvokeWorkerStream(
 	return r.activations.invoke(ctx, ref, operation, create.InstantiatePayload, payload, false)
 }
 
-func (r *environment) Close() error {
+func (r *environment) Close(ctx context.Context) error {
 	// TODO: This should call Close on the activations field (which needs to be implemented).
 
 	localEnvironmentsRouterLock.Lock()
@@ -528,6 +529,10 @@ func (r *environment) Close() error {
 
 	close(r.closeCh)
 	<-r.closedCh
+
+	if err := r.activations.close(ctx, runtime.NumCPU()); err != nil { // TODO: spawn a goroutine per CPU core, if the shutdown logic is cpu-bounded. Otherwise spawn more.
+		return fmt.Errorf("failed to close actors: %w", err)
+	}
 
 	return nil
 }

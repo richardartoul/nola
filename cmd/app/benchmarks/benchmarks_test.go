@@ -70,7 +70,7 @@ func BenchmarkFoundationDBRegistryInvokeWorker(b *testing.B) {
 func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
 	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
-	defer env.Close()
+	defer env.Close(context.Background())
 
 	ctx := context.Background()
 
@@ -91,7 +91,7 @@ func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
 func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
 	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
-	defer env.Close()
+	defer env.Close(context.Background())
 
 	ctx := context.Background()
 
@@ -115,7 +115,7 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 	reg := localregistry.NewLocalRegistry()
 	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
-	defer env.Close()
+	defer env.Close(context.Background())
 
 	ctx := context.Background()
 
@@ -137,7 +137,7 @@ func BenchmarkLocalActorToActorCommunication(b *testing.B) {
 	reg := localregistry.NewLocalRegistry()
 	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
-	defer env.Close()
+	defer env.Close(context.Background())
 
 	ctx := context.Background()
 
@@ -196,7 +196,7 @@ func testSimpleBench(
 
 	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(t, err)
-	defer env.Close()
+	defer env.Close(context.Background())
 
 	_, err = reg.RegisterModule(context.Background(), "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)

@@ -18,6 +18,8 @@ type server struct {
 	// Dependencies.
 	registry    registry.Registry
 	environment Environment
+
+	server *http.Server
 }
 
 // NewServer creates a new server for the actor virtual environment.
@@ -33,13 +35,30 @@ func NewServer(
 
 // Start starts the server.
 func (s *server) Start(port int) error {
-	http.HandleFunc("/api/v1/register-module", s.registerModule)
-	http.HandleFunc("/api/v1/invoke-actor", s.invoke)
-	http.HandleFunc("/api/v1/invoke-actor-direct", s.invokeDirect)
-	http.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/register-module", s.registerModule)
+	mux.HandleFunc("/api/v1/invoke-actor", s.invoke)
+	mux.HandleFunc("/api/v1/invoke-actor-direct", s.invokeDirect)
+	mux.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
 
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
+	server := &http.Server{
+		Addr: fmt.Sprintf(":%d", port),
+	}
+
+	if err := server.ListenAndServe(); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (s *server) Stop(ctx context.Context) error {
+	if err := s.server.Shutdown(ctx); err != nil {
+		return fmt.Errorf("failed to stop http server: %w", err)
+	}
+
+	if err := s.environment.Close(ctx); err != nil {
+		return fmt.Errorf("failed to close the environment: %w", err)
 	}
 
 	return nil

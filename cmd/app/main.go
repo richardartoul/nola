@@ -5,6 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	_ "net/http/pprof"
@@ -23,6 +26,7 @@ var (
 	discoveryType               = flag.String("discoveryType", virtual.DiscoveryTypeLocalHost, "how the server should register itself with the discovery serice. Valid options: localhost|remote. Use localhost for local testing, use remote for multi-node setups")
 	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb")
 	foundationDBClusterFilePath = flag.String("foundationDBClusterFilePath", "", "path to use for the FoundationDB cluster file")
+	shutdownTimeout             = flag.Duration("shutdownTimeout", 10*time.Second, "timeout before forcing the server to shutdown, without waiting actors and other components to close gracefully")
 )
 
 func main() {
@@ -60,11 +64,38 @@ func main() {
 		log.Fatal(err)
 	}
 
-	server := virtual.NewServer(reg, environment)
+	var server Server = virtual.NewServer(reg, environment)
 
 	log.Printf("listening on port: %d\n", *port)
 
+	go func(server Server) {
+		waitForSignal()
+		shutdownServer(server)
+	}(server)
+
 	if err := server.Start(*port); err != nil {
+		shutdownServer(server)
 		log.Fatal(err)
+	}
+}
+
+type Server interface {
+	Start(int) error
+	Stop(context.Context) error
+}
+
+func waitForSignal() {
+	osSig := make(chan os.Signal, 1)
+	signal.Notify(osSig, syscall.SIGTERM)
+	signal.Notify(osSig, syscall.SIGINT)
+
+	<-osSig
+}
+
+func shutdownServer(server Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), *shutdownTimeout)
+	defer cancel()
+	if err := server.Stop(ctx); err != nil {
+		log.Printf("failed to gracefully shutdown server: %s", err.Error())
 	}
 }

@@ -663,8 +663,8 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 
 	// TODO: Sleeps in tests are bad, but I'm lazy to inject a clock right now and deal
 	//       with all of that.
-	require.NoError(t, env1.Close())
-	require.NoError(t, env2.Close())
+	require.NoError(t, env1.Close(context.Background()))
+	require.NoError(t, env2.Close(context.Background()))
 	time.Sleep(registry.HeartbeatTTL + time.Second)
 
 	// env1 and env2 have been closed (and not heartbeating) for longer than the maximum
@@ -702,7 +702,7 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	require.Equal(t, 3, env3.numActivatedActors())
 
 	// Finally, make sure environment 3 is closed.
-	require.NoError(t, env3.Close())
+	require.NoError(t, env3.Close(context.Background()))
 }
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server
@@ -757,12 +757,12 @@ func TestGoModulesRegisterTwice(t *testing.T) {
 	reg := localregistry.NewLocalRegistry()
 	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
 	require.NoError(t, err)
-	require.NoError(t, env.Close())
+	require.NoError(t, env.Close(context.Background()))
 
 	// Recreate with same registry should not fail.
 	env, err = NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
 	require.NoError(t, err)
-	require.NoError(t, env.Close())
+	require.NoError(t, env.Close(context.Background()))
 }
 
 // TestServerVersionIsHonored ensures client-server coordination around server versions by
@@ -820,7 +820,7 @@ func runWithDifferentConfigs(
 		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 		require.NoError(t, err)
-		defer env.Close()
+		defer env.Close(context.Background())
 
 		_, err = reg.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 		require.NoError(t, err)
@@ -837,7 +837,7 @@ func runWithDifferentConfigs(
 		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
 		require.NoError(t, err)
-		defer env.Close()
+		defer env.Close(context.Background())
 
 		env.RegisterGoModule(
 			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
@@ -854,7 +854,7 @@ func runWithDifferentConfigs(
 		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoStream)
 		require.NoError(t, err)
-		defer env.Close()
+		defer env.Close(context.Background())
 
 		env.RegisterGoModule(
 			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
@@ -877,7 +877,7 @@ func runWithDifferentConfigs(
 
 			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), defaultOptsGoDNS)
 			require.NoError(t, err)
-			defer env.Close()
+			defer env.Close(context.Background())
 
 			env.RegisterGoModule(
 				types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})

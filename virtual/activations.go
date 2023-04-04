@@ -18,6 +18,7 @@ import (
 	"github.com/richardartoul/nola/wapcutils"
 
 	"github.com/wapc/wapc-go/engines/wazero"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -380,6 +381,46 @@ func (a *activations) getServerState() (
 	a.serverState.RLock()
 	defer a.serverState.RUnlock()
 	return a.serverState.serverID, a.serverState.serverVersion
+}
+
+func (a *activations) close(ctx context.Context, numWorkers int) error {
+	a.Lock()
+	defer a.Unlock()
+
+	// create a channel to receive keys
+	keys := make(chan types.NamespacedActorID, len(a._actors))
+	for k := range a._actors {
+		keys <- k
+	}
+	close(keys)
+
+	// create a wait group to wait for all goroutines to finish
+	g, ctx := errgroup.WithContext(ctx)
+
+	// spawn multiple goroutines to process actors shutdown
+	for i := 0; i < numWorkers; i++ {
+		g.Go(func() error {
+			for actorId := range keys {
+				// Process data[k]
+				future := a._actors[actorId]
+				// do something with d.value
+				actor, err := future.Wait()
+				if err != nil {
+					return fmt.Errorf("failed to wait for an actor: %w", err)
+				}
+
+				if err := actor.close(ctx); err != nil {
+					return fmt.Errorf("failed to close an actor: %w", err)
+				}
+
+				delete(a._actors, actorId)
+			}
+			return nil
+		})
+	}
+
+	// wait for all goroutines to finish
+	return g.Wait()
 }
 
 type activatedActor struct {

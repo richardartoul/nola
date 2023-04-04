@@ -115,7 +115,7 @@ type Environment interface {
 	) (io.ReadCloser, error)
 
 	// Close closes the Environment and all of its associated resources.
-	Close() error
+	Close(context.Context) error
 }
 
 // debug contains private methods that are only used for debugging / tests.
