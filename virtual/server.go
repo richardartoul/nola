@@ -42,7 +42,8 @@ func (s *server) Start(port int) error {
 	mux.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
 
 	server := &http.Server{
-		Addr: fmt.Sprintf(":%d", port),
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: mux,
 	}
 
 	if err := server.ListenAndServe(); err != nil {
