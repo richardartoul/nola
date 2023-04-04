@@ -70,11 +70,11 @@ func main() {
 
 	go func(server Server) {
 		waitForSignal()
-		shutdownServer(server)
+		shutdownServer(server, *shutdownTimeout)
 	}(server)
 
 	if err := server.Start(*port); err != nil {
-		shutdownServer(server)
+		shutdownServer(server, *shutdownTimeout)
 		log.Fatal(err)
 	}
 }
@@ -92,8 +92,8 @@ func waitForSignal() {
 	<-osSig
 }
 
-func shutdownServer(server Server) {
-	ctx, cancel := context.WithTimeout(context.Background(), *shutdownTimeout)
+func shutdownServer(server Server, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := server.Stop(ctx); err != nil {
 		log.Printf("failed to gracefully shutdown server: %s", err.Error())
