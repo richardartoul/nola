@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
@@ -28,7 +27,8 @@ func main() {
 
 	if *host == "" {
 		flag.Usage()
-		log.Fatalf("host cannot be empty")
+		slog.Error("host cannot be empty")
+		return
 	}
 
 	log, err := cmdutils.ParseLog(*logLevel, *logFormat)
