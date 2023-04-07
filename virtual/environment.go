@@ -10,6 +10,7 @@ import (
 	"net"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
@@ -25,6 +26,10 @@ const (
 	heartbeatTimeout           = registry.HeartbeatTTL
 	defaultActivationsCacheTTL = heartbeatTimeout
 	maxNumActivationsToCache   = 1e6 // 1 Million.
+)
+
+var (
+	ErrEnvironmentClosed = errors.New("environment is closed")
 )
 
 type environment struct {
@@ -43,6 +48,13 @@ type environment struct {
 	closeCh chan struct{}
 	// Closed when the background heartbeating goroutine completes shutting down.
 	closedCh chan struct{}
+	// State needed to shutdown the service.
+	shutdownState struct {
+		// Flag to prevent public methods from processing new requests
+		closed int32
+		// WaitGroup to keep track of inflight requests and waitf ro them to finish
+		inflight sync.WaitGroup
+	}
 
 	// Dependencies.
 	serverID string
@@ -92,6 +104,11 @@ type EnvironmentOptions struct {
 	// DefaultGCActorsAfterDurationWithNoInvocations. To disable this
 	// functionality entirely, just use a really large value.
 	GCActorsAfterDurationWithNoInvocations time.Duration
+
+	// ShutdownWorkers is the number of workers for shutting down the active actors.
+	// In other words, this is the parallelism and CPU power used for shutting down the environment.
+	// By default all the available CPUs (runtime.NumCPU()) are used
+	ShutdownWorkers int
 }
 
 // NewDNSRegistryEnvironment is a convenience function that creates a virtual environment backed
@@ -186,6 +203,9 @@ func NewEnvironment(
 	if opts.GCActorsAfterDurationWithNoInvocations == 0 {
 		opts.GCActorsAfterDurationWithNoInvocations = time.Minute
 	}
+	if opts.ShutdownWorkers == 0 {
+		opts.ShutdownWorkers = runtime.NumCPU()
+	}
 
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("error validating EnvironmentOptions: %w", err)
@@ -278,6 +298,9 @@ var bufPool = sync.Pool{
 }
 
 func (r *environment) RegisterGoModule(id types.NamespacedIDNoType, module Module) error {
+	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+		return ErrEnvironmentClosed
+	}
 	// Register all the GoModules in the registry so they're useable with calls to
 	// CreateActor() and EnsureActivation().
 	//
@@ -304,6 +327,10 @@ func (r *environment) InvokeActor(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
+	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+		return nil, ErrEnvironmentClosed
+	}
+
 	reader, err := r.InvokeActorStream(
 		ctx, namespace, actorID, moduleID, operation, payload, create)
 	if err != nil {
@@ -327,6 +354,10 @@ func (r *environment) InvokeActorStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
+	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+		return nil, ErrEnvironmentClosed
+	}
+
 	if namespace == "" {
 		return nil, errors.New("InvokeActor: namespace cannot be empty")
 	}
@@ -396,6 +427,10 @@ func (r *environment) InvokeActorDirect(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
+	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+		return nil, ErrEnvironmentClosed
+	}
+
 	reader, err := r.InvokeActorDirectStream(
 		ctx, versionStamp, serverID, serverVersion,
 		reference, operation, payload, create)
@@ -421,6 +456,10 @@ func (r *environment) InvokeActorDirectStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
+	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+		return nil, ErrEnvironmentClosed
+	}
+
 	if serverID == "" {
 		return nil, errors.New("serverID cannot be empty")
 	}
@@ -482,6 +521,10 @@ func (r *environment) InvokeWorker(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
+	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+		return nil, ErrEnvironmentClosed
+	}
+
 	reader, err := r.InvokeWorkerStream(
 		ctx, namespace, moduleID, operation, payload, create)
 	if err != nil {
@@ -504,6 +547,10 @@ func (r *environment) InvokeWorkerStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
+	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+		return nil, ErrEnvironmentClosed
+	}
+
 	// TODO: The implementation of this function is nice because it just reusees a bunch of the
 	//       actor logic. However, it's also less performant than it could be because it still
 	//       effectively makes worker execution single-threaded per-server. We should add the
@@ -521,16 +568,30 @@ func (r *environment) InvokeWorkerStream(
 }
 
 func (r *environment) Close(ctx context.Context) error {
-	// TODO: This should call Close on the activations field (which needs to be implemented).
+	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+		return ErrEnvironmentClosed
+	}
 
 	localEnvironmentsRouterLock.Lock()
 	delete(localEnvironmentsRouter, r.address)
 	localEnvironmentsRouterLock.Unlock()
 
 	close(r.closeCh)
-	<-r.closedCh
 
-	if err := r.activations.close(ctx, runtime.NumCPU()); err != nil { // TODO: spawn a goroutine per CPU core, if the shutdown logic is cpu-bounded. Otherwise spawn more.
+	select {
+	case <-r.closedCh:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	atomic.StoreInt32(&r.shutdownState.closed, 1)
+
+	log.Printf("Waiting for inflight methods to terminate...")
+	start := time.Now()
+	r.shutdownState.inflight.Wait()
+	log.Printf("Finished waiting %s for inflight methods to terminate", time.Since(start))
+
+	if err := r.activations.close(ctx, r.opts.ShutdownWorkers); err != nil {
 		return fmt.Errorf("failed to close actors: %w", err)
 	}
 

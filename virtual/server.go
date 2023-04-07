@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"time"
 
@@ -54,13 +55,17 @@ func (s *server) Start(port int) error {
 }
 
 func (s *server) Stop(ctx context.Context) error {
+	log.Print("shutting down http server")
 	if err := s.server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("failed to stop http server: %w", err)
+		return fmt.Errorf("failed to shut down http server: %w", err)
 	}
+	log.Print("successfully shut down HTTP server")
 
+	log.Print("closing environment")
 	if err := s.environment.Close(ctx); err != nil {
 		return fmt.Errorf("failed to close the environment: %w", err)
 	}
+	log.Print("successfully closed environment")
 
 	return nil
 }

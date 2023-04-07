@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"net/http"
 	_ "net/http/pprof"
 
 	"github.com/richardartoul/nola/virtual"
@@ -26,7 +28,7 @@ var (
 	discoveryType               = flag.String("discoveryType", virtual.DiscoveryTypeLocalHost, "how the server should register itself with the discovery serice. Valid options: localhost|remote. Use localhost for local testing, use remote for multi-node setups")
 	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb")
 	foundationDBClusterFilePath = flag.String("foundationDBClusterFilePath", "", "path to use for the FoundationDB cluster file")
-	shutdownTimeout             = flag.Duration("shutdownTimeout", 10*time.Second, "timeout before forcing the server to shutdown, without waiting actors and other components to close gracefully")
+	shutdownTimeout             = flag.Duration("shutdownTimeout", 0, "timeout before forcing the server to shutdown, without waiting actors and other components to close gracefully. By default is 0, which is infinite duration untill all actors are closed")
 )
 
 func main() {
@@ -69,11 +71,13 @@ func main() {
 	log.Printf("listening on port: %d\n", *port)
 
 	go func(server Server) {
-		waitForSignal()
+		sig := waitForSignal()
+		log.Printf("received signal: %s", sig.String())
 		shutdown(server, *shutdownTimeout)
 	}(server)
 
-	if err := server.Start(*port); err != nil {
+	if err := server.Start(*port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("received error: %s", err.Error())
 		shutdown(server, *shutdownTimeout)
 		log.Fatal(err)
 	}
@@ -84,18 +88,25 @@ type Server interface {
 	Stop(context.Context) error
 }
 
-func waitForSignal() {
+func waitForSignal() os.Signal {
 	osSig := make(chan os.Signal, 1)
 	signal.Notify(osSig, syscall.SIGTERM)
 	signal.Notify(osSig, syscall.SIGINT)
 
-	<-osSig
+	// wait for a signal to be received
+	return <-osSig
 }
 
 func shutdown(server Server, timeout time.Duration) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	if err := server.Stop(ctx); err != nil {
-		log.Printf("failed to gracefully shutdown server: %s", err.Error())
+	log.Printf("shutting down server with timeout (%s)...", timeout.String())
+	ctx := context.Background()
+	if timeout > 0 { // by default there is no timeout for shutting down
+		ctx, _ = context.WithTimeout(context.Background(), timeout)
 	}
+
+	if err := server.Stop(ctx); err != nil {
+		log.Printf("failed to shut down server: %s", err.Error())
+		return
+	}
+	log.Printf("successfully shut down server (%s)...", timeout.String())
 }

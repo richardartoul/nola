@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
@@ -18,7 +19,6 @@ import (
 	"github.com/richardartoul/nola/wapcutils"
 
 	"github.com/wapc/wapc-go/engines/wazero"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -387,40 +387,43 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 	a.Lock()
 	defer a.Unlock()
 
-	// create a channel to receive keys
 	keys := make(chan types.NamespacedActorID, len(a._actors))
 	for k := range a._actors {
 		keys <- k
 	}
 	close(keys)
 
-	// create a wait group to wait for all goroutines to finish
-	g, ctx := errgroup.WithContext(ctx)
-
-	// spawn multiple goroutines to process actors shutdown
+	expectedClosed := int64(len(a._actors))
+	closed := int64(0)
+	wg := sync.WaitGroup{}
 	for i := 0; i < numWorkers; i++ {
-		g.Go(func() error {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			for actorId := range keys {
-				// Process data[k]
 				future := a._actors[actorId]
-				// do something with d.value
 				actor, err := future.Wait()
 				if err != nil {
-					return fmt.Errorf("failed to wait for an actor: %w", err)
+					log.Printf("failed to wait for an actor: %s", err.Error())
+					continue
 				}
 
 				if err := actor.close(ctx); err != nil {
-					return fmt.Errorf("failed to close an actor: %w", err)
+					log.Printf("failed to close an actor: %s", err.Error())
+					continue
 				}
 
 				delete(a._actors, actorId)
+				atomic.AddInt64(&closed, 1)
 			}
-			return nil
-		})
+		}()
 	}
 
-	// wait for all goroutines to finish
-	return g.Wait()
+	wg.Wait()
+	if expectedClosed != closed {
+		return fmt.Errorf("unable to close all the actors, expected: %d - closed: %d", expectedClosed, closed)
+	}
+	return nil
 }
 
 type activatedActor struct {
