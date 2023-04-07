@@ -63,11 +63,12 @@ func main() {
 	client := virtual.NewHTTPClient()
 
 	ctx, cc := context.WithTimeout(context.Background(), 10*time.Second)
-	environment, err := virtual.NewEnvironment(ctx, log, *serverID, reg, client, virtual.EnvironmentOptions{
+	environment, err := virtual.NewEnvironment(ctx, *serverID, reg, client, virtual.EnvironmentOptions{
 		Discovery: virtual.DiscoveryOptions{
 			DiscoveryType: *discoveryType,
 			Port:          *port,
 		},
+		Log: log,
 	})
 	cc()
 	if err != nil {

@@ -40,7 +40,6 @@ func TestFileCacheBenchmark(t *testing.T) {
 	registry := localregistry.NewLocalRegistry()
 	env, err := virtual.NewEnvironment(
 		context.Background(),
-		slog.New(slog.NewTextHandler(ioutil.Discard)),
 		"test-server-id", registry,
 		virtual.NewHTTPClient(), virtual.EnvironmentOptions{
 			Discovery: virtual.DiscoveryOptions{
@@ -50,6 +49,7 @@ func TestFileCacheBenchmark(t *testing.T) {
 			// Make sure the benchmark tests the RPC/HTTP stack, not just the
 			// in-memory virtual.Environment code.
 			ForceRemoteProcedureCalls: true,
+			Log:                       slog.New(slog.NewTextHandler(ioutil.Discard)),
 		})
 	if err != nil {
 		slog.Error("error creating virtual environment", slog.Any("error", err))

@@ -94,6 +94,9 @@ type EnvironmentOptions struct {
 	// DefaultGCActorsAfterDurationWithNoInvocations. To disable this
 	// functionality entirely, just use a really large value.
 	GCActorsAfterDurationWithNoInvocations time.Duration
+
+	// Log is the logger. If no logger is passed, then default slog.Default() is used.
+	Log *slog.Logger
 }
 
 // NewDNSRegistryEnvironment is a convenience function that creates a virtual environment backed
@@ -103,7 +106,6 @@ type EnvironmentOptions struct {
 // as the value of host.
 func NewDNSRegistryEnvironment(
 	ctx context.Context,
-	log *slog.Logger,
 	host string,
 	port int,
 	opts EnvironmentOptions,
@@ -114,17 +116,20 @@ func NewDNSRegistryEnvironment(
 	} else {
 		opts.Discovery.DiscoveryType = DiscoveryTypeRemote
 	}
+	if opts.Log == nil {
+		opts.Log = slog.Default()
+	}
 
 	if err := opts.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("error validating EnvironmentOptions: %w", err)
 	}
 
-	reg, err := dnsregistry.NewDNSRegistry(log, host, port, dnsregistry.DNSRegistryOptions{})
+	reg, err := dnsregistry.NewDNSRegistry(host, port, dnsregistry.DNSRegistryOptions{Log: opts.Log})
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating DNS registry: %w", err)
 	}
 
-	env, err := NewEnvironment(ctx, log, dnsregistry.DNSServerID, reg, NewHTTPClient(), opts)
+	env, err := NewEnvironment(ctx, dnsregistry.DNSServerID, reg, NewHTTPClient(), opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating new virtual environment: %w", err)
 	}
@@ -137,10 +142,9 @@ func NewDNSRegistryEnvironment(
 // for writing unit/integration tests, but not for production usage.
 func NewTestDNSRegistryEnvironment(
 	ctx context.Context,
-	log *slog.Logger,
 	opts EnvironmentOptions,
 ) (Environment, registry.Registry, error) {
-	return NewDNSRegistryEnvironment(ctx, log, Localhost, 9093, opts)
+	return NewDNSRegistryEnvironment(ctx, Localhost, 9093, opts)
 }
 
 // DiscoveryOptions contains the discovery-related options.
@@ -179,7 +183,6 @@ func (e *EnvironmentOptions) Validate() error {
 // NewEnvironment creates a new Environment.
 func NewEnvironment(
 	ctx context.Context,
-	log *slog.Logger,
 	serverID string,
 	reg registry.Registry,
 	client RemoteClient,
@@ -190,6 +193,9 @@ func NewEnvironment(
 	}
 	if opts.GCActorsAfterDurationWithNoInvocations == 0 {
 		opts.GCActorsAfterDurationWithNoInvocations = time.Minute
+	}
+	if opts.Log == nil {
+		opts.Log = slog.Default()
 	}
 
 	if err := opts.Validate(); err != nil {
@@ -220,7 +226,7 @@ func NewEnvironment(
 	address := fmt.Sprintf("%s:%d", host, opts.Discovery.Port)
 
 	env := &environment{
-		log:             log.With(slog.String("module", "environment"), slog.String("subService", "environment")),
+		log:             opts.Log.With(slog.String("module", "environment"), slog.String("subService", "environment")),
 		activationCache: activationCache,
 		closeCh:         make(chan struct{}),
 		closedCh:        make(chan struct{}),
@@ -231,13 +237,13 @@ func NewEnvironment(
 		opts:            opts,
 	}
 	activations := newActivations(
-		log, reg, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
+		opts.Log, reg, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
 	env.activations = activations
 
 	// Skip confusing log if dnsregistry is being used since it doesn't use the registry-based
 	// registration mechanism in the traditional way.
 	if serverID != dnsregistry.DNSServerID {
-		log.Info("registering self with address", slog.String("address", address))
+		opts.Log.Info("registering self with address", slog.String("address", address))
 	}
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
@@ -263,10 +269,10 @@ func NewEnvironment(
 					return
 				}
 				if err := env.heartbeat(); err != nil {
-					log.Error("error performing background heartbeat", slog.Any("error", err))
+					opts.Log.Error("error performing background heartbeat", slog.Any("error", err))
 				}
 			case <-env.closeCh:
-				log.Info("shutting down environment", slog.String("serverID", env.serverID), slog.String("address", env.address))
+				opts.Log.Info("shutting down environment", slog.String("serverID", env.serverID), slog.String("address", env.address))
 				return
 			}
 		}
