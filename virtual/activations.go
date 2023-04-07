@@ -19,6 +19,7 @@ import (
 	"github.com/richardartoul/nola/wapcutils"
 
 	"github.com/wapc/wapc-go/engines/wazero"
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -384,46 +385,42 @@ func (a *activations) getServerState() (
 }
 
 func (a *activations) close(ctx context.Context, numWorkers int) error {
-	log.Print("acquiring lock for closing acttor activations")
+	log.Print("acquiring lock for closing actor activations")
 	a.Lock()
-	log.Print("acquired lock for closing acttor activations")
+	log.Print("acquired lock for closing actor activations")
 	defer a.Unlock()
 
-	keys := make(chan types.NamespacedActorID, len(a._actors))
-	for k := range a._actors {
-		keys <- k
-	}
-	close(keys)
+	sem := semaphore.NewWeighted(int64(numWorkers))
 
-	expectedClosed := int64(len(a._actors))
-	closed := int64(0)
 	wg := sync.WaitGroup{}
-	for i := 0; i < numWorkers; i++ {
+	closed := int64(0)
+	expected := int64(len(a._actors))
+	for actorId, futActor := range a._actors {
+		sem.Acquire(ctx, 1)
 		wg.Add(1)
-		go func() {
+		go func(actorId types.NamespacedActorID, futActor futures.Future[*activatedActor]) {
+			defer sem.Release(1)
 			defer wg.Done()
-			for actorId := range keys {
-				future := a._actors[actorId]
-				actor, err := future.Wait()
-				if err != nil {
-					log.Printf("failed to wait for an actor: %s", err.Error())
-					continue
-				}
 
-				if err := actor.close(ctx); err != nil {
-					log.Printf("failed to close an actor: %s", err.Error())
-					continue
-				}
-
-				delete(a._actors, actorId)
-				atomic.AddInt64(&closed, 1)
+			actor, err := futActor.Wait()
+			if err != nil {
+				log.Printf("failed to wait for an actor: %s", err.Error())
+				return
 			}
-		}()
+
+			if err := actor.close(ctx); err != nil {
+				log.Printf("failed to close an actor: %s", err.Error())
+				return
+			}
+
+			delete(a._actors, actorId)
+			atomic.AddInt64(&closed, 1)
+		}(actorId, futActor)
 	}
 
 	wg.Wait()
-	if expectedClosed != closed {
-		return fmt.Errorf("unable to close all the actors, expected: %d - closed: %d", expectedClosed, closed)
+	if expected != closed {
+		return fmt.Errorf("unable to close all the actors, expected: %d - closed: %d", expected, closed)
 	}
 	return nil
 }

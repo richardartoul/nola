@@ -10,7 +10,6 @@ import (
 	"net"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
@@ -50,8 +49,10 @@ type environment struct {
 	closedCh chan struct{}
 	// State needed to shutdown the service.
 	shutdownState struct {
+		// Mutex for accessing the 'closed' flag of the state
+		mu sync.RWMutex
 		// Flag to prevent public methods from processing new requests
-		closed int32
+		closed bool
 		// WaitGroup to keep track of inflight requests and waitf ro them to finish
 		inflight sync.WaitGroup
 	}
@@ -298,7 +299,7 @@ var bufPool = sync.Pool{
 }
 
 func (r *environment) RegisterGoModule(id types.NamespacedIDNoType, module Module) error {
-	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+	if r.isClosed() {
 		return ErrEnvironmentClosed
 	}
 	// Register all the GoModules in the registry so they're useable with calls to
@@ -327,7 +328,7 @@ func (r *environment) InvokeActor(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
-	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
 	}
 
@@ -354,7 +355,7 @@ func (r *environment) InvokeActorStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
-	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
 	}
 
@@ -427,7 +428,7 @@ func (r *environment) InvokeActorDirect(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
-	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
 	}
 
@@ -456,7 +457,7 @@ func (r *environment) InvokeActorDirectStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
-	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
 	}
 
@@ -521,7 +522,7 @@ func (r *environment) InvokeWorker(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
-	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
 	}
 
@@ -547,7 +548,7 @@ func (r *environment) InvokeWorkerStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
-	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
 	}
 
@@ -568,7 +569,7 @@ func (r *environment) InvokeWorkerStream(
 }
 
 func (r *environment) Close(ctx context.Context) error {
-	if atomic.LoadInt32(&r.shutdownState.closed) == 1 {
+	if r.isClosed() {
 		return ErrEnvironmentClosed
 	}
 
@@ -584,7 +585,9 @@ func (r *environment) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	atomic.StoreInt32(&r.shutdownState.closed, 1)
+	r.shutdownState.mu.Lock()
+	r.shutdownState.closed = true
+	r.shutdownState.mu.Unlock()
 
 	log.Printf("Waiting for inflight methods to terminate...")
 	start := time.Now()
@@ -701,6 +704,13 @@ func (r *environment) resumeHeartbeat() {
 	r.heartbeatState.Lock()
 	r.heartbeatState.paused = false
 	r.heartbeatState.Unlock()
+}
+
+func (r *environment) isClosed() bool {
+	r.shutdownState.mu.RLock()
+	defer r.shutdownState.mu.RUnlock()
+
+	return r.shutdownState.closed
 }
 
 func getSelfIP() (net.IP, error) {
