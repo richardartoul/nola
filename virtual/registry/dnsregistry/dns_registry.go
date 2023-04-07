@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
-	"log"
 	"net"
 	"sync"
 	"time"
+
+	"golang.org/x/exp/slog"
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
@@ -37,6 +38,8 @@ type DNSResolver interface {
 type dnsRegistry struct {
 	sync.RWMutex
 
+	log *slog.Logger
+
 	// Dependencies.
 	resolver DNSResolver
 	host     string
@@ -63,6 +66,7 @@ type DNSRegistryOptions struct {
 
 // NewDNSRegistry creates a new registry.Registry backed by DNS.
 func NewDNSRegistry(
+	log *slog.Logger,
 	host string,
 	port int,
 	opts DNSRegistryOptions,
@@ -73,12 +77,13 @@ func NewDNSRegistry(
 	} else {
 		resolver = NewDNSResolver()
 	}
-	return NewDNSRegistryFromResolver(resolver, host, port, opts)
+	return NewDNSRegistryFromResolver(log, resolver, host, port, opts)
 }
 
 // NewDNSRegistryFromResolver is the same as NewDNSRegistry except it allows
 // a custom implementation of DNSResolver to be provided.
 func NewDNSRegistryFromResolver(
+	log *slog.Logger,
 	resolver DNSResolver,
 	host string,
 	port int,
@@ -89,6 +94,7 @@ func NewDNSRegistryFromResolver(
 	}
 
 	d := &dnsRegistry{
+		log:      log,
 		resolver: resolver,
 		host:     host,
 		port:     port,
@@ -205,10 +211,10 @@ func (d *dnsRegistry) Heartbeat(
 }
 
 func (d *dnsRegistry) Close(ctx context.Context) error {
-	log.Printf("DNSRegistry: Shutting down")
+	d.log.Info("DNSRegistry: Shutting down")
 	close(d.closeCh)
 	<-d.closedCh
-	log.Printf("DNSRegistry: Done shutting down")
+	d.log.Info("DNSRegistry: Done shutting down")
 	return nil
 }
 
@@ -234,7 +240,7 @@ func (d *dnsRegistry) discover() error {
 		} else if ip.To16() != nil {
 			ipStrs = append(ipStrs, fmt.Sprintf("[%s]:%d", ip.To16().String(), d.port))
 		} else {
-			log.Printf("[invariant violated] IP is not IP4 or IP6: %s, skipping", ip)
+			d.log.Info("[invariant violated] IP is not IP4 or IP6, skipping", slog.Any("ip", ip))
 		}
 	}
 	hashRing.Add(ipStrs...)
@@ -246,9 +252,7 @@ func (d *dnsRegistry) discover() error {
 	d.Unlock()
 
 	if len(d.ips) != len(oldIPs) {
-		log.Printf(
-			"DNSRegistry: discovered new IP addresses: prev: %v, curr: %v\n",
-			oldIPs, ips)
+		d.log.Info("DNSRegistry: discovered new IP addresses", slog.Any("prev", oldIPs), slog.Any("curr", ips))
 	}
 
 	return nil
@@ -268,7 +272,7 @@ func (d *dnsRegistry) discoveryLoop() {
 		select {
 		case <-ticker.C:
 			if err := d.discover(); err != nil {
-				log.Printf("discoveryLoop: error performing background discovery: %v\n", err)
+				d.log.Error("discoveryLoop: error performing background discovery", slog.Any("error", err))
 			}
 		case <-d.closeCh:
 			return

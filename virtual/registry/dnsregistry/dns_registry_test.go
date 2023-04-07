@@ -9,6 +9,7 @@ import (
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/slog"
 )
 
 // TestDNSRegistrySimple is a simple test of the DNS registry. It tests that
@@ -16,7 +17,7 @@ import (
 // consistent hashing to pick a server.
 func TestDNSRegistrySimple(t *testing.T) {
 	resolver := newConstResolver(nil)
-	reg, err := NewDNSRegistryFromResolver(resolver, "test", 9090, DNSRegistryOptions{
+	reg, err := NewDNSRegistryFromResolver(slog.Default(), resolver, "test", 9090, DNSRegistryOptions{
 		ResolveEvery: 100 * time.Millisecond,
 	})
 	require.NoError(t, err)
@@ -68,7 +69,7 @@ func TestDNSRegistrySimple(t *testing.T) {
 // applications can use the exact same code in production, as well as in their tests and that
 // the DNS registry "just works" without having to setup custom fakes.
 func TestDNSRegistrySingleNode(t *testing.T) {
-	reg, err := NewDNSRegistry(Localhost, 9090, DNSRegistryOptions{
+	reg, err := NewDNSRegistry(slog.Default(), Localhost, 9090, DNSRegistryOptions{
 		ResolveEvery: 100 * time.Millisecond,
 	})
 	require.NoError(t, err)

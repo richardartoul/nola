@@ -14,6 +14,7 @@ import (
 	"github.com/richardartoul/nola/virtual/registry/fdbregistry"
 	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
+	"golang.org/x/exp/slog"
 
 	"github.com/DataDog/sketches-go/ddsketch"
 	"github.com/stretchr/testify/require"
@@ -68,7 +69,7 @@ func BenchmarkFoundationDBRegistryInvokeWorker(b *testing.B) {
 }
 
 func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	env, err := virtual.NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -89,7 +90,7 @@ func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
 }
 
 func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	env, err := virtual.NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -113,7 +114,7 @@ func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
 
 func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 	reg := localregistry.NewLocalRegistry()
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	env, err := virtual.NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -135,7 +136,7 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 
 func BenchmarkLocalActorToActorCommunication(b *testing.B) {
 	reg := localregistry.NewLocalRegistry()
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	env, err := virtual.NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close()
 
@@ -194,7 +195,7 @@ func testSimpleBench(
 	require.NoError(t, err)
 	require.NoError(t, reg.UnsafeWipeAll())
 
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	env, err := virtual.NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsWASM)
 	require.NoError(t, err)
 	defer env.Close()
 

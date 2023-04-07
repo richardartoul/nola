@@ -8,15 +8,19 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/richardartoul/nola/cmdutils"
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
+	"golang.org/x/exp/slog"
 )
 
 var (
-	host = flag.String("host", "localhost", "Hostname to perform DNS lookups against")
-	port = flag.Int("port", 9090, "TCP port for HTTP server to bind")
+	host      = flag.String("host", "localhost", "Hostname to perform DNS lookups against")
+	port      = flag.Int("port", 9090, "TCP port for HTTP server to bind")
+	logFormat = flag.String("logFormat", "text", "format to use for the logger. Currently it accepts 'text' for plain text and 'json' for printing in json format")
+	logLevel  = flag.String("logLevel", "debug", "level to use for the logger. Currently it accepts 'text' for plain text and 'json' for printing in json format")
 )
 
 func main() {
@@ -27,17 +31,25 @@ func main() {
 		log.Fatalf("host cannot be empty")
 	}
 
-	env, registry, err := virtual.NewDNSRegistryEnvironment(
-		context.Background(), *host, *port, virtual.EnvironmentOptions{})
+	log, err := cmdutils.ParseLog(*logLevel, *logFormat)
 	if err != nil {
-		log.Fatalf("error creating virtual environment: %v", err)
+		slog.Error("failed to parse log", slog.Any("error", err))
+		return
+	}
+
+	env, registry, err := virtual.NewDNSRegistryEnvironment(
+		context.Background(), log, *host, *port, virtual.EnvironmentOptions{})
+	if err != nil {
+		log.Error("error creating virtual environment", slog.Any("error", err))
+		return
 	}
 
 	err = env.RegisterGoModule(
 		types.NewNamespacedIDNoType("example", "test-module"),
 		&testModule{})
 	if err != nil {
-		log.Fatalf("error registering Go module with virtual environment: %v", err)
+		log.Error("error registering Go module with virtual environment", slog.Any("error", err))
+		return
 	}
 
 	go func() {
@@ -52,7 +64,7 @@ func main() {
 				types.CreateIfNotExist{})
 			cc()
 			if err != nil {
-				log.Printf("error calling actor: %s, err: %v", actorID, err)
+				log.Info("error calling actor", slog.String("actor", actorID), slog.Any("error", err))
 				continue
 			}
 
@@ -62,13 +74,14 @@ func main() {
 					"actor %s returned unparseable response: %v",
 					actorID, string(resp)))
 			}
-			log.Printf("actor: %s response: %d", actorID, v)
+			log.Info("actor responsed", slog.String("actor", actorID), slog.Int64("response", v))
 		}
 	}()
 
 	server := virtual.NewServer(registry, env)
 	if err := server.Start(*port); err != nil {
-		log.Fatalf("error starting server: %v", err)
+		log.Error("error starting server", slog.Any("error", err))
+		return
 	}
 }
 

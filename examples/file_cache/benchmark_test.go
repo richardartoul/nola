@@ -14,6 +14,7 @@ import (
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
+	"golang.org/x/exp/slog"
 
 	"github.com/DataDog/sketches-go/ddsketch"
 	"github.com/stretchr/testify/require"
@@ -39,6 +40,7 @@ func TestFileCacheBenchmark(t *testing.T) {
 	registry := localregistry.NewLocalRegistry()
 	env, err := virtual.NewEnvironment(
 		context.Background(),
+		slog.Default(),
 		"test-server-id", registry,
 		virtual.NewHTTPClient(), virtual.EnvironmentOptions{
 			Discovery: virtual.DiscoveryOptions{
