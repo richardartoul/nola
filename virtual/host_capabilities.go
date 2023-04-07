@@ -33,7 +33,7 @@ func newHostCapabilities(
 	getServerStateFn func() (string, int64),
 ) HostCapabilities {
 	return &hostCapabilities{
-		log:              log,
+		log:              log.With(slog.String("module", "HostCapabilities")),
 		reg:              reg,
 		env:              env,
 		activations:      activations,

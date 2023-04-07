@@ -60,7 +60,7 @@ func newActivations(
 		_modules: make(map[types.NamespacedID]Module),
 		_actors:  make(map[types.NamespacedActorID]futures.Future[*activatedActor]),
 
-		log:           log,
+		log:           log.With(slog.String("module", "activations")),
 		registry:      registry,
 		environment:   environment,
 		goModules:     make(map[types.NamespacedIDNoType]Module),
@@ -412,7 +412,7 @@ func newActivatedActor(
 	onGc func(),
 ) (*activatedActor, error) {
 	a := &activatedActor{
-		_log:        log,
+		_log:        log.With(slog.String("module", "activatedActor")),
 		_a:          actor,
 		_reference:  reference,
 		_host:       host,

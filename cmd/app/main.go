@@ -42,6 +42,8 @@ func main() {
 		return
 	}
 
+	log = log.With(slog.String("app", "nola"))
+
 	var reg registry.Registry
 	switch *registryType {
 	case "memory":
@@ -78,7 +80,7 @@ func main() {
 	log.Info("server listening", slog.Int("port", *port))
 
 	if err := server.Start(*port); err != nil {
-		log.Error(err.Error())
+		log.Error(err.Error(), slog.String("service", "httpServer"))
 		return
 	}
 }

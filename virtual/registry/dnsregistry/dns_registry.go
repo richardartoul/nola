@@ -94,7 +94,7 @@ func NewDNSRegistryFromResolver(
 	}
 
 	d := &dnsRegistry{
-		log:      log,
+		log:      log.With(slog.String("module", "Registry"), slog.String("service", "dnsRegistry")),
 		resolver: resolver,
 		host:     host,
 		port:     port,
@@ -252,7 +252,7 @@ func (d *dnsRegistry) discover() error {
 	d.Unlock()
 
 	if len(d.ips) != len(oldIPs) {
-		d.log.Info("DNSRegistry: discovered new IP addresses", slog.Any("prev", oldIPs), slog.Any("curr", ips))
+		d.log.Info("discovered new IP addresses", slog.Any("prev", oldIPs), slog.Any("curr", ips))
 	}
 
 	return nil

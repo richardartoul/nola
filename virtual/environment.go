@@ -220,7 +220,7 @@ func NewEnvironment(
 	address := fmt.Sprintf("%s:%d", host, opts.Discovery.Port)
 
 	env := &environment{
-		log:             log,
+		log:             log.With(slog.String("module", "environment"), slog.String("service", "environment")),
 		activationCache: activationCache,
 		closeCh:         make(chan struct{}),
 		closedCh:        make(chan struct{}),
