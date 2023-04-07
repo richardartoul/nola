@@ -25,8 +25,8 @@ var (
 	discoveryType               = flag.String("discoveryType", virtual.DiscoveryTypeLocalHost, "how the server should register itself with the discovery serice. Valid options: localhost|remote. Use localhost for local testing, use remote for multi-node setups")
 	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb")
 	foundationDBClusterFilePath = flag.String("foundationDBClusterFilePath", "", "path to use for the FoundationDB cluster file")
-	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. Currently it accepts 'text' for plain text and 'json' for printing in json format")
-	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. Currently it accepts 'text' for plain text and 'json' for printing in json format")
+	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
+	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
 )
 
 func main() {

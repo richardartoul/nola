@@ -18,8 +18,8 @@ import (
 var (
 	host      = flag.String("host", "localhost", "Hostname to perform DNS lookups against")
 	port      = flag.Int("port", 9090, "TCP port for HTTP server to bind")
-	logFormat = flag.String("logFormat", "text", "format to use for the logger. Currently it accepts 'text' for plain text and 'json' for printing in json format")
-	logLevel  = flag.String("logLevel", "debug", "level to use for the logger. Currently it accepts 'text' for plain text and 'json' for printing in json format")
+	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
+	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
 )
 
 func main() {
