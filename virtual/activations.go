@@ -384,7 +384,9 @@ func (a *activations) getServerState() (
 }
 
 func (a *activations) close(ctx context.Context, numWorkers int) error {
+	log.Print("acquiring lock for closing acttor activations")
 	a.Lock()
+	log.Print("acquired lock for closing acttor activations")
 	defer a.Unlock()
 
 	keys := make(chan types.NamespacedActorID, len(a._actors))
