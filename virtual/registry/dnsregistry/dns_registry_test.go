@@ -2,6 +2,7 @@ package dnsregistry
 
 import (
 	"context"
+	"io/ioutil"
 	"net"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ import (
 // consistent hashing to pick a server.
 func TestDNSRegistrySimple(t *testing.T) {
 	resolver := newConstResolver(nil)
-	reg, err := NewDNSRegistryFromResolver(slog.Default(), resolver, "test", 9090, DNSRegistryOptions{
+	reg, err := NewDNSRegistryFromResolver(slog.New(slog.NewTextHandler(ioutil.Discard)), resolver, "test", 9090, DNSRegistryOptions{
 		ResolveEvery: 100 * time.Millisecond,
 	})
 	require.NoError(t, err)
@@ -69,7 +70,7 @@ func TestDNSRegistrySimple(t *testing.T) {
 // applications can use the exact same code in production, as well as in their tests and that
 // the DNS registry "just works" without having to setup custom fakes.
 func TestDNSRegistrySingleNode(t *testing.T) {
-	reg, err := NewDNSRegistry(slog.Default(), Localhost, 9090, DNSRegistryOptions{
+	reg, err := NewDNSRegistry(slog.New(slog.NewTextHandler(ioutil.Discard)), Localhost, 9090, DNSRegistryOptions{
 		ResolveEvery: 100 * time.Millisecond,
 	})
 	require.NoError(t, err)

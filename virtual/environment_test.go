@@ -601,15 +601,15 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	// needs its own port so it looks unique.
 	opts1 := defaultOptsWASM
 	opts1.Discovery.Port = 1
-	env1, err := NewEnvironment(ctx, slog.Default(), "serverID1", reg, nil, opts1)
+	env1, err := NewEnvironment(ctx, slog.New(slog.NewTextHandler(ioutil.Discard)), "serverID1", reg, nil, opts1)
 	require.NoError(t, err)
 	opts2 := defaultOptsWASM
 	opts2.Discovery.Port = 2
-	env2, err := NewEnvironment(ctx, slog.Default(), "serverID2", reg, nil, opts2)
+	env2, err := NewEnvironment(ctx, slog.New(slog.NewTextHandler(ioutil.Discard)), "serverID2", reg, nil, opts2)
 	require.NoError(t, err)
 	opts3 := defaultOptsWASM
 	opts3.Discovery.Port = 3
-	env3, err := NewEnvironment(ctx, slog.Default(), "serverID3", reg, nil, opts3)
+	env3, err := NewEnvironment(ctx, slog.New(slog.NewTextHandler(ioutil.Discard)), "serverID3", reg, nil, opts3)
 	require.NoError(t, err)
 
 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
@@ -756,12 +756,12 @@ func TestCustomHostFns(t *testing.T) {
 func TestGoModulesRegisterTwice(t *testing.T) {
 	// Create environment and register modules.
 	reg := localregistry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsGoByte)
+	env, err := NewEnvironment(context.Background(), slog.New(slog.NewTextHandler(ioutil.Discard)), "serverID1", reg, nil, defaultOptsGoByte)
 	require.NoError(t, err)
 	require.NoError(t, env.Close())
 
 	// Recreate with same registry should not fail.
-	env, err = NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsGoByte)
+	env, err = NewEnvironment(context.Background(), slog.New(slog.NewTextHandler(ioutil.Discard)), "serverID1", reg, nil, defaultOptsGoByte)
 	require.NoError(t, err)
 	require.NoError(t, env.Close())
 }
@@ -778,7 +778,7 @@ func TestServerVersionIsHonored(t *testing.T) {
 
 	opts := defaultOptsWASM
 	opts.ActivationCacheTTL = time.Second * 15
-	env1, err := NewEnvironment(ctx, slog.Default(), "serverID1", reg, nil, opts)
+	env1, err := NewEnvironment(ctx, slog.New(slog.NewTextHandler(ioutil.Discard)), "serverID1", reg, nil, opts)
 	require.NoError(t, err)
 
 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
@@ -819,7 +819,7 @@ func runWithDifferentConfigs(
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
 		reg := localregistry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsWASM)
+		env, err := NewEnvironment(context.Background(), slog.New(slog.NewTextHandler(ioutil.Discard)), "serverID1", reg, nil, defaultOptsWASM)
 		require.NoError(t, err)
 		defer env.Close()
 
@@ -836,7 +836,7 @@ func runWithDifferentConfigs(
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
 		reg := localregistry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsGoByte)
+		env, err := NewEnvironment(context.Background(), slog.New(slog.NewTextHandler(ioutil.Discard)), "serverID1", reg, nil, defaultOptsGoByte)
 		require.NoError(t, err)
 		defer env.Close()
 
@@ -853,7 +853,7 @@ func runWithDifferentConfigs(
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
 		reg := localregistry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), slog.Default(), "serverID1", reg, nil, defaultOptsGoStream)
+		env, err := NewEnvironment(context.Background(), slog.New(slog.NewTextHandler(ioutil.Discard)), "serverID1", reg, nil, defaultOptsGoStream)
 		require.NoError(t, err)
 		defer env.Close()
 
@@ -876,7 +876,7 @@ func runWithDifferentConfigs(
 			opts := defaultOptsGoDNS
 			opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
-			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), slog.Default(), defaultOptsGoDNS)
+			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), slog.New(slog.NewTextHandler(ioutil.Discard)), defaultOptsGoDNS)
 			require.NoError(t, err)
 			defer env.Close()
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"sync"
 	"testing"
@@ -39,7 +40,7 @@ func TestFileCacheBenchmark(t *testing.T) {
 	registry := localregistry.NewLocalRegistry()
 	env, err := virtual.NewEnvironment(
 		context.Background(),
-		slog.Default(),
+		slog.New(slog.NewTextHandler(ioutil.Discard)),
 		"test-server-id", registry,
 		virtual.NewHTTPClient(), virtual.EnvironmentOptions{
 			Discovery: virtual.DiscoveryOptions{
