@@ -94,7 +94,7 @@ func NewDNSRegistryFromResolver(
 	}
 
 	d := &dnsRegistry{
-		log:      log.With(slog.String("module", "Registry"), slog.String("service", "dnsRegistry")),
+		log:      log.With(slog.String("module", "Registry"), slog.String("subService", "dnsRegistry")),
 		resolver: resolver,
 		host:     host,
 		port:     port,

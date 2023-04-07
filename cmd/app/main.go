@@ -42,7 +42,7 @@ func main() {
 		return
 	}
 
-	log = log.With(slog.String("app", "nola"))
+	log = log.With(slog.String("service", "nola"))
 
 	var reg registry.Registry
 	switch *registryType {
@@ -80,7 +80,7 @@ func main() {
 	log.Info("server listening", slog.Int("port", *port))
 
 	if err := server.Start(*port); err != nil {
-		log.Error(err.Error(), slog.String("service", "httpServer"))
+		log.Error(err.Error(), slog.String("subService", "httpServer"))
 		return
 	}
 }
