@@ -11,7 +11,7 @@ import (
 
 	_ "net/http/pprof"
 
-	"github.com/richardartoul/nola/cmdutils"
+	"github.com/richardartoul/nola/cmd/utils"
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/registry/fdbregistry"
@@ -37,7 +37,7 @@ func main() {
 		fmt.Printf(" --%s=%s\n", f.Name, f.Value.String())
 	})
 
-	log, err := cmdutils.ParseLog(*logLevel, *logFormat)
+	log, err := utils.ParseLog(*logLevel, *logFormat)
 	if err != nil {
 		slog.Error("failed to parse log", slog.Any("error", err))
 		os.Exit(1)

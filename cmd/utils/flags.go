@@ -1,4 +1,4 @@
-package cmdutils
+package utils
 
 import (
 	"fmt"

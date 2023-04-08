@@ -18,7 +18,6 @@ import (
 	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
-	"golang.org/x/exp/slog"
 
 	"github.com/stretchr/testify/require"
 )

@@ -22,7 +22,7 @@ func TestDNSRegistrySimple(t *testing.T) {
 	require.NoError(t, err)
 	defer func() {
 		if err := reg.Close(context.Background()); err != nil {
-			panic(err)
+			t.Fatal(err)
 		}
 	}()
 
@@ -74,7 +74,7 @@ func TestDNSRegistrySingleNode(t *testing.T) {
 	require.NoError(t, err)
 	defer func() {
 		if err := reg.Close(context.Background()); err != nil {
-			panic(err)
+			t.Fatal(err)
 		}
 	}()
 
