@@ -49,7 +49,7 @@ func TestFileCacheBenchmark(t *testing.T) {
 			ForceRemoteProcedureCalls: true,
 		})
 	if err != nil {
-		t.Errorf("error creating virtual environment: %s", err)
+		t.Fatalf("error creating virtual environment: %s", err)
 	}
 	err = env.RegisterGoModule(
 		types.NewNamespacedIDNoType("bench-ns", "file-cache"),
