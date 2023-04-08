@@ -214,10 +214,10 @@ func (d *dnsRegistry) Heartbeat(
 }
 
 func (d *dnsRegistry) Close(ctx context.Context) error {
-	d.log.Info("DNSRegistry: Shutting down")
+	d.log.Info("Shutting down")
 	close(d.closeCh)
 	<-d.closedCh
-	d.log.Info("DNSRegistry: Done shutting down")
+	d.log.Info("Done shutting down")
 	return nil
 }
 
