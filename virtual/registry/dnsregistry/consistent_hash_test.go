@@ -16,7 +16,7 @@ func TestHashing(t *testing.T) {
 	hash := NewHashRing(3, func(key []byte) uint32 {
 		i, err := strconv.Atoi(string(key))
 		if err != nil {
-			panic(err)
+			t.Fatal(err)
 		}
 		return uint32(i)
 	})

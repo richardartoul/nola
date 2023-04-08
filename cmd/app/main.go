@@ -4,11 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"os"
 	"time"
+
+	"golang.org/x/exp/slog"
 
 	_ "net/http/pprof"
 
+	"github.com/richardartoul/nola/cmd/utils"
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/registry/fdbregistry"
@@ -23,6 +26,8 @@ var (
 	discoveryType               = flag.String("discoveryType", virtual.DiscoveryTypeLocalHost, "how the server should register itself with the discovery serice. Valid options: localhost|remote. Use localhost for local testing, use remote for multi-node setups")
 	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb")
 	foundationDBClusterFilePath = flag.String("foundationDBClusterFilePath", "", "path to use for the FoundationDB cluster file")
+	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
+	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
 )
 
 func main() {
@@ -32,6 +37,14 @@ func main() {
 		fmt.Printf(" --%s=%s\n", f.Name, f.Value.String())
 	})
 
+	log, err := utils.ParseLog(*logLevel, *logFormat)
+	if err != nil {
+		slog.Error("failed to parse log", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	log = log.With(slog.String("service", "nola"))
+
 	var reg registry.Registry
 	switch *registryType {
 	case "memory":
@@ -40,10 +53,12 @@ func main() {
 		var err error
 		reg, err = fdbregistry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
 		if err != nil {
-			log.Fatalf("error creating FoundationDB registry: %v\n", err)
+			log.Error("error creating FoundationDB registry", slog.Any("error", err))
+			os.Exit(1)
 		}
 	default:
-		log.Fatalf("unknown registry type: %v", *registryType)
+		log.Error("unknown registry type", slog.String("registryType", *registryType))
+		os.Exit(1)
 	}
 
 	client := virtual.NewHTTPClient()
@@ -54,17 +69,20 @@ func main() {
 			DiscoveryType: *discoveryType,
 			Port:          *port,
 		},
+		Logger: log,
 	})
 	cc()
 	if err != nil {
-		log.Fatal(err)
+		log.Error("error creating environment", slog.Any("error", err))
+		os.Exit(1)
 	}
 
 	server := virtual.NewServer(reg, environment)
 
-	log.Printf("listening on port: %d\n", *port)
+	log.Info("server listening", slog.Int("port", *port))
 
 	if err := server.Start(*port); err != nil {
-		log.Fatal(err)
+		log.Error(err.Error(), slog.String("subService", "httpServer"))
+		os.Exit(1)
 	}
 }

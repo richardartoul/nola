@@ -83,7 +83,7 @@ func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
 	for i := 0; i < b.N; i++ {
 		_, err = env.InvokeActor(ctx, "bench-ns", "a", "test-module", "incFast", nil, types.CreateIfNotExist{})
 		if err != nil {
-			panic(err)
+			b.Fatal(err)
 		}
 	}
 }
@@ -106,7 +106,7 @@ func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
 			ctx, "bench-ns", "test-module",
 			"incFast", nil, types.CreateIfNotExist{})
 		if err != nil {
-			panic(err)
+			b.Fatal(err)
 		}
 	}
 }
@@ -128,7 +128,7 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 		actorID := fmt.Sprintf("%d", i)
 		_, err = env.InvokeActor(ctx, "bench-ns", actorID, "test-module", "incFast", nil, types.CreateIfNotExist{})
 		if err != nil {
-			panic(err)
+			b.Fatal(err)
 		}
 	}
 }
@@ -157,7 +157,7 @@ func BenchmarkLocalActorToActorCommunication(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, err = env.InvokeActor(ctx, "bench-ns", "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
 		if err != nil {
-			panic(err)
+			b.Fatal(err)
 		}
 	}
 }

@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
+
+	"golang.org/x/exp/slog"
 
 	"github.com/richardartoul/nola/durable"
 	"github.com/richardartoul/nola/virtual/registry"
@@ -24,6 +25,7 @@ type hostFnActorTxnKey struct{}
 // TODO: Should have some kind of ACL enforcement polic here, but for now allow any module to
 // run any host function.
 func newHostFnRouter(
+	log *slog.Logger,
 	reg registry.Registry,
 	environment Environment,
 	activations *activations,
@@ -126,8 +128,7 @@ func newHostFnRouter(
 					}
 				}
 				if err != nil {
-					log.Printf(
-						"error firing timer for actor %s, err: %v\n", actorRef, err)
+					log.Error("error firing timer for actor", slog.Any("actor", actorRef), slog.Any("error", err))
 				}
 			})
 
