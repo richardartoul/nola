@@ -9,7 +9,6 @@ import (
 	// So go mod tidy doesn't clean this up. Its used in testdata, but go mod
 	// doesn't look in there.
 	_ "github.com/wapc/wapc-guest-tinygo"
-	"golang.org/x/exp/slog"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
@@ -68,8 +67,7 @@ func BenchmarkWASMCallOverhead(b *testing.B) {
 
 		mod, err := r.InstantiateModuleFromBinary(ctx, wasmBytes)
 		if err != nil {
-			slog.Error(err.Error())
-			return
+			b.Error(err)
 		}
 
 		sum := mod.ExportedFunction("sum")

@@ -39,7 +39,7 @@ func main() {
 	}
 
 	env, registry, err := virtual.NewDNSRegistryEnvironment(
-		context.Background(), *host, *port, virtual.EnvironmentOptions{Log: log})
+		context.Background(), *host, *port, virtual.EnvironmentOptions{Logger: log})
 	if err != nil {
 		log.Error("error creating virtual environment", slog.Any("error", err))
 		os.Exit(1)

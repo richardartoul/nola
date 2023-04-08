@@ -43,24 +43,20 @@ var (
 		Discovery:                              testDiscovery,
 		CustomHostFns:                          customHostFns,
 		GCActorsAfterDurationWithNoInvocations: testGCActorsAfterDurationWithNoInvocations,
-		Log:                                    slog.New(slog.NewTextHandler(ioutil.Discard)),
 	}
 	defaultOptsGoByte = EnvironmentOptions{
 		Discovery:                              testDiscovery,
 		CustomHostFns:                          customHostFns,
 		GCActorsAfterDurationWithNoInvocations: testGCActorsAfterDurationWithNoInvocations,
-		Log:                                    slog.New(slog.NewTextHandler(ioutil.Discard)),
 	}
 	defaultOptsGoStream = EnvironmentOptions{
 		Discovery:                              testDiscovery,
 		CustomHostFns:                          customHostFns,
 		GCActorsAfterDurationWithNoInvocations: testGCActorsAfterDurationWithNoInvocations,
-		Log:                                    slog.New(slog.NewTextHandler(ioutil.Discard)),
 	}
 	defaultOptsGoDNS = EnvironmentOptions{
 		CustomHostFns:                          customHostFns,
 		GCActorsAfterDurationWithNoInvocations: testGCActorsAfterDurationWithNoInvocations,
-		Log:                                    slog.New(slog.NewTextHandler(ioutil.Discard)),
 	}
 )
 

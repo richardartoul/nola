@@ -69,7 +69,7 @@ func main() {
 			DiscoveryType: *discoveryType,
 			Port:          *port,
 		},
-		Log: log,
+		Logger: log,
 	})
 	cc()
 	if err != nil {

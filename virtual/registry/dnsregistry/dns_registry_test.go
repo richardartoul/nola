@@ -2,7 +2,6 @@ package dnsregistry
 
 import (
 	"context"
-	"io/ioutil"
 	"net"
 	"strings"
 	"testing"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/slog"
 )
 
 // TestDNSRegistrySimple is a simple test of the DNS registry. It tests that
@@ -20,7 +18,6 @@ func TestDNSRegistrySimple(t *testing.T) {
 	resolver := newConstResolver(nil)
 	reg, err := NewDNSRegistryFromResolver(resolver, "test", 9090, DNSRegistryOptions{
 		ResolveEvery: 100 * time.Millisecond,
-		Log:          slog.New(slog.NewTextHandler(ioutil.Discard)),
 	})
 	require.NoError(t, err)
 	defer func() {
@@ -73,7 +70,6 @@ func TestDNSRegistrySimple(t *testing.T) {
 func TestDNSRegistrySingleNode(t *testing.T) {
 	reg, err := NewDNSRegistry(Localhost, 9090, DNSRegistryOptions{
 		ResolveEvery: 100 * time.Millisecond,
-		Log:          slog.New(slog.NewTextHandler(ioutil.Discard)),
 	})
 	require.NoError(t, err)
 	defer func() {

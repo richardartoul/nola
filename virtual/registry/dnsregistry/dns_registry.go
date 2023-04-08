@@ -62,8 +62,8 @@ type DNSRegistryOptions struct {
 	// ResolveEvery controls how often the LookupIP method will be
 	// called on the DNSResolver to detect which IPs are active.
 	ResolveEvery time.Duration
-	// Log is the logger. If no logger is passed, then default slog.Default() is used.
-	Log *slog.Logger
+	// Logger is the logger. If no logger is passed, then default slog.Default() is used.
+	Logger *slog.Logger
 }
 
 // NewDNSRegistry creates a new registry.Registry backed by DNS.
@@ -92,12 +92,12 @@ func NewDNSRegistryFromResolver(
 	if opts.ResolveEvery == 0 {
 		opts.ResolveEvery = 5 * time.Second
 	}
-	if opts.Log == nil {
-		opts.Log = slog.Default()
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
 	}
 
 	d := &dnsRegistry{
-		log:      opts.Log.With(slog.String("module", "Registry"), slog.String("subService", "dnsRegistry")),
+		log:      opts.Logger.With(slog.String("module", "Registry"), slog.String("subService", "dnsRegistry")),
 		resolver: resolver,
 		host:     host,
 		port:     port,

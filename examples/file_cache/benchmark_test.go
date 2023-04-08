@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"sync"
 	"testing"
@@ -14,7 +13,6 @@ import (
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
-	"golang.org/x/exp/slog"
 
 	"github.com/DataDog/sketches-go/ddsketch"
 	"github.com/stretchr/testify/require"
@@ -49,11 +47,9 @@ func TestFileCacheBenchmark(t *testing.T) {
 			// Make sure the benchmark tests the RPC/HTTP stack, not just the
 			// in-memory virtual.Environment code.
 			ForceRemoteProcedureCalls: true,
-			Log:                       slog.New(slog.NewTextHandler(ioutil.Discard)),
 		})
 	if err != nil {
-		slog.Error("error creating virtual environment", slog.Any("error", err))
-		return
+		t.Errorf("error creating virtual environment: %s", err)
 	}
 	err = env.RegisterGoModule(
 		types.NewNamespacedIDNoType("bench-ns", "file-cache"),

@@ -31,7 +31,6 @@ var (
 				return []byte("ok"), nil
 			},
 		},
-		Log: slog.New(slog.NewTextHandler(ioutil.Discard)),
 	}
 )
 
