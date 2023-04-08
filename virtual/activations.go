@@ -398,7 +398,10 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 	)
 
 	for actorId, futActor := range a._actors {
-		sem.Acquire(ctx, 1)
+		if err := sem.Acquire(ctx, 1); err != nil {
+			log.Printf("failed to acquire lock: %s", err)
+			break
+		}
 		wg.Add(1)
 		go func(actorId types.NamespacedActorID, futActor futures.Future[*activatedActor]) {
 			defer sem.Release(1)
