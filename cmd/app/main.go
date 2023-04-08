@@ -66,11 +66,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var server Server = virtual.NewServer(reg, environment)
+	var server virtualServer = virtual.NewServer(reg, environment)
 
 	log.Printf("listening on port: %d\n", *port)
 
-	go func(server Server) {
+	go func(server virtualServer) {
 		sig := waitForSignal()
 		log.Printf("received signal: %s", sig.String())
 		shutdown(server, *shutdownTimeout)
@@ -83,7 +83,7 @@ func main() {
 	}
 }
 
-type Server interface {
+type virtualServer interface {
 	Start(int) error
 	Stop(context.Context) error
 }
@@ -97,11 +97,15 @@ func waitForSignal() os.Signal {
 	return <-osSig
 }
 
-func shutdown(server Server, timeout time.Duration) {
+func shutdown(server virtualServer, timeout time.Duration) {
 	log.Printf("shutting down server with timeout (%s)...", timeout.String())
-	ctx := context.Background()
+	var (
+		ctx = context.Background()
+		cc  context.CancelFunc
+	)
 	if timeout > 0 { // by default there is no timeout for shutting down
-		ctx, _ = context.WithTimeout(context.Background(), timeout)
+		ctx, cc = context.WithTimeout(context.Background(), timeout)
+		defer cc()
 	}
 
 	if err := server.Stop(ctx); err != nil {

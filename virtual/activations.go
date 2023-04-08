@@ -390,11 +390,13 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 	log.Print("acquired lock for closing actor activations")
 	defer a.Unlock()
 
-	sem := semaphore.NewWeighted(int64(numWorkers))
+	var (
+		sem      = semaphore.NewWeighted(int64(numWorkers))
+		wg       sync.WaitGroup
+		closed   = int64(0)
+		expected = int64(len(a._actors))
+	)
 
-	wg := sync.WaitGroup{}
-	closed := int64(0)
-	expected := int64(len(a._actors))
 	for actorId, futActor := range a._actors {
 		sem.Acquire(ctx, 1)
 		wg.Add(1)
@@ -404,21 +406,23 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 
 			actor, err := futActor.Wait()
 			if err != nil {
-				log.Printf("failed to wait for an actor: %s", err.Error())
+				log.Printf("failed to resolve actor %s future during activations clean shutdown: %s", actorId.ID, err.Error())
 				return
 			}
 
 			if err := actor.close(ctx); err != nil {
-				log.Printf("failed to close an actor: %s", err.Error())
+				log.Printf("failed to close actor %s during activations clean shutdown: %s", actorId.ID, err.Error())
 				return
 			}
 
-			delete(a._actors, actorId)
 			atomic.AddInt64(&closed, 1)
 		}(actorId, futActor)
 	}
 
 	wg.Wait()
+
+	a._actors = make(map[types.NamespacedActorID]futures.Future[*activatedActor]) // delete all entries
+
 	if expected != closed {
 		return fmt.Errorf("unable to close all the actors, expected: %d - closed: %d", expected, closed)
 	}

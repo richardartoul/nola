@@ -28,6 +28,8 @@ const (
 )
 
 var (
+	// ErrEnvironmentClosed is an error that indicates the environment is closed.
+	// It can be returned when attempting to perform an operation on a closed environment.
 	ErrEnvironmentClosed = errors.New("environment is closed")
 )
 
@@ -47,13 +49,13 @@ type environment struct {
 	closeCh chan struct{}
 	// Closed when the background heartbeating goroutine completes shutting down.
 	closedCh chan struct{}
-	// State needed to shutdown the service.
+	// shutdownState holds the state needed to gracefully shutdown the service.
 	shutdownState struct {
-		// Mutex for accessing the 'closed' flag of the state
+		// closed is a flag that prevents public methods from processing new requests.
 		mu sync.RWMutex
-		// Flag to prevent public methods from processing new requests
+		// Flag to prevent public methods from processing new requests.
 		closed bool
-		// WaitGroup to keep track of inflight requests and waitf ro them to finish
+		// inflight is a WaitGroup used to keep track of in-flight requests and wait for them to finish.
 		inflight sync.WaitGroup
 	}
 
@@ -106,10 +108,10 @@ type EnvironmentOptions struct {
 	// functionality entirely, just use a really large value.
 	GCActorsAfterDurationWithNoInvocations time.Duration
 
-	// ShutdownWorkers is the number of workers for shutting down the active actors.
-	// In other words, this is the parallelism and CPU power used for shutting down the environment.
-	// By default all the available CPUs (runtime.NumCPU()) are used
-	ShutdownWorkers int
+	// MaxNumShutdownWorkers specifies the number of workers used for shutting down the active actors
+	// in the environment. This determines the level of parallelism and CPU resources utilized
+	// during the shutdown process. By default, all available CPUs (runtime.NumCPU()) are used.
+	MaxNumShutdownWorkers int
 }
 
 // NewDNSRegistryEnvironment is a convenience function that creates a virtual environment backed
@@ -204,8 +206,8 @@ func NewEnvironment(
 	if opts.GCActorsAfterDurationWithNoInvocations == 0 {
 		opts.GCActorsAfterDurationWithNoInvocations = time.Minute
 	}
-	if opts.ShutdownWorkers == 0 {
-		opts.ShutdownWorkers = runtime.NumCPU()
+	if opts.MaxNumShutdownWorkers == 0 {
+		opts.MaxNumShutdownWorkers = runtime.NumCPU()
 	}
 
 	if err := opts.Validate(); err != nil {
@@ -594,7 +596,7 @@ func (r *environment) Close(ctx context.Context) error {
 	r.shutdownState.inflight.Wait()
 	log.Printf("Finished waiting %s for inflight methods to terminate", time.Since(start))
 
-	if err := r.activations.close(ctx, r.opts.ShutdownWorkers); err != nil {
+	if err := r.activations.close(ctx, r.opts.MaxNumShutdownWorkers); err != nil {
 		return fmt.Errorf("failed to close actors: %w", err)
 	}
 
