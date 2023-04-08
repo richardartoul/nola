@@ -388,9 +388,9 @@ func (a *activations) getServerState() (
 }
 
 func (a *activations) close(ctx context.Context, numWorkers int) error {
-	log.Print("acquiring lock for closing actor activations")
+	a.log.Info("acquiring lock for closing actor activations")
 	a.Lock()
-	log.Print("acquired lock for closing actor activations")
+	a.log.Info("acquired lock for closing actor activations")
 	defer a.Unlock()
 
 	var (
@@ -402,7 +402,7 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 
 	for actorId, futActor := range a._actors {
 		if err := sem.Acquire(ctx, 1); err != nil {
-			log.Printf("failed to acquire lock: %s", err)
+			a.log.Error("failed to acquire lock", slog.Any("error", err))
 			break
 		}
 		wg.Add(1)
@@ -412,12 +412,12 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 
 			actor, err := futActor.Wait()
 			if err != nil {
-				log.Printf("failed to resolve actor %s future during activations clean shutdown: %s", actorId.ID, err.Error())
+				a.log.Error("failed to resolve actor future during activations clean shutdown", slog.String("actor", actorId.ID), slog.Any("error", err))
 				return
 			}
 
 			if err := actor.close(ctx); err != nil {
-				log.Printf("failed to close actor %s during activations clean shutdown: %s", actorId.ID, err.Error())
+				a.log.Error("failed to close actor future during activations clean shutdown", slog.String("actor", actorId.ID), slog.Any("error", err))
 				return
 			}
 
