@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"golang.org/x/exp/slog"
@@ -39,7 +40,7 @@ func main() {
 	log, err := cmdutils.ParseLog(*logLevel, *logFormat)
 	if err != nil {
 		slog.Error("failed to parse log", slog.Any("error", err))
-		return
+		os.Exit(1)
 	}
 
 	log = log.With(slog.String("service", "nola"))
@@ -53,11 +54,11 @@ func main() {
 		reg, err = fdbregistry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
 		if err != nil {
 			log.Error("error creating FoundationDB registry", slog.Any("error", err))
-			return
+			os.Exit(1)
 		}
 	default:
 		log.Error("unknown registry type", slog.String("registryType", *registryType))
-		return
+		os.Exit(1)
 	}
 
 	client := virtual.NewHTTPClient()
@@ -73,7 +74,7 @@ func main() {
 	cc()
 	if err != nil {
 		log.Error("error creating environment", slog.Any("error", err))
-		return
+		os.Exit(1)
 	}
 
 	server := virtual.NewServer(reg, environment)
@@ -82,6 +83,6 @@ func main() {
 
 	if err := server.Start(*port); err != nil {
 		log.Error(err.Error(), slog.String("subService", "httpServer"))
-		return
+		os.Exit(1)
 	}
 }

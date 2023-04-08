@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -18,8 +19,8 @@ import (
 var (
 	host      = flag.String("host", "localhost", "Hostname to perform DNS lookups against")
 	port      = flag.Int("port", 9090, "TCP port for HTTP server to bind")
-	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
-	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
+	logFormat = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
+	logLevel  = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
 )
 
 func main() {
@@ -28,20 +29,20 @@ func main() {
 	if *host == "" {
 		flag.Usage()
 		slog.Error("host cannot be empty")
-		return
+		os.Exit(1)
 	}
 
 	log, err := cmdutils.ParseLog(*logLevel, *logFormat)
 	if err != nil {
 		slog.Error("failed to parse log", slog.Any("error", err))
-		return
+		os.Exit(1)
 	}
 
 	env, registry, err := virtual.NewDNSRegistryEnvironment(
 		context.Background(), *host, *port, virtual.EnvironmentOptions{Log: log})
 	if err != nil {
 		log.Error("error creating virtual environment", slog.Any("error", err))
-		return
+		os.Exit(1)
 	}
 
 	err = env.RegisterGoModule(
@@ -49,7 +50,7 @@ func main() {
 		&testModule{})
 	if err != nil {
 		log.Error("error registering Go module with virtual environment", slog.Any("error", err))
-		return
+		os.Exit(1)
 	}
 
 	go func() {
@@ -70,9 +71,8 @@ func main() {
 
 			v, err := strconv.ParseInt(string(resp), 10, 64)
 			if err != nil {
-				panic(fmt.Sprintf(
-					"actor %s returned unparseable response: %v",
-					actorID, string(resp)))
+				log.Error("actor returned unparseable response", slog.String("actor", actorID), slog.String("response", string(resp)))
+				os.Exit(1)
 			}
 			log.Info("actor responsed", slog.String("actor", actorID), slog.Int64("response", v))
 		}
@@ -81,7 +81,7 @@ func main() {
 	server := virtual.NewServer(registry, env)
 	if err := server.Start(*port); err != nil {
 		log.Error("error starting server", slog.Any("error", err))
-		return
+		os.Exit(1)
 	}
 }
 
