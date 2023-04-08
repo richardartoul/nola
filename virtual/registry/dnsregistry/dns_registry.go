@@ -62,7 +62,8 @@ type DNSRegistryOptions struct {
 	// ResolveEvery controls how often the LookupIP method will be
 	// called on the DNSResolver to detect which IPs are active.
 	ResolveEvery time.Duration
-	// Logger is the logger. If no logger is passed, then default slog.Default() is used.
+	// Logger is a logging instance used for logging messages.
+	// If no logger is provided, the default logger from the slog package (slog.Default()) will be used.
 	Logger *slog.Logger
 }
 

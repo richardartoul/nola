@@ -95,7 +95,8 @@ type EnvironmentOptions struct {
 	// functionality entirely, just use a really large value.
 	GCActorsAfterDurationWithNoInvocations time.Duration
 
-	// Logger is the logger. If no logger is passed, then default slog.Default() is used.
+	// Logger is a logging instance used for logging messages.
+	// If no logger is provided, the default logger from the slog package (slog.Default()) will be used.
 	Logger *slog.Logger
 }
 
