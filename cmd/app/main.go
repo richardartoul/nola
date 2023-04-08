@@ -12,8 +12,14 @@ import (
 	"time"
 
 	"net/http"
+	"os"
+	"time"
+
+	"golang.org/x/exp/slog"
+
 	_ "net/http/pprof"
 
+	"github.com/richardartoul/nola/cmd/utils"
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/registry/fdbregistry"
@@ -29,6 +35,8 @@ var (
 	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb")
 	foundationDBClusterFilePath = flag.String("foundationDBClusterFilePath", "", "path to use for the FoundationDB cluster file")
 	shutdownTimeout             = flag.Duration("shutdownTimeout", 0, "timeout before forcing the server to shutdown, without waiting actors and other components to close gracefully. By default is 0, which is infinite duration untill all actors are closed")
+	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
+	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
 )
 
 func main() {
@@ -38,6 +46,14 @@ func main() {
 		fmt.Printf(" --%s=%s\n", f.Name, f.Value.String())
 	})
 
+	log, err := utils.ParseLog(*logLevel, *logFormat)
+	if err != nil {
+		slog.Error("failed to parse log", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	log = log.With(slog.String("service", "nola"))
+
 	var reg registry.Registry
 	switch *registryType {
 	case "memory":
@@ -46,10 +62,12 @@ func main() {
 		var err error
 		reg, err = fdbregistry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
 		if err != nil {
-			log.Fatalf("error creating FoundationDB registry: %v\n", err)
+			log.Error("error creating FoundationDB registry", slog.Any("error", err))
+			os.Exit(1)
 		}
 	default:
-		log.Fatalf("unknown registry type: %v", *registryType)
+		log.Error("unknown registry type", slog.String("registryType", *registryType))
+		os.Exit(1)
 	}
 
 	client := virtual.NewHTTPClient()
@@ -60,26 +78,28 @@ func main() {
 			DiscoveryType: *discoveryType,
 			Port:          *port,
 		},
+		Logger: log,
 	})
 	cc()
 	if err != nil {
-		log.Fatal(err)
+		log.Error("error creating environment", slog.Any("error", err))
+		os.Exit(1)
 	}
 
 	var server virtualServer = virtual.NewServer(reg, environment)
 
-	log.Printf("listening on port: %d\n", *port)
+	log.Info("server listening", slog.Int("port", *port))
 
 	go func(server virtualServer) {
 		sig := waitForSignal()
-		log.Printf("received signal: %s", sig.String())
+		log.Info("received signal", slog.Any("signal", sig))
 		shutdown(server, *shutdownTimeout)
 	}(server)
 
 	if err := server.Start(*port); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Printf("received error: %s", err.Error())
+		log.Error("received error", slog.Any("error", err), slog.String("subService", "httpServer"))
 		shutdown(server, *shutdownTimeout)
-		log.Fatal(err)
+		os.Exit(1)
 	}
 }
 

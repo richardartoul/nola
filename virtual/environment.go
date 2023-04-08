@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/exp/slog"
+
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
 	"github.com/richardartoul/nola/virtual/types"
@@ -34,6 +36,8 @@ var (
 )
 
 type environment struct {
+	log *slog.Logger
+
 	// State.
 	activations     *activations // Internally synchronized.
 	activationCache *ristretto.Cache
@@ -112,6 +116,10 @@ type EnvironmentOptions struct {
 	// in the environment. This determines the level of parallelism and CPU resources utilized
 	// during the shutdown process. By default, all available CPUs (runtime.NumCPU()) are used.
 	MaxNumShutdownWorkers int
+
+	// Logger is a logging instance used for logging messages.
+	// If no logger is provided, the default logger from the slog package (slog.Default()) will be used.
+	Logger *slog.Logger
 }
 
 // NewDNSRegistryEnvironment is a convenience function that creates a virtual environment backed
@@ -131,12 +139,15 @@ func NewDNSRegistryEnvironment(
 	} else {
 		opts.Discovery.DiscoveryType = DiscoveryTypeRemote
 	}
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
 
 	if err := opts.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("error validating EnvironmentOptions: %w", err)
 	}
 
-	reg, err := dnsregistry.NewDNSRegistry(host, port, dnsregistry.DNSRegistryOptions{})
+	reg, err := dnsregistry.NewDNSRegistry(host, port, dnsregistry.DNSRegistryOptions{Logger: opts.Logger})
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating DNS registry: %w", err)
 	}
@@ -209,6 +220,9 @@ func NewEnvironment(
 	if opts.MaxNumShutdownWorkers == 0 {
 		opts.MaxNumShutdownWorkers = runtime.NumCPU()
 	}
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
 
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("error validating EnvironmentOptions: %w", err)
@@ -238,6 +252,7 @@ func NewEnvironment(
 	address := fmt.Sprintf("%s:%d", host, opts.Discovery.Port)
 
 	env := &environment{
+		log:             opts.Logger.With(slog.String("module", "environment"), slog.String("subService", "environment")),
 		activationCache: activationCache,
 		closeCh:         make(chan struct{}),
 		closedCh:        make(chan struct{}),
@@ -248,13 +263,13 @@ func NewEnvironment(
 		opts:            opts,
 	}
 	activations := newActivations(
-		reg, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
+		opts.Logger, reg, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
 	env.activations = activations
 
 	// Skip confusing log if dnsregistry is being used since it doesn't use the registry-based
 	// registration mechanism in the traditional way.
 	if serverID != dnsregistry.DNSServerID {
-		log.Printf("registering self with address: %s", address)
+		opts.Logger.Info("registering self with address", slog.String("address", address))
 	}
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
@@ -280,12 +295,10 @@ func NewEnvironment(
 					return
 				}
 				if err := env.heartbeat(); err != nil {
-					log.Printf("error performing background heartbeat: %v\n", err)
+					opts.Logger.Error("error performing background heartbeat", slog.Any("error", err))
 				}
 			case <-env.closeCh:
-				log.Printf(
-					"environment with serverID: %s and address: %s is shutting down\n",
-					env.serverID, env.address)
+				opts.Logger.Info("shutting down environment", slog.String("serverID", env.serverID), slog.String("address", env.address))
 				return
 			}
 		}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"sync"
 	"testing"
@@ -50,7 +49,7 @@ func TestFileCacheBenchmark(t *testing.T) {
 			ForceRemoteProcedureCalls: true,
 		})
 	if err != nil {
-		log.Fatalf("error creating virtual environment: %v", err)
+		t.Fatalf("error creating virtual environment: %s", err)
 	}
 	err = env.RegisterGoModule(
 		types.NewNamespacedIDNoType("bench-ns", "file-cache"),

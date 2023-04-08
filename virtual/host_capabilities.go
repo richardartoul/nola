@@ -3,9 +3,10 @@ package virtual
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"golang.org/x/exp/slog"
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
@@ -13,6 +14,7 @@ import (
 )
 
 type hostCapabilities struct {
+	log              *slog.Logger
 	reg              registry.Registry
 	env              Environment
 	activations      *activations
@@ -22,6 +24,7 @@ type hostCapabilities struct {
 }
 
 func newHostCapabilities(
+	log *slog.Logger,
 	reg registry.Registry,
 	env Environment,
 	activations *activations,
@@ -30,6 +33,7 @@ func newHostCapabilities(
 	getServerStateFn func() (string, int64),
 ) HostCapabilities {
 	return &hostCapabilities{
+		log:              log.With(slog.String("module", "HostCapabilities")),
 		reg:              reg,
 		env:              env,
 		activations:      activations,
@@ -101,8 +105,7 @@ func (h *hostCapabilities) ScheduleSelfTimer(
 			}
 		}
 		if err != nil {
-			log.Printf(
-				"error firing timer for actor %s, err: %v\n", h.reference, err)
+			h.log.Error("error firing timer for actor", slog.Any("actor", h.reference), slog.Any("error", err))
 		}
 	})
 

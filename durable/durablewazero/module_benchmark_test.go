@@ -25,7 +25,7 @@ func BenchmarkObjectExecution(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_, err := object.Invoke(ctx, "inc", nil)
 			if err != nil {
-				panic(err)
+				b.Fatal(err)
 			}
 		}
 		b.ReportMetric(0, "bytes/op")
@@ -36,12 +36,12 @@ func BenchmarkObjectExecution(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_, err := object.Invoke(ctx, "inc", nil)
 			if err != nil {
-				panic(err)
+				b.Fatal(err)
 			}
 
 			buf.Reset()
 			if err := object.Snapshot(ctx, buf); err != nil {
-				panic(err)
+				b.Fatal(err)
 			}
 			bytesWritten += buf.Len()
 		}
@@ -54,12 +54,12 @@ func BenchmarkObjectExecution(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_, err := object.Invoke(ctx, "inc", nil)
 			if err != nil {
-				panic(err)
+				b.Fatal(err)
 			}
 
 			buf.Reset()
 			if err := object.SnapshotIncremental(ctx, prevBuf.Bytes(), buf); err != nil {
-				panic(err)
+				b.Fatal(err)
 			}
 			bytesWritten += buf.Len()
 			prevBuf, buf = buf, prevBuf

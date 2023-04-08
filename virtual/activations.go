@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/exp/slog"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
 	"github.com/richardartoul/nola/virtual/futures"
@@ -25,6 +26,8 @@ import (
 
 type activations struct {
 	sync.Mutex
+
+	log *slog.Logger
 
 	// State.
 	_modules           map[types.NamespacedID]Module
@@ -45,6 +48,7 @@ type activations struct {
 }
 
 func newActivations(
+	log *slog.Logger,
 	registry registry.Registry,
 	environment Environment,
 	customHostFns map[string]func([]byte) ([]byte, error),
@@ -58,6 +62,7 @@ func newActivations(
 		_modules: make(map[types.NamespacedID]Module),
 		_actors:  make(map[types.NamespacedActorID]futures.Future[*activatedActor]),
 
+		log:           log.With(slog.String("module", "activations")),
 		registry:      registry,
 		environment:   environment,
 		goModules:     make(map[types.NamespacedIDNoType]Module),
@@ -197,9 +202,7 @@ func (a *activations) invokeNotExistWithLock(
 	fut.GoSync(func() (actor *activatedActor, err error) {
 		if prevActor != nil {
 			if err := prevActor.close(ctx); err != nil {
-				log.Printf(
-					"error closing previous instance of actor: %v, err: %v",
-					reference, err)
+				a.log.Error("error closing previous instance of actor", slog.Any("actor", reference), slog.Any("error", err))
 			}
 		}
 
@@ -221,7 +224,7 @@ func (a *activations) invokeNotExistWithLock(
 		}
 
 		hostCapabilities := newHostCapabilities(
-			a.registry, a.environment, a, a.customHostFns, reference, a.getServerState)
+			a.log, a.registry, a.environment, a, a.customHostFns, reference, a.getServerState)
 		iActor, err := module.Instantiate(ctx, reference, instantiatePayload, hostCapabilities)
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -306,7 +309,7 @@ func (a *activations) ensureModule(
 		}
 
 		hostFn := newHostFnRouter(
-			a.registry, a.environment, a, a.customHostFns, moduleID.Namespace, moduleID.ID)
+			a.log, a.registry, a.environment, a, a.customHostFns, moduleID.Namespace, moduleID.ID)
 		if len(moduleBytes) > 0 {
 			// WASM byte codes exists for the module so we should just use that.
 			// TODO: Hard-coded for now, but we should support using different runtimes with
@@ -356,7 +359,7 @@ func (a *activations) newActivatedActor(
 	onGc func(),
 ) (*activatedActor, error) {
 	return newActivatedActor(
-		ctx, actor, reference, host, instantiatePayload, a.gcActorsAfter, onGc)
+		ctx, a.log, actor, reference, host, instantiatePayload, a.gcActorsAfter, onGc)
 }
 
 func (a *activations) numActivatedActors() int {
@@ -435,6 +438,8 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 type activatedActor struct {
 	sync.Mutex
 
+	_log *slog.Logger
+
 	// Don't access directly from outside this structs own method implementations,
 	// use methods like invoke() and close() instead.
 	_a          Actor
@@ -448,6 +453,7 @@ type activatedActor struct {
 
 func newActivatedActor(
 	ctx context.Context,
+	log *slog.Logger,
 	actor Actor,
 	reference types.ActorReferenceVirtual,
 	host HostCapabilities,
@@ -456,6 +462,7 @@ func newActivatedActor(
 	onGc func(),
 ) (*activatedActor, error) {
 	a := &activatedActor{
+		_log:        log.With(slog.String("module", "activatedActor")),
 		_a:          actor,
 		_reference:  reference,
 		_host:       host,
@@ -476,7 +483,7 @@ func newActivatedActor(
 		if time.Since(a._lastInvoke) > gcAfter {
 			// The actor has not been invoked recently, GC it.
 			if err := a.closeWithLock(context.Background()); err != nil {
-				log.Printf("error closing GC'd actor: %v", err)
+				log.Error("error closing GC'd actor", slog.Any("error", err))
 			}
 			onGc()
 		} else {
@@ -591,9 +598,8 @@ func (a *activatedActor) closeWithLock(ctx context.Context) error {
 	// evicted, but we just evict regardless of failure for now.
 	_, err := a.invoke(ctx, wapcutils.ShutdownOperationName, nil, true, true)
 	if err != nil {
-		log.Printf(
-			"error invoking shutdown operation for actor: %v during close: %v",
-			a._reference, err)
+		a._log.Error(
+			"error invoking shutdown operation for actor", slog.Any("actor", a._reference), slog.Any("error", err))
 	}
 
 	a._closed = true
