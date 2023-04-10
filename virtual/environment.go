@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net"
 	"runtime"
 	"sync"
@@ -317,6 +316,7 @@ func (r *environment) RegisterGoModule(id types.NamespacedIDNoType, module Modul
 	if r.isClosed() {
 		return ErrEnvironmentClosed
 	}
+
 	// Register all the GoModules in the registry so they're useable with calls to
 	// CreateActor() and EnsureActivation().
 	//
@@ -594,21 +594,31 @@ func (r *environment) Close(ctx context.Context) error {
 
 	close(r.closeCh)
 
+	// Wait for the background heartbeating mechanism to shutdown first.
+	// This gives the heartbeating / discovery system time to shutdown and proactively unregister
+	// itself (proactive unregister is not currently implemented, but could easily be added in the future).
 	select {
 	case <-r.closedCh:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 
+	// Now that the heartbeating / discovery system has performed a clean shutdown, we can safely
+	// begin rejecting all new requests.
 	r.shutdownState.mu.Lock()
 	r.shutdownState.closed = true
 	r.shutdownState.mu.Unlock()
 
-	log.Printf("Waiting for inflight methods to terminate...")
+	// Now that we're no longer accepting new requests, lets wait for all outstanding
+	// requests to complete before we begin shutting down the actors to avoid disrupting
+	// the inflight requests.
+	r.log.Info("Waiting for inflight methods to terminate...")
 	start := time.Now()
 	r.shutdownState.inflight.Wait()
-	log.Printf("Finished waiting %s for inflight methods to terminate", time.Since(start))
+	r.log.Info("Finished waiting %s for inflight methods to terminate", time.Since(start))
 
+	// Finally, we can now safely shutdown all the in-memory actors giving them the
+	// opportunity to perform clean shutdown by invoking their `Shutdown` methods.
 	if err := r.activations.close(ctx, r.opts.MaxNumShutdownWorkers); err != nil {
 		return fmt.Errorf("failed to close actors: %w", err)
 	}
