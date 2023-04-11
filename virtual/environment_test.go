@@ -93,7 +93,7 @@ func TestSimpleActor(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCreateIfNotExist tests that the CreateIfNotExist argument can be used to invoke an actor and
@@ -120,7 +120,7 @@ func TestCreateIfNotExist(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCreateIfNotExistWithInstantiatePayload is the same as TestCreateIfNotExist
@@ -153,7 +153,7 @@ func TestCreateIfNotExistWithInstantiatePayload(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestSimpleWorker is a basic sanity test that verifies the most basic flow for workers.
@@ -189,7 +189,7 @@ func TestSimpleWorker(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestGenerationCountIncInvalidatesActivation ensures that the registry returning a higher
@@ -233,7 +233,7 @@ func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestKVHostFunctions tests whether the KV interfaces from the registry can be used properly as host functions
@@ -292,7 +292,7 @@ func TestKVHostFunctions(t *testing.T) {
 	// Run the test twice with two different environments, but the same registry
 	// to simulate a node restarting and being re-initialized with the same registry
 	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestKVTransactions tests whether the KV interfaces from the registry can be used
@@ -343,7 +343,7 @@ func TestKVTransactions(t *testing.T) {
 	// Run the test twice with two different environments, but the same registry
 	// to simulate a node restarting and being re-initialized with the same registry
 	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestKVHostFunctionsActorsSeparatedRegression is a regression test that ensures each
@@ -388,7 +388,7 @@ func TestKVHostFunctionsActorsSeparatedRegression(t *testing.T) {
 			require.Equal(t, int64(1), val)
 		}
 	}
-	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestInvokeActorHostFunction tests whether the invoke actor host function can be used
@@ -456,7 +456,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestScheduleSelfTimersAndGC tests whether actors can schedule invocations for themselves to run
@@ -562,7 +562,7 @@ func TestScheduleSelfTimersAndGC(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, false, gcDuration)
+	runWithDifferentConfigs(t, testFn, nil, false, gcDuration)
 }
 
 // TestInvokeActorHostFunctionDeadlockRegression is a regression test to ensure that an actor can invoke
@@ -584,7 +584,7 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestHeartbeatAndSelfHealing tests the interaction between the service discovery / heartbeating system
@@ -732,7 +732,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, true, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCustomHostFns tests the ability for users to provide custom host functions that
@@ -746,7 +746,7 @@ func TestCustomHostFns(t *testing.T) {
 		require.Equal(t, []byte("ok"), result)
 	}
 
-	runWithDifferentConfigs(t, testFn, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestGoModulesRegisterTwice ensures that writing modules in pure Go and registering
@@ -801,6 +801,22 @@ func TestServerVersionIsHonored(t *testing.T) {
 		err.Error())
 }
 
+func TestCleanShutdown(t *testing.T) {
+	// necessary for activating actor
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		_, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+	}
+
+	testFnAfterClose := func(t *testing.T, reg registry.Registry, env Environment) {
+		res, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "getShutdownValue", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+		require.Equal(t, "true", string(res))
+	}
+
+	runWithDifferentConfigs(t, testFn, testFnAfterClose, false, testGCActorsAfterDurationWithNoInvocations)
+}
+
 func getCount(t *testing.T, v []byte) int64 {
 	x, err := strconv.Atoi(string(v))
 	require.NoError(t, err)
@@ -810,6 +826,7 @@ func getCount(t *testing.T, v []byte) int64 {
 func runWithDifferentConfigs(
 	t *testing.T,
 	testFn func(t *testing.T, reg registry.Registry, env Environment),
+	testFnAfterClose func(t *testing.T, reg registry.Registry, env Environment),
 	skipDNS bool,
 	gcDurationOverride time.Duration,
 ) {
@@ -820,7 +837,6 @@ func runWithDifferentConfigs(
 		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 		require.NoError(t, err)
-		defer env.Close(context.Background())
 
 		_, err = reg.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 		require.NoError(t, err)
@@ -828,6 +844,16 @@ func runWithDifferentConfigs(
 		require.NoError(t, err)
 
 		testFn(t, reg, env)
+
+		err = env.Close(context.Background())
+		require.NoError(t, err)
+		if testFnAfterClose != nil {
+			env, err = NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+			require.NoError(t, err)
+			defer env.Close(context.Background())
+
+			testFnAfterClose(t, reg, env)
+		}
 	})
 
 	t.Run("go-local-byte", func(t *testing.T) {
@@ -845,6 +871,21 @@ func runWithDifferentConfigs(
 			types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testModule{})
 
 		testFn(t, reg, env)
+
+		err = env.Close(context.Background())
+		require.NoError(t, err)
+		if testFnAfterClose != nil {
+			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
+			require.NoError(t, err)
+			defer env.Close(context.Background())
+
+			env.RegisterGoModule(
+				types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
+			env.RegisterGoModule(
+				types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testModule{})
+
+			testFnAfterClose(t, reg, env)
+		}
 	})
 
 	t.Run("go-local-stream", func(t *testing.T) {
@@ -862,6 +903,21 @@ func runWithDifferentConfigs(
 			types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testStreamModule{})
 
 		testFn(t, reg, env)
+
+		err = env.Close(context.Background())
+		require.NoError(t, err)
+		if testFnAfterClose != nil {
+			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoStream)
+			require.NoError(t, err)
+			defer env.Close(context.Background())
+
+			env.RegisterGoModule(
+				types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
+			env.RegisterGoModule(
+				types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testStreamModule{})
+
+			testFnAfterClose(t, reg, env)
+		}
 
 		// Ensure that the stream interface is used at least once because it depends on some runtime
 		// type assertions that could easily be messed up / never happen.
@@ -927,7 +983,10 @@ func (ta *testActor) Invoke(
 		ta.startupWasCalled = true
 		return nil, nil
 	case wapcutils.ShutdownOperationName:
-		return nil, nil
+		return nil, transaction.Put(ctx, []byte("shutdown"), []byte("true"))
+	case "getShutdownValue":
+		result, _, err := transaction.Get(ctx, []byte("shutdown"))
+		return result, err
 	case "getInstantiatePayload":
 		return ta.instantiatePayload, nil
 	case "inc":
