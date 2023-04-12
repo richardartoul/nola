@@ -2,6 +2,7 @@ package virtual
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -242,4 +243,24 @@ func (l *lazyActorTransaction) maybeInitTr(
 		return fmt.Errorf("maybeInitTr: error beginning lazy transaction: %w", l.err)
 	}
 	return l.err
+}
+
+var errWorkerUnimplemented = errors.New("not implemented, tried to use transaction from worker, transactions only available to actors")
+
+type noopTransaction struct{}
+
+func (tr noopTransaction) Put(ctx context.Context, key []byte, value []byte) error {
+	return errWorkerUnimplemented
+}
+
+func (tr noopTransaction) Get(ctx context.Context, key []byte) ([]byte, bool, error) {
+	return nil, false, errWorkerUnimplemented
+}
+
+func (tr noopTransaction) Commit(ctx context.Context) error {
+	return errWorkerUnimplemented
+}
+
+func (tr noopTransaction) Cancel(ctx context.Context) error {
+	return errWorkerUnimplemented
 }

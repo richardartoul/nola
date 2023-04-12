@@ -98,3 +98,24 @@ func NewHTTPClient() RemoteClient {
 	c := &http.Client{Transport: transport}
 	return &httpClient{c: c}
 }
+
+// noopClient implements RemoteClient, but always returns an error.
+type noopClient struct {
+}
+
+// newNoopRemoteClient returns a new noopClient that implements RemoteClient.
+func newNOOPRemoteClient() RemoteClient {
+	return &noopClient{}
+}
+
+func (n *noopClient) InvokeActorRemote(
+	ctx context.Context,
+	versionStamp int64,
+	reference types.ActorReference,
+	operation string,
+	payload []byte,
+	create types.CreateIfNotExist,
+) (io.ReadCloser, error) {
+	return nil, fmt.Errorf(
+		"noopClient: tried to invoke actor(%v) remotely using noop client. Instantiate Environment with a real client instead", reference)
+}

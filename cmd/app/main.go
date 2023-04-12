@@ -2,8 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"net/http"
 	"os"
 	"time"
 
@@ -26,6 +33,7 @@ var (
 	discoveryType               = flag.String("discoveryType", virtual.DiscoveryTypeLocalHost, "how the server should register itself with the discovery serice. Valid options: localhost|remote. Use localhost for local testing, use remote for multi-node setups")
 	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb")
 	foundationDBClusterFilePath = flag.String("foundationDBClusterFilePath", "", "path to use for the FoundationDB cluster file")
+	shutdownTimeout             = flag.Duration("shutdownTimeout", 0, "timeout until the server is forced to shutdown, without waiting actors and other components to close gracefully. By default is 0, which is infinite duration untill all actors are closed")
 	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
 	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
 )
@@ -77,12 +85,52 @@ func main() {
 		os.Exit(1)
 	}
 
-	server := virtual.NewServer(reg, environment)
+	var server virtualServer = virtual.NewServer(reg, environment)
 
 	log.Info("server listening", slog.Int("port", *port))
 
-	if err := server.Start(*port); err != nil {
-		log.Error(err.Error(), slog.String("subService", "httpServer"))
+	go func(server virtualServer) {
+		sig := waitForSignal()
+		log.Info("received signal", slog.Any("signal", sig))
+		shutdown(server, *shutdownTimeout)
+	}(server)
+
+	if err := server.Start(*port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Error("received error", slog.Any("error", err), slog.String("subService", "httpServer"))
+		shutdown(server, *shutdownTimeout)
 		os.Exit(1)
 	}
+}
+
+type virtualServer interface {
+	Start(int) error
+	Stop(context.Context) error
+}
+
+func waitForSignal() os.Signal {
+	osSig := make(chan os.Signal, 1)
+	signal.Notify(osSig, syscall.SIGTERM)
+	signal.Notify(osSig, syscall.SIGINT)
+
+	// wait for a signal to be received
+	return <-osSig
+}
+
+func shutdown(log *slog.Logger, server virtualServer, timeout time.Duration) {
+	tStart := time.Now()
+	log.Info("shutting down server with timeout...", slog.Duration("timeout", timeout))
+	var (
+		ctx = context.Background()
+		cc  context.CancelFunc
+	)
+	if timeout > 0 { // by default there is no timeout for shutting down
+		ctx, cc = context.WithTimeout(context.Background(), timeout)
+		defer cc()
+	}
+
+	if err := server.Stop(ctx); err != nil {
+		log.Error("failed to shut down server", slog.Any("error", err))
+		return
+	}
+	log.Info("successfully shut down server", slog.Duration("duration", time.Since(tStart)))
 }

@@ -11,6 +11,7 @@ func main() {
 	wapc.RegisterFunctions(wapc.Functions{
 		wapcutils.StartupOperationName:  startup,
 		wapcutils.ShutdownOperationName: shutdown,
+		"getShutdownValue":              getShutdownValue,
 		"getInstantiatePayload":         getInstantiatePayload,
 		"getStartupWasCalled":           getStartupWasCalled,
 		"inc":                           inc,
@@ -159,5 +160,15 @@ func getStartupWasCalled(payload []byte) ([]byte, error) {
 }
 
 func shutdown(payload []byte) ([]byte, error) {
-	return nil, nil
+	_, err := wapc.HostCall("wapc", "nola", wapcutils.KVPutOperationName, wapcutils.EncodePutPayload(nil, []byte("shutdown"), []byte("true")))
+	return nil, err
+}
+
+func getShutdownValue(payload []byte) ([]byte, error) {
+	res, err := wapc.HostCall("wapc", "nola", wapcutils.KVGetOperationName, []byte("shutdown"))
+	if err != nil {
+		return nil, err
+	}
+
+	return res[1:], err
 }

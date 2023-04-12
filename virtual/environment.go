@@ -7,24 +7,32 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"runtime"
 	"sync"
 	"time"
-
-	"golang.org/x/exp/slog"
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
 	"github.com/richardartoul/nola/virtual/types"
 
 	"github.com/dgraph-io/ristretto"
+	"golang.org/x/exp/slog"
 )
 
 const (
 	Localhost = "127.0.0.1"
 
-	heartbeatTimeout           = registry.HeartbeatTTL
+	maxNumActivationsToCache = 1e6 // 1 Million.
+	heartbeatTimeout         = registry.HeartbeatTTL
+)
+
+var (
+	// ErrEnvironmentClosed is an error that indicates the environment is closed.
+	// It can be returned when attempting to perform an operation on a closed environment.
+	ErrEnvironmentClosed = errors.New("environment is closed")
+
+	// Var so can be modified by tests.
 	defaultActivationsCacheTTL = heartbeatTimeout
-	maxNumActivationsToCache   = 1e6 // 1 Million.
 )
 
 type environment struct {
@@ -45,6 +53,14 @@ type environment struct {
 	closeCh chan struct{}
 	// Closed when the background heartbeating goroutine completes shutting down.
 	closedCh chan struct{}
+	// shutdownState holds the state needed to gracefully shutdown the service.
+	shutdownState struct {
+		mu sync.RWMutex
+		// Flag to prevent public methods from processing new requests.
+		closed bool
+		// inflight is a WaitGroup used to keep track of in-flight requests and wait for them to finish.
+		inflight sync.WaitGroup
+	}
 
 	// Dependencies.
 	serverID string
@@ -94,6 +110,11 @@ type EnvironmentOptions struct {
 	// DefaultGCActorsAfterDurationWithNoInvocations. To disable this
 	// functionality entirely, just use a really large value.
 	GCActorsAfterDurationWithNoInvocations time.Duration
+
+	// MaxNumShutdownWorkers specifies the number of workers used for shutting down the active actors
+	// in the environment. This determines the level of parallelism and CPU resources utilized
+	// during the shutdown process. By default, all available CPUs (runtime.NumCPU()) are used.
+	MaxNumShutdownWorkers int
 
 	// Logger is a logging instance used for logging messages.
 	// If no logger is provided, the default logger from the slog package (slog.Default()) will be used.
@@ -195,12 +216,19 @@ func NewEnvironment(
 	if opts.GCActorsAfterDurationWithNoInvocations == 0 {
 		opts.GCActorsAfterDurationWithNoInvocations = time.Minute
 	}
+	if opts.MaxNumShutdownWorkers == 0 {
+		opts.MaxNumShutdownWorkers = runtime.NumCPU()
+	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
 
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("error validating EnvironmentOptions: %w", err)
+	}
+
+	if client == nil {
+		client = newNOOPRemoteClient()
 	}
 
 	activationCache, err := ristretto.NewCache(&ristretto.Config{
@@ -289,6 +317,10 @@ var bufPool = sync.Pool{
 }
 
 func (r *environment) RegisterGoModule(id types.NamespacedIDNoType, module Module) error {
+	if r.isClosed() {
+		return ErrEnvironmentClosed
+	}
+
 	// Register all the GoModules in the registry so they're useable with calls to
 	// CreateActor() and EnsureActivation().
 	//
@@ -315,6 +347,10 @@ func (r *environment) InvokeActor(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
+	if r.isClosed() {
+		return nil, ErrEnvironmentClosed
+	}
+
 	reader, err := r.InvokeActorStream(
 		ctx, namespace, actorID, moduleID, operation, payload, create)
 	if err != nil {
@@ -338,6 +374,10 @@ func (r *environment) InvokeActorStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
+	if r.isClosed() {
+		return nil, ErrEnvironmentClosed
+	}
+
 	if namespace == "" {
 		return nil, errors.New("InvokeActor: namespace cannot be empty")
 	}
@@ -407,6 +447,10 @@ func (r *environment) InvokeActorDirect(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
+	if r.isClosed() {
+		return nil, ErrEnvironmentClosed
+	}
+
 	reader, err := r.InvokeActorDirectStream(
 		ctx, versionStamp, serverID, serverVersion,
 		reference, operation, payload, create)
@@ -432,6 +476,10 @@ func (r *environment) InvokeActorDirectStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
+	if r.isClosed() {
+		return nil, ErrEnvironmentClosed
+	}
+
 	if serverID == "" {
 		return nil, errors.New("serverID cannot be empty")
 	}
@@ -493,6 +541,10 @@ func (r *environment) InvokeWorker(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) ([]byte, error) {
+	if r.isClosed() {
+		return nil, ErrEnvironmentClosed
+	}
+
 	reader, err := r.InvokeWorkerStream(
 		ctx, namespace, moduleID, operation, payload, create)
 	if err != nil {
@@ -515,6 +567,10 @@ func (r *environment) InvokeWorkerStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
+	if r.isClosed() {
+		return nil, ErrEnvironmentClosed
+	}
+
 	// TODO: The implementation of this function is nice because it just reusees a bunch of the
 	//       actor logic. However, it's also less performant than it could be because it still
 	//       effectively makes worker execution single-threaded per-server. We should add the
@@ -531,15 +587,45 @@ func (r *environment) InvokeWorkerStream(
 	return r.activations.invoke(ctx, ref, operation, create.InstantiatePayload, payload, false)
 }
 
-func (r *environment) Close() error {
-	// TODO: This should call Close on the activations field (which needs to be implemented).
+func (r *environment) Close(ctx context.Context) error {
+	if r.isClosed() {
+		return ErrEnvironmentClosed
+	}
 
 	localEnvironmentsRouterLock.Lock()
 	delete(localEnvironmentsRouter, r.address)
 	localEnvironmentsRouterLock.Unlock()
 
 	close(r.closeCh)
-	<-r.closedCh
+
+	// Wait for the background heartbeating mechanism to shutdown first.
+	// This gives the heartbeating / discovery system time to shutdown and proactively unregister
+	// itself (proactive unregister is not currently implemented, but could easily be added in the future).
+	select {
+	case <-r.closedCh:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	// Now that the heartbeating / discovery system has performed a clean shutdown, we can safely
+	// begin rejecting all new requests.
+	r.shutdownState.mu.Lock()
+	r.shutdownState.closed = true
+	r.shutdownState.mu.Unlock()
+
+	// Now that we're no longer accepting new requests, lets wait for all outstanding
+	// requests to complete before we begin shutting down the actors to avoid disrupting
+	// the inflight requests.
+	r.log.Info("Waiting for inflight methods to terminate...")
+	start := time.Now()
+	r.shutdownState.inflight.Wait()
+	r.log.Info("Finished waiting for inflight methods to terminate", slog.Duration("duration", time.Since(start)))
+
+	// Finally, we can now safely shutdown all the in-memory actors giving them the
+	// opportunity to perform clean shutdown by invoking their `Shutdown` methods.
+	if err := r.activations.close(ctx, r.opts.MaxNumShutdownWorkers); err != nil {
+		return fmt.Errorf("failed to close actors: %w", err)
+	}
 
 	return nil
 }
@@ -647,6 +733,13 @@ func (r *environment) resumeHeartbeat() {
 	r.heartbeatState.Lock()
 	r.heartbeatState.paused = false
 	r.heartbeatState.Unlock()
+}
+
+func (r *environment) isClosed() bool {
+	r.shutdownState.mu.RLock()
+	defer r.shutdownState.mu.RUnlock()
+
+	return r.shutdownState.closed
 }
 
 func getSelfIP() (net.IP, error) {

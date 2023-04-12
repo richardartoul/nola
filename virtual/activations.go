@@ -8,9 +8,8 @@ import (
 	"io"
 	"io/ioutil"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"golang.org/x/exp/slog"
 
 	"github.com/richardartoul/nola/durable/durablewazero"
 	"github.com/richardartoul/nola/virtual/futures"
@@ -19,6 +18,8 @@ import (
 	"github.com/richardartoul/nola/wapcutils"
 
 	"github.com/wapc/wapc-go/engines/wazero"
+	"golang.org/x/exp/slog"
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -385,6 +386,54 @@ func (a *activations) getServerState() (
 	return a.serverState.serverID, a.serverState.serverVersion
 }
 
+func (a *activations) close(ctx context.Context, numWorkers int) error {
+	a.log.Info("acquiring lock for closing actor activations")
+	a.Lock()
+	a.log.Info("acquired lock for closing actor activations")
+	defer a.Unlock()
+
+	var (
+		sem      = semaphore.NewWeighted(int64(numWorkers))
+		wg       sync.WaitGroup
+		closed   = int64(0)
+		expected = int64(len(a._actors))
+	)
+	for actorId, futActor := range a._actors {
+		if err := sem.Acquire(ctx, 1); err != nil {
+			a.log.Error("failed to acquire lock", slog.Any("error", err))
+			break
+		}
+
+		wg.Add(1)
+		go func(actorId types.NamespacedActorID, futActor futures.Future[*activatedActor]) {
+			defer sem.Release(1)
+			defer wg.Done()
+
+			actor, err := futActor.Wait()
+			if err != nil {
+				a.log.Error("failed to resolve actor future during activations clean shutdown", slog.String("actor", actorId.ID), slog.Any("error", err))
+				return
+			}
+
+			if err := actor.close(ctx); err != nil {
+				a.log.Error("failed to close actor future during activations clean shutdown", slog.String("actor", actorId.ID), slog.Any("error", err))
+				return
+			}
+
+			atomic.AddInt64(&closed, 1)
+		}(actorId, futActor)
+	}
+
+	wg.Wait()
+
+	a._actors = make(map[types.NamespacedActorID]futures.Future[*activatedActor]) // delete all entries
+
+	if expected != closed {
+		return fmt.Errorf("unable to close all the actors, expected: %d - closed: %d", expected, closed)
+	}
+	return nil
+}
+
 type activatedActor struct {
 	sync.Mutex
 
@@ -517,16 +566,19 @@ func (a *activatedActor) invoke(
 		return io.NopCloser(bytes.NewBuffer(result.([]byte))), nil
 	}
 
+	// Use a noopTransaction because its a worker not an actor and workers don't get
+	// access to KV storage / transactions.
+	var noopTxn registry.ActorKVTransaction = noopTransaction{}
 	streamActor, ok := a._a.(ActorStream)
 	if ok {
-		// This actor has support for the streaming interface so we should use that
+		// This module has support for the streaming interface so we should use that
 		// directly since its more efficient.
-		return streamActor.InvokeStream(ctx, operation, payload, nil)
+		return streamActor.InvokeStream(ctx, operation, payload, noopTxn)
 	}
 
 	// The actor doesn't support streaming responses, we'll convert the returned []byte
 	// to a stream ourselves.
-	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload, nil)
+	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload, noopTxn)
 	if err != nil {
 		return nil, err
 	}
