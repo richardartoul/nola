@@ -294,7 +294,7 @@ func NewEnvironment(
 		for {
 			select {
 			case <-ticker.C:
-				if env.heartbeatState.paused {
+				if env.isPausedHeartbeat() {
 					return
 				}
 				if err := env.heartbeat(); err != nil {
@@ -721,6 +721,13 @@ func (r *environment) freezeHeartbeatState() {
 	r.heartbeatState.Lock()
 	r.heartbeatState.frozen = true
 	r.heartbeatState.Unlock()
+}
+
+func (r *environment) isPausedHeartbeat() bool {
+	r.heartbeatState.Lock()
+	defer r.heartbeatState.Unlock()
+
+	return r.heartbeatState.paused
 }
 
 func (r *environment) pauseHeartbeat() {
