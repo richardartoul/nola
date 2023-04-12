@@ -24,6 +24,7 @@ const (
 	Localhost = "127.0.0.1"
 
 	maxNumActivationsToCache = 1e6 // 1 Million.
+	heartbeatTimeout         = registry.HeartbeatTTL
 )
 
 var (
@@ -32,7 +33,6 @@ var (
 	ErrEnvironmentClosed = errors.New("environment is closed")
 
 	// Var so can be modified by tests.
-	heartbeatTimeout           = registry.HeartbeatTTL
 	defaultActivationsCacheTTL = heartbeatTimeout
 )
 
@@ -227,6 +227,10 @@ func NewEnvironment(
 
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("error validating EnvironmentOptions: %w", err)
+	}
+
+	if client == nil {
+		client = newNOOPRemoteClient()
 	}
 
 	activationCache, err := ristretto.NewCache(&ristretto.Config{

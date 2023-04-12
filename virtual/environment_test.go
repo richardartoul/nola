@@ -79,13 +79,10 @@ func TestMain(m *testing.M) {
 
 	// Override constants to make the tests faster.
 	var (
-		oldHeartbeatTimeout           = heartbeatTimeout
 		oldDefaultActivationsCacheTTL = defaultActivationsCacheTTL
 	)
-	heartbeatTimeout = 100 * time.Millisecond
 	defaultActivationsCacheTTL = 100 * time.Millisecond
 	defer func() {
-		heartbeatTimeout = oldHeartbeatTimeout
 		defaultActivationsCacheTTL = oldDefaultActivationsCacheTTL
 	}()
 
@@ -687,11 +684,8 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	require.Equal(t, 1, env2.numActivatedActors())
 	require.Equal(t, 1, env3.numActivatedActors())
 
-	// TODO: Sleeps in tests are bad, but I'm lazy to inject a clock right now and deal
-	//       with all of that.
 	require.NoError(t, env1.Close(context.Background()))
 	require.NoError(t, env2.Close(context.Background()))
-	time.Sleep(registry.HeartbeatTTL + time.Second)
 
 	// env1 and env2 have been closed (and not heartbeating) for longer than the maximum
 	// heartbeat delay which means that the registry should view them as "dead". Therefore, we
@@ -864,6 +858,7 @@ func runWithDifferentConfigs(
 		reg := localregistry.NewLocalRegistry()
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
 		require.NoError(t, err)
+		defer env.Close(context.Background())
 
 		_, err = reg.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 		require.NoError(t, err)
