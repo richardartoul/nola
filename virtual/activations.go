@@ -567,16 +567,23 @@ func (a *activatedActor) invoke(
 		return io.NopCloser(bytes.NewBuffer(result.([]byte))), nil
 	}
 
+	tr, err := a._host.BeginTransaction(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tr.Commit(ctx)
+
 	streamActor, ok := a._a.(ActorStream)
 	if ok {
 		// This actor has support for the streaming interface so we should use that
 		// directly since its more efficient.
-		return streamActor.InvokeStream(ctx, operation, payload, nil)
+
+		return streamActor.InvokeStream(ctx, operation, payload, tr)
 	}
 
 	// The actor doesn't support streaming responses, we'll convert the returned []byte
 	// to a stream ourselves.
-	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload, nil)
+	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload, tr)
 	if err != nil {
 		return nil, err
 	}
