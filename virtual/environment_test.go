@@ -993,6 +993,7 @@ type testActor struct {
 
 	count              int
 	startupWasCalled   bool
+	shutdownWasCalled  bool
 	instantiatePayload []byte
 }
 
@@ -1007,10 +1008,17 @@ func (ta *testActor) Invoke(
 		ta.startupWasCalled = true
 		return nil, nil
 	case wapcutils.ShutdownOperationName:
-		return nil, transaction.Put(ctx, []byte("shutdown"), []byte("true"))
+		ta.shutdownWasCalled = true
+		if _, ok := transaction.(registry.NoOpTransaction); !ok {
+			return nil, transaction.Put(ctx, []byte("shutdown"), []byte("true"))
+		}
+		return nil, nil
 	case "getShutdownValue":
-		result, _, err := transaction.Get(ctx, []byte("shutdown"))
-		return result, err
+		if _, ok := transaction.(registry.NoOpTransaction); !ok {
+			result, _, err := transaction.Get(ctx, []byte("shutdown"))
+			return result, err
+		}
+		return []byte(strconv.FormatBool(ta.shutdownWasCalled)), nil
 	case "getInstantiatePayload":
 		return ta.instantiatePayload, nil
 	case "inc":

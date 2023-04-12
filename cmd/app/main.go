@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -117,8 +116,9 @@ func waitForSignal() os.Signal {
 	return <-osSig
 }
 
-func shutdown(server virtualServer, timeout time.Duration) {
-	log.Printf("shutting down server with timeout (%s)...", timeout.String())
+func shutdown(log *slog.Logger, server virtualServer, timeout time.Duration) {
+	tStart := time.Now()
+	log.Info("shutting down server with timeout...", slog.Duration("timeout", timeout))
 	var (
 		ctx = context.Background()
 		cc  context.CancelFunc
@@ -129,8 +129,8 @@ func shutdown(server virtualServer, timeout time.Duration) {
 	}
 
 	if err := server.Stop(ctx); err != nil {
-		log.Printf("failed to shut down server: %s", err.Error())
+		log.Error("failed to shut down server", slog.Any("error", err))
 		return
 	}
-	log.Printf("successfully shut down server (%s)...", timeout.String())
+	log.Info("successfully shut down server", slog.Duration("duration", time.Since(tStart)))
 }

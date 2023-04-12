@@ -620,7 +620,7 @@ func (r *environment) Close(ctx context.Context) error {
 	r.log.Info("Waiting for inflight methods to terminate...")
 	start := time.Now()
 	r.shutdownState.inflight.Wait()
-	r.log.Info("Finished waiting %s for inflight methods to terminate", time.Since(start))
+	r.log.Info("Finished waiting for inflight methods to terminate", slog.Duration("duration", time.Since(start)))
 
 	// Finally, we can now safely shutdown all the in-memory actors giving them the
 	// opportunity to perform clean shutdown by invoking their `Shutdown` methods.
