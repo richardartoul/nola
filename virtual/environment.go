@@ -23,15 +23,17 @@ import (
 const (
 	Localhost = "127.0.0.1"
 
-	heartbeatTimeout           = registry.HeartbeatTTL
-	defaultActivationsCacheTTL = heartbeatTimeout
-	maxNumActivationsToCache   = 1e6 // 1 Million.
+	maxNumActivationsToCache = 1e6 // 1 Million.
 )
 
 var (
 	// ErrEnvironmentClosed is an error that indicates the environment is closed.
 	// It can be returned when attempting to perform an operation on a closed environment.
 	ErrEnvironmentClosed = errors.New("environment is closed")
+
+	// Var so can be modified by tests.
+	heartbeatTimeout           = registry.HeartbeatTTL
+	defaultActivationsCacheTTL = heartbeatTimeout
 )
 
 type environment struct {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,6 +66,31 @@ func init() {
 		panic(err)
 	}
 	utilWasmBytes = fBytes
+}
+
+func TestMain(m *testing.M) {
+	// Make sure this map is cleared between tests even if the test forgets to
+	// call env.Close().
+	localEnvironmentsRouterLock.Lock()
+	for k := range localEnvironmentsRouter {
+		delete(localEnvironmentsRouter, k)
+	}
+	localEnvironmentsRouterLock.Unlock()
+
+	// Override constants to make the tests faster.
+	var (
+		oldHeartbeatTimeout           = heartbeatTimeout
+		oldDefaultActivationsCacheTTL = defaultActivationsCacheTTL
+	)
+	heartbeatTimeout = 100 * time.Millisecond
+	defaultActivationsCacheTTL = 100 * time.Millisecond
+	defer func() {
+		heartbeatTimeout = oldHeartbeatTimeout
+		defaultActivationsCacheTTL = oldDefaultActivationsCacheTTL
+	}()
+
+	code := m.Run()
+	os.Exit(code)
 }
 
 // TODO: Need a good concurrency test that spans a bunch of goroutine and
@@ -777,24 +803,25 @@ func TestServerVersionIsHonored(t *testing.T) {
 
 	opts := defaultOptsWASM
 	opts.ActivationCacheTTL = time.Second * 15
-	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, opts)
+	env, err := NewEnvironment(ctx, "serverID1", reg, nil, opts)
 	require.NoError(t, err)
+	defer env.Close(context.Background())
 
 	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
-	_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	_, err = env.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 	require.NoError(t, err)
 
-	env1.pauseHeartbeat()
+	env.pauseHeartbeat()
 
 	time.Sleep(registry.HeartbeatTTL + time.Second)
 
-	env1.resumeHeartbeat()
+	env.resumeHeartbeat()
 
-	require.NoError(t, env1.heartbeat())
+	require.NoError(t, env.heartbeat())
 
-	_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	_, err = env.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 	require.Equal(
 		t,
 		errors.New("error invoking actor: InvokeLocal: server version(2) != server version from reference(1)").Error(),
@@ -861,7 +888,7 @@ func runWithDifferentConfigs(
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
 		reg := localregistry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, opts)
 		require.NoError(t, err)
 		defer env.Close(context.Background())
 
@@ -875,7 +902,7 @@ func runWithDifferentConfigs(
 		err = env.Close(context.Background())
 		require.NoError(t, err)
 		if testFnAfterClose != nil {
-			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
+			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, opts)
 			require.NoError(t, err)
 			defer env.Close(context.Background())
 
@@ -893,7 +920,7 @@ func runWithDifferentConfigs(
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
 		reg := localregistry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoStream)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, opts)
 		require.NoError(t, err)
 		defer env.Close(context.Background())
 
@@ -907,7 +934,7 @@ func runWithDifferentConfigs(
 		err = env.Close(context.Background())
 		require.NoError(t, err)
 		if testFnAfterClose != nil {
-			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoStream)
+			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, opts)
 			require.NoError(t, err)
 			defer env.Close(context.Background())
 
@@ -931,7 +958,7 @@ func runWithDifferentConfigs(
 			opts := defaultOptsGoDNS
 			opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
-			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), defaultOptsGoDNS)
+			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), opts)
 			require.NoError(t, err)
 			defer env.Close(context.Background())
 
