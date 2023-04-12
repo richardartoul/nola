@@ -11,13 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/exp/slog"
-
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
 	"github.com/richardartoul/nola/virtual/types"
 
 	"github.com/dgraph-io/ristretto"
+	"golang.org/x/exp/slog"
 )
 
 const (

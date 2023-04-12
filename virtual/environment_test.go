@@ -1009,12 +1009,12 @@ func (ta *testActor) Invoke(
 		return nil, nil
 	case wapcutils.ShutdownOperationName:
 		ta.shutdownWasCalled = true
-		if _, ok := transaction.(registry.NoOpTransaction); !ok {
+		if _, ok := transaction.(noopTransaction); !ok {
 			return nil, transaction.Put(ctx, []byte("shutdown"), []byte("true"))
 		}
 		return nil, nil
 	case "getShutdownValue":
-		if _, ok := transaction.(registry.NoOpTransaction); !ok {
+		if _, ok := transaction.(noopTransaction); !ok {
 			result, _, err := transaction.Get(ctx, []byte("shutdown"))
 			return result, err
 		}

@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/exp/slog"
-
 	"github.com/richardartoul/nola/durable/durablewazero"
 	"github.com/richardartoul/nola/virtual/futures"
 	"github.com/richardartoul/nola/virtual/registry"
@@ -20,6 +18,7 @@ import (
 	"github.com/richardartoul/nola/wapcutils"
 
 	"github.com/wapc/wapc-go/engines/wazero"
+	"golang.org/x/exp/slog"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
 )
@@ -567,17 +566,19 @@ func (a *activatedActor) invoke(
 		return io.NopCloser(bytes.NewBuffer(result.([]byte))), nil
 	}
 
+	// Use a noopTransaction because its a worker not an actor and workers don't get
+	// access to KV storage / transactions.
+	var noopTxn registry.ActorKVTransaction = noopTransaction{}
 	streamActor, ok := a._a.(ActorStream)
 	if ok {
-		// This actor has support for the streaming interface so we should use that
+		// This module has support for the streaming interface so we should use that
 		// directly since its more efficient.
-
-		return streamActor.InvokeStream(ctx, operation, payload, registry.NoOpTransaction{})
+		return streamActor.InvokeStream(ctx, operation, payload, noopTxn)
 	}
 
 	// The actor doesn't support streaming responses, we'll convert the returned []byte
 	// to a stream ourselves.
-	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload, registry.NoOpTransaction{})
+	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload, noopTxn)
 	if err != nil {
 		return nil, err
 	}
