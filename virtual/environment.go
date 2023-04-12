@@ -56,7 +56,6 @@ type environment struct {
 	closedCh chan struct{}
 	// shutdownState holds the state needed to gracefully shutdown the service.
 	shutdownState struct {
-		// closed is a flag that prevents public methods from processing new requests.
 		mu sync.RWMutex
 		// Flag to prevent public methods from processing new requests.
 		closed bool
