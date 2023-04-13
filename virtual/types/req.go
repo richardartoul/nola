@@ -35,7 +35,7 @@ type InstantiatePayload struct {
 	// instantiation. It is generally used to provide any actor-specific constructor
 	// arguments that are required to instantiate the actor in memory.
 	// It is the value passed at CreateIfNotExist.InstantiatePayload
-	Payload string
+	Payload []byte
 }
 
 // ActorOptions contains the options for a given actor.

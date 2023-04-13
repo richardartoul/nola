@@ -532,7 +532,7 @@ func (r *environment) InvokeActorDirectStream(
 	}
 
 	// Wrap instantiation payload into a struct that provides metadata to the actor
-	b, err := json.Marshal(types.InstantiatePayload{Payload: string(create.InstantiatePayload), IsWorker: false})
+	b, err := json.Marshal(types.InstantiatePayload{Payload: create.InstantiatePayload, IsWorker: false})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal instantiation payload: %w", err)
 	}
@@ -590,7 +590,7 @@ func (r *environment) InvokeWorkerStream(
 	}
 
 	// Wrap instantiation payload into a struct that provides metadata to the actor
-	b, err := json.Marshal(types.InstantiatePayload{Payload: string(create.InstantiatePayload), IsWorker: true})
+	b, err := json.Marshal(types.InstantiatePayload{Payload: create.InstantiatePayload, IsWorker: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal instantiation payload: %w", err)
 	}

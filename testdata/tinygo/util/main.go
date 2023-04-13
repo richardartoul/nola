@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strconv"
 
@@ -160,7 +161,11 @@ func startup(payload []byte) ([]byte, error) {
 			}
 			instantiatePayload.IsWorker = isWorker
 		case "Payload":
-			instantiatePayload.Payload = string(value)
+			payload, err := base64.StdEncoding.DecodeString(string(value))
+			if err != nil {
+				return fmt.Errorf("failed to parse Payload: %w", err)
+			}
+			instantiatePayload.Payload = payload
 		}
 		return nil
 	})
