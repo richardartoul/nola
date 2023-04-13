@@ -27,6 +27,11 @@ type CreateIfNotExist struct {
 	InstantiatePayload []byte
 }
 
+type InstantiatePayload struct {
+	IsWorker bool
+	Payload  string
+}
+
 // ActorOptions contains the options for a given actor.
 type ActorOptions struct {
 }

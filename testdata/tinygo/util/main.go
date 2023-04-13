@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 
+	"github.com/buger/jsonparser"
+	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 	wapc "github.com/wapc/wapc-guest-tinygo"
 )
@@ -33,12 +36,14 @@ func main() {
 
 var (
 	count              int64
-	instantiatePayload []byte
+	instantiatePayload types.InstantiatePayload
+	startupWasCalled   = false
+	shutdownWasCalled  = false
 )
 
 // getInstantiatePayload returns the payload provided to the Startup invocation.
 func getInstantiatePayload(payload []byte) ([]byte, error) {
-	return instantiatePayload, nil
+	return []byte(instantiatePayload.Payload), nil
 }
 
 // inc increments the actor's in-memory global counter.
@@ -144,11 +149,25 @@ func invokeCustomHostFn(payload []byte) ([]byte, error) {
 	return wapc.HostCall("wapc", "nola", string(payload), payload)
 }
 
-var startupWasCalled = false
-
 func startup(payload []byte) ([]byte, error) {
 	startupWasCalled = true
-	instantiatePayload = append([]byte(nil), payload...)
+	err := jsonparser.ObjectEach(payload, func(key, value []byte, dataType jsonparser.ValueType, offset int) error {
+		switch string(key) {
+		case "IsWorker":
+			isWorker, err := strconv.ParseBool(string(value))
+			if err != nil {
+				return fmt.Errorf("failed to parse IsWorker bool: %w", err)
+			}
+			instantiatePayload.IsWorker = isWorker
+		case "Payload":
+			instantiatePayload.Payload = string(value)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse InstantiatePayload: %w", err)
+	}
+
 	return nil, nil
 }
 
@@ -160,11 +179,18 @@ func getStartupWasCalled(payload []byte) ([]byte, error) {
 }
 
 func shutdown(payload []byte) ([]byte, error) {
+	if instantiatePayload.IsWorker {
+		shutdownWasCalled = true
+		return nil, nil
+	}
 	_, err := wapc.HostCall("wapc", "nola", wapcutils.KVPutOperationName, wapcutils.EncodePutPayload(nil, []byte("shutdown"), []byte("true")))
 	return nil, err
 }
 
 func getShutdownValue(payload []byte) ([]byte, error) {
+	if instantiatePayload.IsWorker {
+		return []byte(strconv.FormatBool(shutdownWasCalled)), nil
+	}
 	res, err := wapc.HostCall("wapc", "nola", wapcutils.KVGetOperationName, []byte("shutdown"))
 	if err != nil {
 		return nil, err

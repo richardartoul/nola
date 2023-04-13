@@ -2,6 +2,7 @@ package virtual
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -530,7 +531,13 @@ func (r *environment) InvokeActorDirectStream(
 			heartbeatResult.ServerVersion, serverVersion)
 	}
 
-	return r.activations.invoke(ctx, reference, operation, create.InstantiatePayload, payload, false)
+	// Wrap instantiation payload into a struct that provides metadata to the actor
+	b, err := json.Marshal(types.InstantiatePayload{Payload: string(create.InstantiatePayload), IsWorker: false})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal instantiation payload: %w", err)
+	}
+
+	return r.activations.invoke(ctx, reference, operation, b, payload, false)
 }
 
 func (r *environment) InvokeWorker(
@@ -582,9 +589,15 @@ func (r *environment) InvokeWorkerStream(
 		return nil, fmt.Errorf("InvokeWorker: error creating actor reference: %w", err)
 	}
 
+	// Wrap instantiation payload into a struct that provides metadata to the actor
+	b, err := json.Marshal(types.InstantiatePayload{Payload: string(create.InstantiatePayload), IsWorker: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal instantiation payload: %w", err)
+	}
+
 	// Workers provide none of the consistency / linearizability guarantees that actor's do, so we
 	// can bypass the registry entirely and just immediately invoke the function.
-	return r.activations.invoke(ctx, ref, operation, create.InstantiatePayload, payload, false)
+	return r.activations.invoke(ctx, ref, operation, b, payload, false)
 }
 
 func (r *environment) Close(ctx context.Context) error {
