@@ -29,6 +29,9 @@ jobs:
 
     - name: Test
       run: go test -timeout 5m -v ./...
+      
+    - name: Test (race)
+      run: go test -timeout 5m -v -race ./...
 
     - name: Format
       run: if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
