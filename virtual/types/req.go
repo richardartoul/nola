@@ -27,9 +27,15 @@ type CreateIfNotExist struct {
 	InstantiatePayload []byte
 }
 
+// InstantiatePayload provides the arguments for initialiazing actors on the STARTUP call.
 type InstantiatePayload struct {
+	// IsWorker is a flag that is used to indicate whether the payload is intended for a worker or not
 	IsWorker bool
-	Payload  string
+	// InstantiatePayload is the []byte that will be provided to the actor on
+	// instantiation. It is generally used to provide any actor-specific constructor
+	// arguments that are required to instantiate the actor in memory.
+	// It is the value passed at CreateIfNotExist.InstantiatePayload
+	Payload string
 }
 
 // ActorOptions contains the options for a given actor.
