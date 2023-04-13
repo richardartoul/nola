@@ -10,12 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"net/http"
-	"os"
-	"time"
-
 	"golang.org/x/exp/slog"
 
+	"net/http"
 	_ "net/http/pprof"
 
 	"github.com/richardartoul/nola/cmd/utils"
@@ -92,12 +89,12 @@ func main() {
 	go func(server virtualServer) {
 		sig := waitForSignal()
 		log.Info("received signal", slog.Any("signal", sig))
-		shutdown(server, *shutdownTimeout)
+		shutdown(log, server, *shutdownTimeout)
 	}(server)
 
 	if err := server.Start(*port); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("received error", slog.Any("error", err), slog.String("subService", "httpServer"))
-		shutdown(server, *shutdownTimeout)
+		shutdown(log, server, *shutdownTimeout)
 		os.Exit(1)
 	}
 }
