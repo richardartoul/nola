@@ -44,7 +44,7 @@ var (
 
 // getInstantiatePayload returns the payload provided to the Startup invocation.
 func getInstantiatePayload(payload []byte) ([]byte, error) {
-	return []byte(instantiatePayload.Payload), nil
+	return instantiatePayload.Payload, nil
 }
 
 // inc increments the actor's in-memory global counter.

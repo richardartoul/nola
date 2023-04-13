@@ -75,7 +75,7 @@ func (f *FileCacheModule) Instantiate(
 		return nil, fmt.Errorf("error unmarshaling InstantiatePayload: %w", err)
 	}
 	fcp := &FileCacheInstantiatePayload{}
-	if err := json.Unmarshal([]byte(p.Payload), fcp); err != nil {
+	if err := json.Unmarshal(p.Payload, fcp); err != nil {
 		return nil, fmt.Errorf("error unmarshaling FileCacheInstantiatePayload: %w", err)
 	}
 	if fcp.FileSize <= 0 {
