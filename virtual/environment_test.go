@@ -820,25 +820,25 @@ func TestServerVersionIsHonored(t *testing.T) {
 		err.Error())
 }
 
-// func TestCleanShutdown(t *testing.T) {
-// 	// Run once to ensure the actor is activated.
-// 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-// 		_, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-// 		require.NoError(t, err)
-// 	}
+func TestCleanShutdown(t *testing.T) {
+	// Run once to ensure the actor is activated.
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		_, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+	}
 
-// 	// At this point the environment should be closed and thus the actor's clean shutdown logic should
-// 	// have been executed. We'll verify by recreating the environment and checking the actor's state
-// 	// to see if the clean shutdown method was invoked properly or not.
+	// At this point the environment should be closed and thus the actor's clean shutdown logic should
+	// have been executed. We'll verify by recreating the environment and checking the actor's state
+	// to see if the clean shutdown method was invoked properly or not.
 
-// 	testFnAfterClose := func(t *testing.T, reg registry.Registry, env Environment) {
-// 		res, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "getShutdownValue", nil, types.CreateIfNotExist{})
-// 		require.NoError(t, err)
-// 		require.Equal(t, "true", string(res))
-// 	}
+	testFnAfterClose := func(t *testing.T, reg registry.Registry, env Environment) {
+		res, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "getShutdownValue", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+		require.Equal(t, "true", string(res))
+	}
 
-// 	runWithDifferentConfigs(t, testFn, testFnAfterClose, false, testGCActorsAfterDurationWithNoInvocations)
-// }
+	runWithDifferentConfigs(t, testFn, testFnAfterClose, false, testGCActorsAfterDurationWithNoInvocations)
+}
 
 func getCount(t *testing.T, v []byte) int64 {
 	x, err := strconv.Atoi(string(v))
