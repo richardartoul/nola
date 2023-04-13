@@ -70,15 +70,19 @@ func (f *FileCacheModule) Instantiate(
 	payload []byte,
 	host virtual.HostCapabilities,
 ) (virtual.Actor, error) {
-	p := &FileCacheInstantiatePayload{}
+	p := &types.InstantiatePayload{}
 	if err := json.Unmarshal(payload, p); err != nil {
+		return nil, fmt.Errorf("error unmarshaling InstantiatePayload: %w", err)
+	}
+	fcp := &FileCacheInstantiatePayload{}
+	if err := json.Unmarshal(p.Payload, fcp); err != nil {
 		return nil, fmt.Errorf("error unmarshaling FileCacheInstantiatePayload: %w", err)
 	}
-	if p.FileSize <= 0 {
-		return nil, fmt.Errorf("filesize cannot be <= 0, but was: %d", p.FileSize)
+	if fcp.FileSize <= 0 {
+		return nil, fmt.Errorf("filesize cannot be <= 0, but was: %d", fcp.FileSize)
 	}
 
-	return NewFileCacheActor(p.FileSize, f.chunkSize, f.fetchSize, f.fetcher, f.chunkCache)
+	return NewFileCacheActor(fcp.FileSize, f.chunkSize, f.fetchSize, f.fetcher, f.chunkCache)
 }
 
 func (f *FileCacheModule) Close(ctx context.Context) error {

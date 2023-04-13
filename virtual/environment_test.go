@@ -168,7 +168,7 @@ func TestCreateIfNotExistWithInstantiatePayload(t *testing.T) {
 						ctx, ns, "a", "test-module",
 						"getInstantiatePayload", nil, types.CreateIfNotExist{})
 					require.NoError(t, err)
-					require.Equal(t, []byte("abc"), result)
+					require.Equal(t, "abc", string(result))
 				}
 			}
 		}
@@ -978,9 +978,13 @@ func (tm testModule) Instantiate(
 	payload []byte,
 	host HostCapabilities,
 ) (Actor, error) {
+	p := types.InstantiatePayload{}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal InstantiatePayload: %w", err)
+	}
 	return &testActor{
 		host:               host,
-		instantiatePayload: payload,
+		instantiatePayload: p,
 	}, nil
 }
 
@@ -994,7 +998,7 @@ type testActor struct {
 	count              int
 	startupWasCalled   bool
 	shutdownWasCalled  bool
-	instantiatePayload []byte
+	instantiatePayload types.InstantiatePayload
 }
 
 func (ta *testActor) Invoke(
@@ -1009,18 +1013,18 @@ func (ta *testActor) Invoke(
 		return nil, nil
 	case wapcutils.ShutdownOperationName:
 		ta.shutdownWasCalled = true
-		if _, ok := transaction.(noopTransaction); !ok {
+		if !ta.instantiatePayload.IsWorker {
 			return nil, transaction.Put(ctx, []byte("shutdown"), []byte("true"))
 		}
 		return nil, nil
 	case "getShutdownValue":
-		if _, ok := transaction.(noopTransaction); !ok {
+		if !ta.instantiatePayload.IsWorker {
 			result, _, err := transaction.Get(ctx, []byte("shutdown"))
 			return result, err
 		}
 		return []byte(strconv.FormatBool(ta.shutdownWasCalled)), nil
 	case "getInstantiatePayload":
-		return ta.instantiatePayload, nil
+		return []byte(ta.instantiatePayload.Payload), nil
 	case "inc":
 		ta.count++
 		return []byte(strconv.Itoa(ta.count)), nil
@@ -1084,10 +1088,15 @@ func (tm testStreamModule) Instantiate(
 	streamInterfaceWasCalledMutex.Lock()
 	defer streamInterfaceWasCalledMutex.Unlock()
 	streamInterfaceWasCalled = true
+
+	p := types.InstantiatePayload{}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal InstantiatePayload: %w", err)
+	}
 	return &testStreamActor{
 		a: &testActor{
 			host:               host,
-			instantiatePayload: payload,
+			instantiatePayload: p,
 		},
 	}, nil
 }
