@@ -90,7 +90,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	var server virtualServer = virtual.NewServer(reg, environment)
+	var server virtualServer = virtual.NewServer(log, reg, environment)
 
 	log.Info("server listening", slog.String("addr", *addr))
 

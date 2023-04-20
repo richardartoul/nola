@@ -83,7 +83,7 @@ func main() {
 		}
 	}()
 
-	server := virtual.NewServer(registry, env)
+	server := virtual.NewServer(log, registry, env)
 	if err := server.Start(*addr); err != nil {
 		log.Error("error starting server", slog.Any("error", err))
 		os.Exit(1)

@@ -13,9 +13,12 @@ import (
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
+	"golang.org/x/exp/slog"
 )
 
 type server struct {
+	logger *slog.Logger
+
 	// Dependencies.
 	registry    registry.Registry
 	environment Environment
@@ -26,10 +29,12 @@ type server struct {
 
 // NewServer creates a new server for the actor virtual environment.
 func NewServer(
+	logger *slog.Logger,
 	registry registry.Registry,
 	environment Environment,
 ) *server {
 	return &server{
+		logger:      logger.With(slog.String("module", "server")),
 		registry:    registry,
 		environment: environment,
 	}
@@ -184,7 +189,6 @@ func (s *server) handleInvoke(ctx context.Context, req types.InvokeActorHttpRequ
 		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
-
 func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {
 		// Error already written to w.
@@ -237,7 +241,6 @@ func (s *server) handleInvokeDirect(ctx context.Context, req types.InvokeActorDi
 		ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref,
 		req.Operation, req.Payload, req.CreateIfNotExist)
 }
-
 
 func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {

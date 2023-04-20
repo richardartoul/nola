@@ -10,6 +10,7 @@ import (
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
+	"golang.org/x/exp/slog"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 )
@@ -21,6 +22,7 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
+		s.logger.Warn("failed to accept websocket connection", slog.Any("error", err))
 		return
 	}
 
@@ -30,6 +32,7 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 		var request jsonRpcRequest
 		err = wsjson.Read(ctx, c, &request)
 		if err != nil {
+			s.logger.Warn("failed to read websocket request", slog.Any("error", err))
 			return
 		}
 
@@ -55,6 +58,7 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := wsjson.Write(ctx, c, response); err != nil {
+			s.logger.Warn("failed to write websocket respose", slog.Any("error", err))
 			return
 		}
 	}
