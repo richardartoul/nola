@@ -16,6 +16,7 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/richardartoul/nola/cmd/utils"
+	"github.com/richardartoul/nola/inner"
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/registry/fdbregistry"
@@ -33,6 +34,8 @@ var (
 	shutdownTimeout             = flag.Duration("shutdownTimeout", 0, "timeout until the server is forced to shutdown, without waiting actors and other components to close gracefully. By default is 0, which is infinite duration untill all actors are closed")
 	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
 	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
+	pprofEnabled                = flag.Bool("pprof", false, "enable pprod endpoint under '/debug/pprof/'")
+	internalAddr                = flag.String("internalAddr", "0.0.0.0:9091", "internal server address, e.g. metrics and pprof")
 )
 
 func main() {
@@ -91,6 +94,32 @@ func main() {
 		log.Info("received signal", slog.Any("signal", sig))
 		shutdown(log, server, *shutdownTimeout)
 	}(server)
+
+	// setup internal endpoint
+	internalMux := http.NewServeMux()
+	internalSrvr := http.Server{
+		Addr:    *internalAddr,
+		Handler: internalMux,
+	}
+
+	// attach internal metrics endpoint
+	m, err := inner.NewMetrics(log)
+	if err != nil {
+		log.Error("failed to initialize metrics", slog.Any("error", err))
+		os.Exit(1)
+	}
+	m.AttachMetrics(internalMux)
+
+	// attach internal pprof
+	if *pprofEnabled {
+		inner.AttachPProf(internalMux)
+	}
+	go func(log *slog.Logger, cc context.CancelFunc, internalSrvr http.Server) {
+		if err := internalSrvr.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("received error", slog.Any("error", err), slog.String("subService", "httpInternalServer"))
+			cc()
+		}
+	}(log, cc, internalSrvr)
 
 	if err := server.Start(*port); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("received error", slog.Any("error", err), slog.String("subService", "httpServer"))
