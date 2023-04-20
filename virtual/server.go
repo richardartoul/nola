@@ -37,7 +37,7 @@ func NewServer(
 }
 
 // Start starts the server.
-func (s *server) Start(port int) error {
+func (s *server) Start(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/register-module", s.registerModule)
 	mux.HandleFunc("/api/v1/invoke-actor", s.invoke)
@@ -45,7 +45,7 @@ func (s *server) Start(port int) error {
 	mux.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr:    addr,
 		Handler: mux,
 	}
 

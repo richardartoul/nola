@@ -2,7 +2,9 @@ package utils
 
 import (
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 
 	"golang.org/x/exp/slog"
 )
@@ -30,4 +32,18 @@ func ParseLog(logLevel, logFormat string) (*slog.Logger, error) {
 	default:
 		return nil, fmt.Errorf("invalid log format: %s", logFormat)
 	}
+}
+
+func ParsePortFromAddr(addr string) (int, error) {
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(portStr)
+}
+
+func ParseHostFromAddr(addr string) (string, error) {
+	host, _, err := net.SplitHostPort(addr)
+	return host, err
 }

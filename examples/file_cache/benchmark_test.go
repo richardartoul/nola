@@ -58,7 +58,7 @@ func TestFileCacheBenchmark(t *testing.T) {
 
 	server := virtual.NewServer(registry, env)
 	go func() {
-		if err := server.Start(port); err != nil {
+		if err := server.Start(fmt.Sprintf("0.0.0.0:%d", port)); err != nil {
 			panic(err)
 		}
 	}()
