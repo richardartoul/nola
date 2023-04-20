@@ -102,7 +102,6 @@ func main() {
 		Handler: internalMux,
 	}
 
-	// attach internal metrics endpoint
 	m, err := inner.NewMetrics(log)
 	if err != nil {
 		log.Error("failed to initialize metrics", slog.Any("error", err))
@@ -110,16 +109,15 @@ func main() {
 	}
 	m.AttachMetrics(internalMux)
 
-	// attach internal pprof
 	if *pprofEnabled {
 		inner.AttachPProf(internalMux)
 	}
-	go func(log *slog.Logger, cc context.CancelFunc, internalSrvr http.Server) {
+	go func() {
 		if err := internalSrvr.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("received error", slog.Any("error", err), slog.String("subService", "httpInternalServer"))
-			cc()
+			shutdown(log, server, *shutdownTimeout)
 		}
-	}(log, cc, internalSrvr)
+	}()
 
 	if err := server.Start(*port); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("received error", slog.Any("error", err), slog.String("subService", "httpServer"))
