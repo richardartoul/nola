@@ -43,7 +43,7 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 		case "invoke_worker":
 			result, err = s.handleWsInvokeWorker(ctx, request)
 		default:
-			err = fmt.Errorf("%w: %s", request.Method)
+			err = fmt.Errorf("%w: %s", ErrUnknownMethod, r.Method)
 		}
 
 		response := jsonRpcResponse{VersionTag: request.VersionTag, ID: request.ID}
