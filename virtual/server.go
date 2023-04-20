@@ -13,6 +13,7 @@ import (
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
+	"nhooyr.io/websocket"
 )
 
 type server struct {
@@ -47,11 +48,22 @@ func (s *server) Start(port int) error {
 		Handler: mux,
 	}
 
-	if err := s.server.ListenAndServe(); err != nil {
-		return err
+	return s.server.ListenAndServe()
+}
+
+// Start starts the server.
+func (s *server) StartWebsocket(addr string) error {
+	server := WebsocketServerHandler{}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/rpc/json", server.handler)
+
+	s.server = &http.Server{
+		Addr:    addr,
+		Handler: mux,
 	}
 
-	return nil
+	return s.server.ListenAndServe()
 }
 
 func (s *server) Stop(ctx context.Context) error {
@@ -306,4 +318,31 @@ func terminateConnection(w http.ResponseWriter) {
 		panic(fmt.Sprintf("[invariant violated] Hijack() returned error: %v", err))
 	}
 	conn.Close()
+}
+
+type JsonRpcResponse struct {
+	VersionTag string    `json:"jsonrpc"`
+	Result     any       `json:"result"`
+	Error      *RpcError `json:"error"`
+	ID         uint64    `json:"id"`
+}
+
+type RpcError struct {
+	Code    websocket.StatusCode `json:"code"`
+	Message string               `json:"message"`
+}
+
+type JsonRpcRequest struct {
+	VersionTag string          `json:"jsonrpc"`
+	ID         uint64          `json:"id"`
+	Method     string          `json:"method"`
+	Params     json.RawMessage `json:"params"`
+}
+
+type WebsocketWrapper struct {
+	*websocket.Conn
+}
+
+func (wsw WebsocketWrapper) Close() error {
+	return wsw.Conn.Close(0, "")
 }

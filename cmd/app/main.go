@@ -33,6 +33,8 @@ var (
 	shutdownTimeout             = flag.Duration("shutdownTimeout", 0, "timeout until the server is forced to shutdown, without waiting actors and other components to close gracefully. By default is 0, which is infinite duration untill all actors are closed")
 	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
 	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
+	websocketsEnabled           = flag.Bool("websockets", false, "enable websockets endpoint")
+	websocketsAddr              = flag.String("websocketsAddr", "0.0.0.0:9092", "websockets server address")
 )
 
 func main() {
