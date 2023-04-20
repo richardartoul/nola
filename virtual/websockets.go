@@ -26,7 +26,7 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 	var result any
 
 	for {
-		var request JsonRpcRequest
+		var request jsonRpcRequest
 		err = wsjson.Read(ctx, c, &request)
 		if err != nil {
 			return
@@ -45,7 +45,7 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 			err = fmt.Errorf("%w: %s", request.Method)
 		}
 
-		response := JsonRpcResponse{VersionTag: request.VersionTag, ID: request.ID}
+		response := jsonRpcResponse{VersionTag: request.VersionTag, ID: request.ID}
 		if err != nil {
 			response.Error.Code = websocket.StatusInternalError
 			response.Error.Message = err.Error()
@@ -60,7 +60,7 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (s *server) handleWsRegisterModule(ctx context.Context, request JsonRpcRequest) (registry.RegisterModuleResult, error) {
+func (s *server) handleWsRegisterModule(ctx context.Context, request jsonRpcRequest) (registry.RegisterModuleResult, error) {
 	var (
 		params []registerModuleMessage
 		msg    registerModuleMessage
@@ -78,7 +78,7 @@ func (s *server) handleWsRegisterModule(ctx context.Context, request JsonRpcRequ
 
 }
 
-func (s *server) handleWsInvoke(ctx context.Context, request JsonRpcRequest) ([]byte, error) {
+func (s *server) handleWsInvoke(ctx context.Context, request jsonRpcRequest) ([]byte, error) {
 	var (
 		params []invokeActorRequest
 		msg    invokeActorRequest
@@ -100,7 +100,7 @@ func (s *server) handleWsInvoke(ctx context.Context, request JsonRpcRequest) ([]
 	return io.ReadAll(result)
 }
 
-func (s *server) handleWsInvokeDirect(ctx context.Context, request JsonRpcRequest) ([]byte, error) {
+func (s *server) handleWsInvokeDirect(ctx context.Context, request jsonRpcRequest) ([]byte, error) {
 	var (
 		params []invokeActorDirectRequest
 		msg    invokeActorDirectRequest
@@ -121,7 +121,7 @@ func (s *server) handleWsInvokeDirect(ctx context.Context, request JsonRpcReques
 	return io.ReadAll(result)
 }
 
-func (s *server) handleWsInvokeWorker(ctx context.Context, request JsonRpcRequest) ([]byte, error) {
+func (s *server) handleWsInvokeWorker(ctx context.Context, request jsonRpcRequest) ([]byte, error) {
 	var (
 		params []invokeWorkerRequest
 		msg    invokeWorkerRequest
@@ -140,4 +140,23 @@ func (s *server) handleWsInvokeWorker(ctx context.Context, request JsonRpcReques
 		return nil, err
 	}
 	return io.ReadAll(result)
+}
+
+type jsonRpcResponse struct {
+	VersionTag string    `json:"jsonrpc"`
+	Result     any       `json:"result"`
+	Error      *rpcError `json:"error"`
+	ID         uint64    `json:"id"`
+}
+
+type rpcError struct {
+	Code    websocket.StatusCode `json:"code"`
+	Message string               `json:"message"`
+}
+
+type jsonRpcRequest struct {
+	VersionTag string          `json:"jsonrpc"`
+	ID         uint64          `json:"id"`
+	Method     string          `json:"method"`
+	Params     json.RawMessage `json:"params"`
 }
