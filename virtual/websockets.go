@@ -3,24 +3,20 @@ package virtual
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
-	"github.com/richardartoul/nola/virtual/types"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 )
 
-type WebsocketServerHandler struct {
-	s *server
-}
+var ErrUnknownMethod = errors.New("unknown method")
 
-func (s *WebsocketServerHandler) handler(w http.ResponseWriter, r *http.Request) {
+func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	// TODO: log errors
 
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -37,8 +33,16 @@ func (s *WebsocketServerHandler) handler(w http.ResponseWriter, r *http.Request)
 		}
 
 		switch request.Method {
-		case "register-module":
-			result, err = s.handleRegisterModule(ctx, request)
+		case "register_module":
+			result, err = s.handleWsRegisterModule(ctx, request)
+		case "invoke":
+			result, err = s.handleWsInvoke(ctx, request)
+		case "invoke_direct":
+			result, err = s.handleWsInvokeDirect(ctx, request)
+		case "invoke_worker":
+			result, err = s.handleWsInvokeWorker(ctx, request)
+		default:
+			err = fmt.Errorf("%w: %s", request.Method)
 		}
 
 		response := JsonRpcResponse{VersionTag: request.VersionTag, ID: request.ID}
@@ -56,7 +60,7 @@ func (s *WebsocketServerHandler) handler(w http.ResponseWriter, r *http.Request)
 
 }
 
-func (s *WebsocketServerHandler) handleRegisterModule(ctx context.Context, request JsonRpcRequest) (registry.RegisterModuleResult, error) {
+func (s *server) handleWsRegisterModule(ctx context.Context, request JsonRpcRequest) (registry.RegisterModuleResult, error) {
 	var (
 		params []registerModuleMessage
 		msg    registerModuleMessage
@@ -70,11 +74,11 @@ func (s *WebsocketServerHandler) handleRegisterModule(ctx context.Context, reque
 		return registry.RegisterModuleResult{}, fmt.Errorf("invalid number of params: expected 1 - received: %d", n)
 	}
 
-	return s.s.registry.RegisterModule(ctx, msg.Namespace, msg.ModuleID, msg.ModuleBytes, registry.ModuleOptions{})
+	return s.handleRegisterModule(ctx, msg)
 
 }
 
-func (s *WebsocketServerHandler) handleInvokeActorStream(ctx context.Context, request JsonRpcRequest) ([]byte, error) {
+func (s *server) handleWsInvoke(ctx context.Context, request JsonRpcRequest) ([]byte, error) {
 	var (
 		params []invokeActorRequest
 		msg    invokeActorRequest
@@ -88,7 +92,7 @@ func (s *WebsocketServerHandler) handleInvokeActorStream(ctx context.Context, re
 		return nil, fmt.Errorf("invalid number of params: expected 1 - received: %d", n)
 	}
 
-	result, err := s.s.environment.InvokeActorStream(ctx, msg.Namespace, msg.ActorID, msg.ModuleID, msg.Operation, msg.Payload, msg.CreateIfNotExist)
+	result, err := s.handleInvoke(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +100,7 @@ func (s *WebsocketServerHandler) handleInvokeActorStream(ctx context.Context, re
 	return io.ReadAll(result)
 }
 
-func (s *WebsocketServerHandler) handleInvokeDirect(ctx context.Context, request JsonRpcRequest) ([]byte, error) {
+func (s *server) handleWsInvokeDirect(ctx context.Context, request JsonRpcRequest) ([]byte, error) {
 	var (
 		params []invokeActorDirectRequest
 		msg    invokeActorDirectRequest
@@ -110,19 +114,14 @@ func (s *WebsocketServerHandler) handleInvokeDirect(ctx context.Context, request
 		return nil, fmt.Errorf("invalid number of params: expected 1 - received: %d", n)
 	}
 
-	ref, err := types.NewVirtualActorReference(msg.Namespace, msg.ModuleID, msg.ActorID, msg.Generation)
-	if err != nil {
-		return nil, fmt.Errorf("failed to crate new actor: %w", err)
-	}
-
-	result, err := s.s.environment.InvokeActorDirectStream(ctx, msg.VersionStamp, msg.ServerID, msg.ServerVersion, ref, msg.Operation, msg.Payload, msg.CreateIfNotExist)
+	result, err := s.handleInvokeDirect(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
 	return io.ReadAll(result)
 }
 
-func (s *WebsocketServerHandler) handleInvokeWorker(ctx context.Context, request JsonRpcRequest) ([]byte, error) {
+func (s *server) handleWsInvokeWorker(ctx context.Context, request JsonRpcRequest) ([]byte, error) {
 	var (
 		params []invokeWorkerRequest
 		msg    invokeWorkerRequest
@@ -136,19 +135,9 @@ func (s *WebsocketServerHandler) handleInvokeWorker(ctx context.Context, request
 		return nil, fmt.Errorf("invalid number of params: expected 1 - received: %d", n)
 	}
 
-	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-
-	result, err := s.s.environment.InvokeWorkerStream(ctx, msg.Namespace, msg.ModuleID, msg.Operation, msg.Payload, msg.CreateIfNotExist)
+	result, err := s.handleInvokeWorker(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
-
 	return io.ReadAll(result)
-}
-
-type registerModuleMessage struct {
-	Namespace, ModuleID string
-	ModuleBytes         []byte
 }

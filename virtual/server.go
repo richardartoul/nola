@@ -21,7 +21,8 @@ type server struct {
 	registry    registry.Registry
 	environment Environment
 
-	server *http.Server
+	server   *http.Server
+	wsServer *http.Server
 }
 
 // NewServer creates a new server for the actor virtual environment.
@@ -53,12 +54,10 @@ func (s *server) Start(port int) error {
 
 // Start starts the server.
 func (s *server) StartWebsocket(addr string) error {
-	server := WebsocketServerHandler{}
-
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/rpc/json", server.handler)
+	mux.HandleFunc("/api/v1/rpc/json", s.wsHandler)
 
-	s.server = &http.Server{
+	s.wsServer = &http.Server{
 		Addr:    addr,
 		Handler: mux,
 	}
@@ -73,6 +72,14 @@ func (s *server) Stop(ctx context.Context) error {
 	}
 	log.Print("successfully shut down HTTP server")
 
+	if s.wsServer != nil {
+		log.Print("shutting down websocket http server")
+		if err := s.wsServer.Shutdown(ctx); err != nil {
+			return fmt.Errorf("failed to shut down http server: %w", err)
+		}
+		log.Print("successfully shut down websocket HTTP server")
+	}
+
 	log.Print("closing environment")
 	if err := s.environment.Close(ctx); err != nil {
 		return fmt.Errorf("failed to close the environment: %w", err)
@@ -80,6 +87,12 @@ func (s *server) Stop(ctx context.Context) error {
 	log.Print("successfully closed environment")
 
 	return nil
+}
+
+type registerModuleMessage struct {
+	Namespace   string `json:"namespace"`
+	ModuleID    string `json:"module_id"`
+	ModuleBytes []byte `json:"module_bytes"`
 }
 
 // This one is a bit weird because its basically a file upload with some JSON
@@ -98,9 +111,7 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cc := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cc()
-	result, err := s.registry.RegisterModule(ctx, namespace, moduleID, moduleBytes, registry.ModuleOptions{})
+	result, err := s.handleRegisterModule(r.Context(), registerModuleMessage{Namespace: namespace, ModuleID: moduleID, ModuleBytes: moduleBytes})
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -116,6 +127,12 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 	w.Write(marshaled)
+}
+
+func (s *server) handleRegisterModule(ctx context.Context, req registerModuleMessage) (registry.RegisterModuleResult, error) {
+	ctx, cc := context.WithTimeout(ctx, 60*time.Second)
+	defer cc()
+	return s.registry.RegisterModule(ctx, req.Namespace, req.ModuleID, req.ModuleBytes, registry.ModuleOptions{})
 }
 
 type invokeActorRequest struct {
@@ -158,10 +175,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-	result, err := s.environment.InvokeActorStream(
-		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
+	result, err := s.handleInvoke(r.Context(), req)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -177,6 +191,13 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 		// of the 200 status code).
 		terminateConnection(w)
 	}
+}
+
+func (s *server) handleInvoke(ctx context.Context, req invokeActorRequest) (io.ReadCloser, error) {
+	ctx, cc := context.WithTimeout(ctx, 5*time.Second)
+	defer cc()
+	return s.environment.InvokeActorStream(
+		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
 type invokeActorDirectRequest struct {
@@ -213,19 +234,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-
-	ref, err := types.NewVirtualActorReference(req.Namespace, req.ModuleID, req.ActorID, uint64(req.Generation))
-	if err != nil {
-		w.WriteHeader(500)
-		w.Write([]byte(err.Error()))
-		return
-	}
-
-	result, err := s.environment.InvokeActorDirectStream(
-		ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref,
-		req.Operation, req.Payload, req.CreateIfNotExist)
+	result, err := s.handleInvokeDirect(r.Context(), req)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -241,6 +250,20 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		// of the 200 status code).
 		terminateConnection(w)
 	}
+}
+
+func (s *server) handleInvokeDirect(ctx context.Context, req invokeActorDirectRequest) (io.ReadCloser, error) {
+	ctx, cc := context.WithTimeout(ctx, 5*time.Second)
+	defer cc()
+
+	ref, err := types.NewVirtualActorReference(req.Namespace, req.ModuleID, req.ActorID, uint64(req.Generation))
+	if err != nil {
+		return nil, err
+	}
+
+	return s.environment.InvokeActorDirectStream(
+		ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref,
+		req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
 type invokeWorkerRequest struct {
@@ -274,11 +297,7 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-
-	result, err := s.environment.InvokeWorkerStream(
-		ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
+	result, err := s.handleInvokeWorker(r.Context(), req)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -294,6 +313,14 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 		// of the 200 status code).
 		terminateConnection(w)
 	}
+}
+
+func (s *server) handleInvokeWorker(ctx context.Context, req invokeWorkerRequest) (io.ReadCloser, error) {
+	ctx, cc := context.WithTimeout(ctx, 5*time.Second)
+	defer cc()
+
+	return s.environment.InvokeWorkerStream(
+		ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
 // ensureHijackable and terminateConnection are used in conjunction to close tcp connections
