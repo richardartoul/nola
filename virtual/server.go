@@ -88,12 +88,6 @@ func (s *server) Stop(ctx context.Context) error {
 	return nil
 }
 
-type registerModuleMessage struct {
-	Namespace   string `json:"namespace"`
-	ModuleID    string `json:"module_id"`
-	ModuleBytes []byte `json:"module_bytes"`
-}
-
 // This one is a bit weird because its basically a file upload with some JSON
 // so we just shove the JSON into the headers cause I'm lazy to do anything
 // more clever.
@@ -110,7 +104,7 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.handleRegisterModule(r.Context(), registerModuleMessage{Namespace: namespace, ModuleID: moduleID, ModuleBytes: moduleBytes})
+	result, err := s.handleRegisterModule(r.Context(), types.RegisterModuleHttpRequest{Namespace: namespace, ModuleID: moduleID, ModuleBytes: moduleBytes})
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -128,19 +122,10 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 	w.Write(marshaled)
 }
 
-func (s *server) handleRegisterModule(ctx context.Context, req registerModuleMessage) (registry.RegisterModuleResult, error) {
+func (s *server) handleRegisterModule(ctx context.Context, req types.RegisterModuleHttpRequest) (registry.RegisterModuleResult, error) {
 	ctx, cc := context.WithTimeout(ctx, 60*time.Second)
 	defer cc()
 	return s.registry.RegisterModule(ctx, req.Namespace, req.ModuleID, req.ModuleBytes, registry.ModuleOptions{})
-}
-
-type invokeActorRequest struct {
-	ServerID  string `json:"server_id"`
-	Namespace string `json:"namespace"`
-	types.InvokeActorRequest
-	// Same data as Payload (in types.InvokeActorRequest), but different field so it doesn't
-	// have to be encoded as base64.
-	PayloadJSON interface{} `json:"payload_json"`
 }
 
 func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +141,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req invokeActorRequest
+	var req types.InvokeActorHttpRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -192,25 +177,13 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) handleInvoke(ctx context.Context, req invokeActorRequest) (io.ReadCloser, error) {
+func (s *server) handleInvoke(ctx context.Context, req types.InvokeActorHttpRequest) (io.ReadCloser, error) {
 	ctx, cc := context.WithTimeout(ctx, 5*time.Second)
 	defer cc()
 	return s.environment.InvokeActorStream(
 		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
-type invokeActorDirectRequest struct {
-	VersionStamp     int64                  `json:"version_stamp"`
-	ServerID         string                 `json:"server_id"`
-	ServerVersion    int64                  `json:"server_version"`
-	Namespace        string                 `json:"namespace"`
-	ModuleID         string                 `json:"module_id"`
-	ActorID          string                 `json:"actor_id"`
-	Generation       uint64                 `json:"generation"`
-	Operation        string                 `json:"operation"`
-	Payload          []byte                 `json:"payload"`
-	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
-}
 
 func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {
@@ -225,7 +198,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req invokeActorDirectRequest
+	var req types.InvokeActorDirectHttpRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -251,7 +224,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) handleInvokeDirect(ctx context.Context, req invokeActorDirectRequest) (io.ReadCloser, error) {
+func (s *server) handleInvokeDirect(ctx context.Context, req types.InvokeActorDirectHttpRequest) (io.ReadCloser, error) {
 	ctx, cc := context.WithTimeout(ctx, 5*time.Second)
 	defer cc()
 
@@ -265,15 +238,6 @@ func (s *server) handleInvokeDirect(ctx context.Context, req invokeActorDirectRe
 		req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
-type invokeWorkerRequest struct {
-	Namespace string `json:"namespace"`
-	// TODO: Allow ModuleID to be omitted if the caller provides a WASMExecutable field which contains the
-	//       actual WASM program that should be executed.
-	ModuleID         string                 `json:"module_id"`
-	Operation        string                 `json:"operation"`
-	Payload          []byte                 `json:"payload"`
-	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
-}
 
 func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {
@@ -288,7 +252,7 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req invokeWorkerRequest
+	var req types.InvokeWorkerHttpRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -314,7 +278,7 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) handleInvokeWorker(ctx context.Context, req invokeWorkerRequest) (io.ReadCloser, error) {
+func (s *server) handleInvokeWorker(ctx context.Context, req types.InvokeWorkerHttpRequest) (io.ReadCloser, error) {
 	ctx, cc := context.WithTimeout(ctx, 5*time.Second)
 	defer cc()
 

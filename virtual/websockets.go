@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/richardartoul/nola/virtual/registry"
+	"github.com/richardartoul/nola/virtual/types"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 )
@@ -62,8 +63,8 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleWsRegisterModule(ctx context.Context, request jsonRpcRequest) (registry.RegisterModuleResult, error) {
 	var (
-		params []registerModuleMessage
-		msg    registerModuleMessage
+		params []types.RegisterModuleHttpRequest
+		msg    types.RegisterModuleHttpRequest
 	)
 
 	if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -80,8 +81,8 @@ func (s *server) handleWsRegisterModule(ctx context.Context, request jsonRpcRequ
 
 func (s *server) handleWsInvoke(ctx context.Context, request jsonRpcRequest) ([]byte, error) {
 	var (
-		params []invokeActorRequest
-		msg    invokeActorRequest
+		params []types.InvokeActorHttpRequest
+		msg    types.InvokeActorHttpRequest
 	)
 
 	if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -102,8 +103,8 @@ func (s *server) handleWsInvoke(ctx context.Context, request jsonRpcRequest) ([]
 
 func (s *server) handleWsInvokeDirect(ctx context.Context, request jsonRpcRequest) ([]byte, error) {
 	var (
-		params []invokeActorDirectRequest
-		msg    invokeActorDirectRequest
+		params []types.InvokeActorDirectHttpRequest
+		msg    types.InvokeActorDirectHttpRequest
 	)
 
 	if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -123,8 +124,8 @@ func (s *server) handleWsInvokeDirect(ctx context.Context, request jsonRpcReques
 
 func (s *server) handleWsInvokeWorker(ctx context.Context, request jsonRpcRequest) ([]byte, error) {
 	var (
-		params []invokeWorkerRequest
-		msg    invokeWorkerRequest
+		params []types.InvokeWorkerHttpRequest
+		msg    types.InvokeWorkerHttpRequest
 	)
 
 	if err := json.Unmarshal(request.Params, &params); err != nil {
