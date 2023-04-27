@@ -109,7 +109,7 @@ func main() {
 
 	if *pprofEnabled {
 		inner.AttachPProf(internalMux)
-		log.Info("pprof enabled", slog.String("addr", *internalAddr + "/debug/pprof"))
+		log.Info("pprof enabled", slog.String("addr", *internalAddr+"/debug/pprof"))
 	}
 	go func() {
 		log.Info("internal server listening", slog.String("addr", *internalAddr))
