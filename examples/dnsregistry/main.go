@@ -17,8 +17,7 @@ import (
 )
 
 var (
-	host      = flag.String("host", "localhost", "Hostname to perform DNS lookups against")
-	port      = flag.Int("port", 9090, "TCP port for HTTP server to bind")
+	addr      = flag.String("addr", "localhost:9090", "IP and TCP port for HTTP server to bind")
 	logFormat = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
 	logLevel  = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
 )
@@ -26,20 +25,26 @@ var (
 func main() {
 	flag.Parse()
 
-	if *host == "" {
-		flag.Usage()
-		slog.Error("host cannot be empty")
-		os.Exit(1)
-	}
-
 	log, err := utils.ParseLog(*logLevel, *logFormat)
 	if err != nil {
 		slog.Error("failed to parse log", slog.Any("error", err))
 		os.Exit(1)
 	}
 
+	port, err := utils.ParsePortFromAddr(*addr)
+	if err != nil {
+		log.Error("failed to parse port from addr", slog.Any("error", err), slog.String("addr", *addr))
+		os.Exit(1)
+	}
+
+	host, err := utils.ParseHostFromAddr(*addr)
+	if err != nil {
+		log.Error("failed to parse host from addr", slog.Any("error", err), slog.String("addr", *addr))
+		os.Exit(1)
+	}
+
 	env, registry, err := virtual.NewDNSRegistryEnvironment(
-		context.Background(), *host, *port, virtual.EnvironmentOptions{Logger: log})
+		context.Background(), host, port, virtual.EnvironmentOptions{Logger: log})
 	if err != nil {
 		log.Error("error creating virtual environment", slog.Any("error", err))
 		os.Exit(1)
@@ -78,8 +83,8 @@ func main() {
 		}
 	}()
 
-	server := virtual.NewServer(registry, env)
-	if err := server.Start(*port); err != nil {
+	server := virtual.NewServer(log, registry, env)
+	if err := server.Start(*addr); err != nil {
 		log.Error("error starting server", slog.Any("error", err))
 		os.Exit(1)
 	}

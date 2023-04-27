@@ -13,29 +13,35 @@ import (
 
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
+	"golang.org/x/exp/slog"
 )
 
 type server struct {
+	logger *slog.Logger
+
 	// Dependencies.
 	registry    registry.Registry
 	environment Environment
 
-	server *http.Server
+	server   *http.Server
+	wsServer *http.Server
 }
 
 // NewServer creates a new server for the actor virtual environment.
 func NewServer(
+	logger *slog.Logger,
 	registry registry.Registry,
 	environment Environment,
 ) *server {
 	return &server{
+		logger:      logger.With(slog.String("module", "server")),
 		registry:    registry,
 		environment: environment,
 	}
 }
 
 // Start starts the server.
-func (s *server) Start(port int) error {
+func (s *server) Start(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/register-module", s.registerModule)
 	mux.HandleFunc("/api/v1/invoke-actor", s.invoke)
@@ -43,15 +49,24 @@ func (s *server) Start(port int) error {
 	mux.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr:    addr,
 		Handler: mux,
 	}
 
-	if err := s.server.ListenAndServe(); err != nil {
-		return err
+	return s.server.ListenAndServe()
+}
+
+// Start starts the server.
+func (s *server) StartWebsocket(addr string) error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/rpc/json", s.wsHandler)
+
+	s.wsServer = &http.Server{
+		Addr:    addr,
+		Handler: mux,
 	}
 
-	return nil
+	return s.wsServer.ListenAndServe()
 }
 
 func (s *server) Stop(ctx context.Context) error {
@@ -60,6 +75,14 @@ func (s *server) Stop(ctx context.Context) error {
 		return fmt.Errorf("failed to shut down http server: %w", err)
 	}
 	log.Print("successfully shut down HTTP server")
+
+	if s.wsServer != nil {
+		log.Print("shutting down websocket http server")
+		if err := s.wsServer.Shutdown(ctx); err != nil {
+			return fmt.Errorf("failed to shut down http server: %w", err)
+		}
+		log.Print("successfully shut down websocket HTTP server")
+	}
 
 	log.Print("closing environment")
 	if err := s.environment.Close(ctx); err != nil {
@@ -86,9 +109,7 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cc := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cc()
-	result, err := s.registry.RegisterModule(ctx, namespace, moduleID, moduleBytes, registry.ModuleOptions{})
+	result, err := s.handleRegisterModule(r.Context(), types.RegisterModuleHttpRequest{Namespace: namespace, ModuleID: moduleID, ModuleBytes: moduleBytes})
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -106,13 +127,10 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 	w.Write(marshaled)
 }
 
-type invokeActorRequest struct {
-	ServerID  string `json:"server_id"`
-	Namespace string `json:"namespace"`
-	types.InvokeActorRequest
-	// Same data as Payload (in types.InvokeActorRequest), but different field so it doesn't
-	// have to be encoded as base64.
-	PayloadJSON interface{} `json:"payload_json"`
+func (s *server) handleRegisterModule(ctx context.Context, req types.RegisterModuleHttpRequest) (registry.RegisterModuleResult, error) {
+	ctx, cc := context.WithTimeout(ctx, 60*time.Second)
+	defer cc()
+	return s.registry.RegisterModule(ctx, req.Namespace, req.ModuleID, req.ModuleBytes, registry.ModuleOptions{})
 }
 
 func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +146,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req invokeActorRequest
+	var req types.InvokeActorHttpRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -146,10 +164,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-	result, err := s.environment.InvokeActorStream(
-		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
+	result, err := s.handleInvoke(r.Context(), req)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -167,17 +182,11 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type invokeActorDirectRequest struct {
-	VersionStamp     int64                  `json:"version_stamp"`
-	ServerID         string                 `json:"server_id"`
-	ServerVersion    int64                  `json:"server_version"`
-	Namespace        string                 `json:"namespace"`
-	ModuleID         string                 `json:"module_id"`
-	ActorID          string                 `json:"actor_id"`
-	Generation       uint64                 `json:"generation"`
-	Operation        string                 `json:"operation"`
-	Payload          []byte                 `json:"payload"`
-	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
+func (s *server) handleInvoke(ctx context.Context, req types.InvokeActorHttpRequest) (io.ReadCloser, error) {
+	ctx, cc := context.WithTimeout(ctx, 5*time.Second)
+	defer cc()
+	return s.environment.InvokeActorStream(
+		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
 func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +202,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req invokeActorDirectRequest
+	var req types.InvokeActorDirectHttpRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -201,19 +210,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-
-	ref, err := types.NewVirtualActorReference(req.Namespace, req.ModuleID, req.ActorID, uint64(req.Generation))
-	if err != nil {
-		w.WriteHeader(500)
-		w.Write([]byte(err.Error()))
-		return
-	}
-
-	result, err := s.environment.InvokeActorDirectStream(
-		ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref,
-		req.Operation, req.Payload, req.CreateIfNotExist)
+	result, err := s.handleInvokeDirect(r.Context(), req)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -231,14 +228,18 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type invokeWorkerRequest struct {
-	Namespace string `json:"namespace"`
-	// TODO: Allow ModuleID to be omitted if the caller provides a WASMExecutable field which contains the
-	//       actual WASM program that should be executed.
-	ModuleID         string                 `json:"module_id"`
-	Operation        string                 `json:"operation"`
-	Payload          []byte                 `json:"payload"`
-	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
+func (s *server) handleInvokeDirect(ctx context.Context, req types.InvokeActorDirectHttpRequest) (io.ReadCloser, error) {
+	ctx, cc := context.WithTimeout(ctx, 5*time.Second)
+	defer cc()
+
+	ref, err := types.NewVirtualActorReference(req.Namespace, req.ModuleID, req.ActorID, uint64(req.Generation))
+	if err != nil {
+		return nil, err
+	}
+
+	return s.environment.InvokeActorDirectStream(
+		ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref,
+		req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
 func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +255,7 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req invokeWorkerRequest
+	var req types.InvokeWorkerHttpRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -262,11 +263,7 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-
-	result, err := s.environment.InvokeWorkerStream(
-		ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
+	result, err := s.handleInvokeWorker(r.Context(), req)
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
@@ -282,6 +279,14 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 		// of the 200 status code).
 		terminateConnection(w)
 	}
+}
+
+func (s *server) handleInvokeWorker(ctx context.Context, req types.InvokeWorkerHttpRequest) (io.ReadCloser, error) {
+	ctx, cc := context.WithTimeout(ctx, 5*time.Second)
+	defer cc()
+
+	return s.environment.InvokeWorkerStream(
+		ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
 // ensureHijackable and terminateConnection are used in conjunction to close tcp connections

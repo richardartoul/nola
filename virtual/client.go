@@ -26,7 +26,7 @@ func (h *httpClient) InvokeActorRemote(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
-	ir := invokeActorDirectRequest{
+	ir := types.InvokeActorDirectHttpRequest{
 		VersionStamp:     versionStamp,
 		ServerID:         reference.ServerID(),
 		ServerVersion:    reference.ServerVersion(),

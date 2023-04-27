@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	port                        = flag.Int("port", 9090, "TCP port for HTTP server to bind")
+	addr                        = flag.String("addr", "0.0.0.0:9090", "IP and TCP port for HTTP server to bind")
 	serverID                    = flag.String("serverID", uuid.New().String(), "ID to identify the server. Must be globally unique within the cluster")
 	discoveryType               = flag.String("discoveryType", virtual.DiscoveryTypeLocalHost, "how the server should register itself with the discovery serice. Valid options: localhost|remote. Use localhost for local testing, use remote for multi-node setups")
 	registryType                = flag.String("registryBackend", "memory", "backend to use for the Registry. Validation options: memory|foundationdb")
@@ -33,6 +33,8 @@ var (
 	shutdownTimeout             = flag.Duration("shutdownTimeout", 0, "timeout until the server is forced to shutdown, without waiting actors and other components to close gracefully. By default is 0, which is infinite duration untill all actors are closed")
 	logFormat                   = flag.String("logFormat", "text", "format to use for the logger. The formats it accepst are: 'text', 'json'")
 	logLevel                    = flag.String("logLevel", "debug", "level to use for the logger. The levels it accepts are: 'info', 'debug', 'error', 'warn'")
+	websocketsEnabled           = flag.Bool("websockets", false, "enable websockets endpoint")
+	websocketsAddr              = flag.String("websocketsAddr", "0.0.0.0:9092", "websockets server address")
 )
 
 func main() {
@@ -68,11 +70,17 @@ func main() {
 
 	client := virtual.NewHTTPClient()
 
+	port, err := utils.ParsePortFromAddr(*addr)
+	if err != nil {
+		log.Error("failed to parse addr", slog.Any("error", err), slog.String("addr", *addr))
+		os.Exit(1)
+	}
+
 	ctx, cc := context.WithTimeout(context.Background(), 10*time.Second)
 	environment, err := virtual.NewEnvironment(ctx, *serverID, reg, client, virtual.EnvironmentOptions{
 		Discovery: virtual.DiscoveryOptions{
 			DiscoveryType: *discoveryType,
-			Port:          *port,
+			Port:          port,
 		},
 		Logger: log,
 	})
@@ -82,9 +90,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	var server virtualServer = virtual.NewServer(reg, environment)
-
-	log.Info("server listening", slog.Int("port", *port))
+	var server virtualServer = virtual.NewServer(log, reg, environment)
 
 	go func(server virtualServer) {
 		sig := waitForSignal()
@@ -92,7 +98,18 @@ func main() {
 		shutdown(log, server, *shutdownTimeout)
 	}(server)
 
-	if err := server.Start(*port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if *websocketsEnabled {
+		go func() {
+			log.Info("ws server listening", slog.String("addr", *websocketsAddr))
+			if err := server.StartWebsocket(*websocketsAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("received error", slog.Any("error", err), slog.String("subService", "httpWsServer"))
+				shutdown(log, server, *shutdownTimeout)
+			}
+		}()
+	}
+
+	log.Info("http server listening", slog.String("addr", *addr))
+	if err := server.Start(*addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("received error", slog.Any("error", err), slog.String("subService", "httpServer"))
 		shutdown(log, server, *shutdownTimeout)
 		os.Exit(1)
@@ -100,7 +117,8 @@ func main() {
 }
 
 type virtualServer interface {
-	Start(int) error
+	Start(string) error
+	StartWebsocket(string) error
 	Stop(context.Context) error
 }
 
