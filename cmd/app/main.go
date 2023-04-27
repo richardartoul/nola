@@ -87,8 +87,6 @@ func main() {
 
 	var server virtualServer = virtual.NewServer(reg, environment)
 
-	log.Info("server listening", slog.Int("port", *port))
-
 	go func(server virtualServer) {
 		sig := waitForSignal()
 		log.Info("received signal", slog.Any("signal", sig))
@@ -111,14 +109,17 @@ func main() {
 
 	if *pprofEnabled {
 		inner.AttachPProf(internalMux)
+		log.Info("pprof enabled", slog.String("addr", *internalAddr + "/debug/pprof"))
 	}
 	go func() {
+		log.Info("internal server listening", slog.String("addr", *internalAddr))
 		if err := internalSrvr.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("received error", slog.Any("error", err), slog.String("subService", "httpInternalServer"))
 			shutdown(log, server, *shutdownTimeout)
 		}
 	}()
 
+	log.Info("server listening", slog.Int("port", *port))
 	if err := server.Start(*port); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("received error", slog.Any("error", err), slog.String("subService", "httpServer"))
 		shutdown(log, server, *shutdownTimeout)
