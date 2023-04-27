@@ -66,7 +66,7 @@ func (s *server) StartWebsocket(addr string) error {
 		Handler: mux,
 	}
 
-	return s.server.ListenAndServe()
+	return s.wsServer.ListenAndServe()
 }
 
 func (s *server) Stop(ctx context.Context) error {

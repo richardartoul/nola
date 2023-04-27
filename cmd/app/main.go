@@ -92,21 +92,23 @@ func main() {
 
 	var server virtualServer = virtual.NewServer(log, reg, environment)
 
-	log.Info("server listening", slog.String("addr", *addr))
-
 	go func(server virtualServer) {
 		sig := waitForSignal()
 		log.Info("received signal", slog.Any("signal", sig))
 		shutdown(log, server, *shutdownTimeout)
 	}(server)
 
-	go func() {
-		if err := server.StartWebsocket(*websocketsAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("received error", slog.Any("error", err), slog.String("subService", "httpWsServer"))
-			shutdown(log, server, *shutdownTimeout)
-		}
-	}()
+	if *websocketsEnabled {
+		go func() {
+			log.Info("ws server listening", slog.String("addr", *websocketsAddr))
+			if err := server.StartWebsocket(*websocketsAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("received error", slog.Any("error", err), slog.String("subService", "httpWsServer"))
+				shutdown(log, server, *shutdownTimeout)
+			}
+		}()
+	}
 
+	log.Info("http server listening", slog.String("addr", *addr))
 	if err := server.Start(*addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("received error", slog.Any("error", err), slog.String("subService", "httpServer"))
 		shutdown(log, server, *shutdownTimeout)
