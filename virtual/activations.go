@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dgraph-io/ristretto"
 	"github.com/richardartoul/nola/durable/durablewazero"
 	"github.com/richardartoul/nola/virtual/futures"
 	"github.com/richardartoul/nola/virtual/registry"
@@ -23,6 +24,12 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+const (
+	// TODO: This should be configurable.
+	// TODO: Does 1 minute make sense as a default?
+	activationBlacklistCacheTTL = time.Minute
+)
+
 type activations struct {
 	sync.Mutex
 
@@ -32,6 +39,7 @@ type activations struct {
 	_modules              map[types.NamespacedID]Module
 	_actors               map[types.NamespacedActorID]futures.Future[*activatedActor]
 	_actorResourceTracker *actorResourceTracker
+	_blacklist            *ristretto.Cache
 	moduleFetchDeduper    singleflight.Group
 	serverState           struct {
 		sync.RWMutex
@@ -60,9 +68,23 @@ func newActivations(
 		panic(fmt.Sprintf("[invariant violated] illegal value for gcActorsAfter: %d", gcActorsAfter))
 	}
 
+	blacklist, err := ristretto.NewCache(&ristretto.Config{
+		NumCounters: maxNumActivationsToCache * 10, // * 10 per the docs.
+		// Maximum number of entries in cache (~1million). Note that
+		// technically this is a measure in bytes, but we pass a cost of 1
+		// always to make it behave as a limit on number of actor IDs.
+		MaxCost: maxNumActivationsToCache,
+		// Recommended default.
+		BufferItems: 64,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("[invariant violated] unable to construct blacklist cache: %v", err))
+	}
+
 	return &activations{
 		_modules:              make(map[types.NamespacedID]Module),
 		_actors:               make(map[types.NamespacedActorID]futures.Future[*activatedActor]),
+		_blacklist:            blacklist,
 		_actorResourceTracker: newActorResourceTracker(),
 
 		log:           log.With(slog.String("module", "activations")),
@@ -98,6 +120,12 @@ func (a *activations) invoke(
 	invokePayload []byte,
 	isTimer bool,
 ) (io.ReadCloser, error) {
+	_, ok := a._blacklist.Get(reference.ActorID())
+	if ok {
+		return nil, NewBlacklistedActivationError(fmt.Errorf(
+			"actor %s is blacklisted on this server", reference.ActorID()))
+	}
+
 	// First check if the actor is already activated.
 	a.Lock()
 	actorF, ok := a._actors[reference.ActorID()]
@@ -381,6 +409,11 @@ func (a *activations) numActivatedActors() int {
 	return len(a._actors)
 }
 
+func (a *activations) memUsageBytes() int {
+	// No need for lock since actorResourceTracker is already synchronized internally.
+	return a._actorResourceTracker.memUsageBytes()
+}
+
 func (a *activations) setServerState(
 	serverID string,
 	serverVersion int64,
@@ -398,6 +431,46 @@ func (a *activations) getServerState() (
 	a.serverState.RLock()
 	defer a.serverState.RUnlock()
 	return a.serverState.serverID, a.serverState.serverVersion
+}
+
+// shedMemUsage instructs the activation cache to try and shed numBytes worth of memory
+// usage. It does this by figuring out the TopN actors in terms of memory usage and then
+// adding some (or all) of them to the activations blacklist cache. This will cause all
+// subsequent invocations for those actors to fail with a special error message/code that
+// will signal to the caller that they need to communicate with the registry to find a new
+// activation location for the actor.
+//
+// In terms of actually evicting the actors from memory, the method does not currently
+// implement that functionality directly. Instead it simply waits for the existing GC mechanism
+// to kick in which evicts actors from memories once they haven't received any invocations
+// for a period of time (which is guaranteed to happen because of the blacklist cache). However,
+// this is not ideal because it indirectly links the server's ability to shed actor's that are
+// using too much memory with the TTL for evicting idle actors. This is also problematic because
+// it means that repeated invocations of shedMemUsage will have no effect until all the actors
+// from previous invocations have been GC'd due to idleness which makes balancing slower than it
+// would otherwise have to be.
+//
+// TODO: Fix the issue in the paragraph above by making a helper function extracted from the
+// close() method to close the actors with some concurrency.
+func (a *activations) shedMemUsage(numBytes int) {
+	actorsByMem := a._actorResourceTracker.topNByMemory(1000)
+	toShed := make([]actorByMem, 0, len(actorsByMem))
+
+	remaining := numBytes
+	for _, a := range actorsByMem {
+		if remaining <= 0 {
+			break
+		}
+
+		if a.memoryBytes < remaining {
+			toShed = append(toShed, a)
+			remaining -= a.memoryBytes
+		}
+	}
+
+	for _, v := range toShed {
+		a._blacklist.SetWithTTL(v.id, nil, 1, activationBlacklistCacheTTL)
+	}
 }
 
 func (a *activations) close(ctx context.Context, numWorkers int) error {
@@ -467,14 +540,13 @@ type activatedActor struct {
 
 	// Don't access directly from outside this structs own method implementations,
 	// use methods like invoke() and close() instead.
-	_a                            Actor
-	_reference                    types.ActorReferenceVirtual
-	_host                         HostCapabilities
-	_closed                       bool
-	_lastInvoke                   time.Time
-	_lastRecordedMemoryUsageBytes int
-	_gcAfter                      time.Duration
-	_gcTimer                      *time.Timer
+	_a          Actor
+	_reference  types.ActorReferenceVirtual
+	_host       HostCapabilities
+	_closed     bool
+	_lastInvoke time.Time
+	_gcAfter    time.Duration
+	_gcTimer    *time.Timer
 }
 
 func newActivatedActor(

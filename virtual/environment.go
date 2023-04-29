@@ -242,7 +242,7 @@ func NewEnvironment(
 		// Maximum number of entries in cache (~1million). Note that
 		// technically this is a measure in bytes, but we pass a cost of 1
 		// always to make it behave as a limit on number of activations.
-		MaxCost: 1e6,
+		MaxCost: maxNumActivationsToCache,
 		// Recommended default.
 		BufferItems: 64,
 	})
@@ -673,6 +673,7 @@ func (r *environment) heartbeat() error {
 	defer cc()
 	result, err := r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
 		NumActivatedActors: r.NumActivatedActors(),
+		UsedMemory:         r.activations.memUsageBytes(),
 		Address:            r.address,
 	})
 	if err != nil {

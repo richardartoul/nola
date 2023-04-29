@@ -106,9 +106,6 @@ type HeartbeatState struct {
 	NumActivatedActors int `json:"num_activated_actors"`
 	// UsedMemory is the amount of memory currently being used by actors on the server.
 	UsedMemory int `json:"used_memory"`
-	// MemoryLimit is the maximum amount of memory that can be used by actors running on
-	// the server.
-	MemoryLimit int `json:"memory_limit"`
 	// Address is the address at which the server can be reached.
 	Address string `json:"address"`
 }
@@ -123,6 +120,11 @@ type HeartbeatResult struct {
 	// ServerVersion is incremented every time a server's heartbeat expires and resumes,
 	// guaranteeing the server's ability to identify periods of inactivity/death for correctness purposes.
 	ServerVersion int64 `json:"server_version"`
+	// MemoryBytesToShed is the number of bytes of memory usage that the registry recommends
+	// that the server try to shed for balancing purposes. This value will only ever be > 0
+	// when the registry things that rebalancing should occur by requesting that the current
+	// server shed some of its load.
+	MemoryBytesToShed int64
 }
 
 // ModuleStore is the interface that must be implemented by the module store so that the

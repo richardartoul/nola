@@ -153,3 +153,12 @@ ok  	github.com/richardartoul/nola/virtual	7.149s
 In summary, if we ignore RPC and Registry overhead then NOLA is able to achieve 827k function calls/s on a single actor, instantiate new actors into memory and invoke a function on them at a rate of 13k/s, and support actors communicating with each other at a rate of 215k function calls/s. All of this is accomplished in a single-threaded manner on a single core.
 
 Of course a production system will never achieve these results on a single core once a distributed registry and inter-server RPCs are being used. However, these numbers indicate that the most experimental aspect of NOLA's design (creating virtual actors by compiling WASM programs to Go assembly using the Wazero library and executing them on the fly) are efficient enough to handle large-scale workloads. Efficient Registry and RPC implementations will have to be built, but those are problems we already know how to solve.
+
+
+# Problems with current load balancing
+
+1. Registry only sees heartbeats every N seconds and so if there are many invocations in a short period of time it will do a terrible job of load balancing. There are two obvious solutions to this: (1) keep track of how many actors have been activated recently per server in the registry and use that state or (2) ratelimit how many actors can be created/s to some reasonable limit. Probably easiest to start with (2)
+
+2. Need to make sure that in the case that the registry fails, existing actor invocations will continue working for a long time until the registry is brought back online *without* impairing our ability to quicly load balance actors.
+
+3. Individual servers need to be able to evict active actors from memory if they're exceeding their quota and then probably "blacklist" the actor somehow. Blacklists may be useful for load balancing in general.

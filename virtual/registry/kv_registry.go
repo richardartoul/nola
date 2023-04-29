@@ -21,6 +21,12 @@ const (
 	//
 	// TODO: Should be configurable.
 	HeartbeatTTL = 5 * time.Second
+
+	// RebalanceMemoryThreshold is the minimum delta between the memory usage of the
+	// minimum and maximum servers before the registry will begin making balancing
+	// decisions based on memory usage.
+	// TODO: Replace magic constant with config option.
+	RebalanceMemoryThreshold = 1 << 31
 )
 
 var (
@@ -282,18 +288,7 @@ func (k *kvRegistry) EnsureActivation(
 			serverAddress = server.HeartbeatState.Address
 		} else {
 			// We need to create a new activation.
-			liveServers := []serverState{}
-			err = tr.IterPrefix(ctx, getServersPrefix(), func(k, v []byte) error {
-				var currServer serverState
-				if err := json.Unmarshal(v, &currServer); err != nil {
-					return fmt.Errorf("error unmarshaling server state: %w", err)
-				}
-
-				if versionSince(vs, currServer.LastHeartbeatedAt) < HeartbeatTTL {
-					liveServers = append(liveServers, currServer)
-				}
-				return nil
-			})
+			liveServers, err := getLiveServers(ctx, vs, tr)
 			if err != nil {
 				return nil, err
 			}
@@ -301,17 +296,10 @@ func (k *kvRegistry) EnsureActivation(
 				return nil, fmt.Errorf("0 live servers available for new activation")
 			}
 
-			// Pick the server with the lowest current number of activated actors to try and load-balance.
-			// TODO: This is obviously insufficient and we should take other factors into account like
-			//       memory / CPU usage.
-			// TODO: We should also have some hard limits and just reject new activations at some point.
-			sort.Slice(liveServers, func(i, j int) bool {
-				return liveServers[i].HeartbeatState.NumActivatedActors < liveServers[j].HeartbeatState.NumActivatedActors
-			})
-
-			serverID = liveServers[0].ServerID
-			serverAddress = liveServers[0].HeartbeatState.Address
-			serverVersion = liveServers[0].ServerVersion
+			selected := pickServerForActivation(liveServers)
+			serverID = selected.ServerID
+			serverAddress = selected.HeartbeatState.Address
+			serverVersion = selected.ServerVersion
 			currActivation = newActivation(serverID, serverVersion)
 
 			ra.Activation = currActivation
@@ -420,6 +408,7 @@ func (k *kvRegistry) Heartbeat(
 	key := getServerKey(serverID)
 	var serverVersion int64
 	versionStamp, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
+		// First do all the logic to update the server's heartbeat state.
 		v, ok, err := tr.Get(ctx, key)
 		if err != nil {
 			return nil, fmt.Errorf("error getting server state: %w", err)
@@ -463,7 +452,32 @@ func (k *kvRegistry) Heartbeat(
 
 		tr.Put(ctx, key, marshaled)
 
-		return tr.GetVersionStamp()
+		// Next, check if we should ask the server to shed some load to force
+		// rebalancing.
+		//
+		// TODO: Unit test this logic in this package.
+		liveServers, err := getLiveServers(ctx, vs, tr)
+		if err != nil {
+			return nil, fmt.Errorf("error getting live servers during heartbeat for load balancing: %w", err)
+		}
+
+		result := HeartbeatResult{
+			VersionStamp: vs,
+			// VersionStamp corresponds to ~ 1 million increments per second.
+			HeartbeatTTL:  int64(HeartbeatTTL.Microseconds()),
+			ServerVersion: serverVersion,
+		}
+
+		min, max := minMaxMemUsage(liveServers)
+		delta := max.HeartbeatState.UsedMemory - min.HeartbeatState.UsedMemory
+		if delta > RebalanceMemoryThreshold && max.ServerID == serverID {
+			// If the server currently heartbeating is also the server with the highest memory usage
+			// and its memory usage delta vs. the server with the lowest memory usage is above the
+			// threshold, ask it to shed some actors to balance memory usage.
+			result.MemoryBytesToShed = int64(delta)
+		}
+
+		return vs, nil
 	})
 	if err != nil {
 		return HeartbeatResult{}, fmt.Errorf("Heartbeat: error: %w", err)
@@ -631,4 +645,70 @@ func (tr *kvTransaction) Commit(ctx context.Context) error {
 
 func (tr *kvTransaction) Cancel(ctx context.Context) error {
 	return tr.tr.Cancel(ctx)
+}
+
+func getLiveServers(
+	ctx context.Context,
+	versionStamp int64,
+	tr kv.Transaction,
+) ([]serverState, error) {
+	liveServers := []serverState{}
+	err := tr.IterPrefix(ctx, getServersPrefix(), func(k, v []byte) error {
+		var currServer serverState
+		if err := json.Unmarshal(v, &currServer); err != nil {
+			return fmt.Errorf("error unmarshaling server state: %w", err)
+		}
+
+		if versionSince(versionStamp, currServer.LastHeartbeatedAt) < HeartbeatTTL {
+			liveServers = append(liveServers, currServer)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return liveServers, nil
+}
+
+func pickServerForActivation(available []serverState) serverState {
+	if len(available) == 0 {
+		panic("[invariant violated] pickServerForActivation should not be called with empty slice")
+	}
+
+	minMemUsage, maxMemUsage := minMaxMemUsage(available)
+	if maxMemUsage.HeartbeatState.UsedMemory-minMemUsage.HeartbeatState.UsedMemory > RebalanceMemoryThreshold {
+		// If there is a large enough delta in memory usage between the minimum and maximum
+		// memory usage of servers in the cluster, assign new actors to the server with the
+		// lowest memory usage.
+		return minMemUsage
+	}
+
+	// Otherwise just try and keep an even balance in terms of the # of actors on each server.
+	sort.Slice(available, func(i, j int) bool {
+		return available[i].HeartbeatState.NumActivatedActors < available[j].HeartbeatState.NumActivatedActors
+	})
+
+	return available[0]
+}
+
+func minMaxMemUsage(available []serverState) (serverState, serverState) {
+	if len(available) == 0 {
+		panic("[invariant violated] pickServerForActivation should not be called with empty slice")
+	}
+
+	var (
+		minMemUsage serverState
+		maxMemUsage serverState
+	)
+	for _, s := range available {
+		if s.HeartbeatState.UsedMemory < minMemUsage.HeartbeatState.UsedMemory {
+			minMemUsage = s
+		}
+		if s.HeartbeatState.UsedMemory > maxMemUsage.HeartbeatState.UsedMemory {
+			maxMemUsage = s
+		}
+	}
+
+	return minMemUsage, maxMemUsage
 }

@@ -724,10 +724,10 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	require.NoError(t, env3.Close(context.Background()))
 }
 
-// TestHeartbeatAndSelfHealingWithMemory is the same as TestHeartbeatAndSelfHealing except it
-// verifies the ability of the environment to track the memory usage of individual actors
-// and use that as one of the load balancing inputs in the registry.
-func TestHeartbeatAndSelfHealingWithMemory(t *testing.T) {
+// TestHeartbeatAndRebalancingWithMemory tests that the interaction between the environment
+// heartbeating mechanism and the registry load balancing mechanism is able to effectively
+// rebalance actors across the available nodes based on memory usage.
+func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 	var (
 		reg         = localregistry.NewLocalRegistry()
 		moduleStore = newTestModuleStore()
@@ -739,104 +739,82 @@ func TestHeartbeatAndSelfHealingWithMemory(t *testing.T) {
 	opts1.Discovery.Port = 1
 	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
 	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
 	opts2 := defaultOptsWASM
 	opts2.Discovery.Port = 2
 	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
 	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
 	opts3 := defaultOptsWASM
 	opts3.Discovery.Port = 3
 	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
 	require.NoError(t, err)
+	defer env3.Close(context.Background())
 
 	_, err = moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
+	// Activate all the actors and hearbeat between each invocation so the registry can effectively load balance
+	// based on actor count to start.
 	for i := 0; i < 100; i++ {
-		// Ensure we can invoke each actor from each environment. Note that just because
-		// we invoke an actor on env1 first does not mean that the actor will be activated
-		// on env1. The actor will be activated on whichever environment/server the Registry
-		// decides and if we send the invocation to the "wrong" environment it will get
-		// re-routed automatically.
-		//
-		// Also note that we force each environment to heartbeat manually. This is important
-		// because the Registry load-balancing mechanism relies on the state provided to the
-		// Registry about the server from the server heartbeats. Therefore we need to
-		// heartbeat at least once after every actor is activated if we want to ensure the
-		// registry is able to actually load-balance the activations evenly.
-		_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env2.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env1.heartbeat())
-		require.NoError(t, env2.heartbeat())
-		require.NoError(t, env3.heartbeat())
-		_, err = env1.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env2.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env1.heartbeat())
-		require.NoError(t, env2.heartbeat())
-		require.NoError(t, env3.heartbeat())
-		_, err = env1.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env2.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err = env1.InvokeActor(ctx, "ns-1", fmt.Sprintf("actor-%d", i), "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		require.NoError(t, env1.heartbeat())
 		require.NoError(t, env2.heartbeat())
 		require.NoError(t, env3.heartbeat())
 	}
 
-	// Registry load-balancing should ensure that we ended up with 1 actor in each environment
-	// I.E "on each server".
-	require.Equal(t, 1, env1.NumActivatedActors())
-	require.Equal(t, 1, env2.NumActivatedActors())
-	require.Equal(t, 1, env3.NumActivatedActors())
+	// Registry load-balancing should ensure that we ended up with an equal number of actors in each environment.
+	require.Equal(t, 34, env1.NumActivatedActors())
+	require.Equal(t, 33, env2.NumActivatedActors())
+	require.Equal(t, 33, env3.NumActivatedActors())
 
-	require.NoError(t, env1.Close(context.Background()))
-	require.NoError(t, env2.Close(context.Background()))
+	// Now, lets make one of the actor appear to be a memory hog so that it ends up getting
+	// isolated
+	_, err = env1.InvokeActor(ctx, "ns-1", "actor-0", "test-module", "inc", nil, types.CreateIfNotExist{})
+	require.NoError(t, err)
 
-	// env1 and env2 have been closed (and not heartbeating) for longer than the maximum
-	// heartbeat delay which means that the registry should view them as "dead". Therefore, we
-	// expect that we should still be able to invoke all 3 of our actors, however, all of them
-	// should end up being activated on server3 now since it is the only remaining live actor.
+	// require.NoError(t, env1.Close(context.Background()))
+	// require.NoError(t, env2.Close(context.Background()))
 
-	for i := 0; i < 100; i++ {
-		if i == 0 {
-			for {
-				// Spin loop until there are no more errors as function calls will fail for
-				// a bit until heartbeat + activation cache expire.
-				_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-				if err != nil {
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-				break
-			}
-			continue
-		}
+	// // env1 and env2 have been closed (and not heartbeating) for longer than the maximum
+	// // heartbeat delay which means that the registry should view them as "dead". Therefore, we
+	// // expect that we should still be able to invoke all 3 of our actors, however, all of them
+	// // should end up being activated on server3 now since it is the only remaining live actor.
 
-		_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env3.heartbeat())
-		_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env3.heartbeat())
-		_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env3.heartbeat())
-	}
+	// for i := 0; i < 100; i++ {
+	// 	if i == 0 {
+	// 		for {
+	// 			// Spin loop until there are no more errors as function calls will fail for
+	// 			// a bit until heartbeat + activation cache expire.
+	// 			_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	// 			if err != nil {
+	// 				time.Sleep(100 * time.Millisecond)
+	// 				continue
+	// 			}
+	// 			break
+	// 		}
+	// 		continue
+	// 	}
 
-	// Ensure that all of our invocations above were actually served by environment3.
-	require.Equal(t, 3, env3.NumActivatedActors())
+	// 	_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+	// 	require.NoError(t, err)
+	// 	require.NoError(t, env3.heartbeat())
+	// 	_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+	// 	require.NoError(t, err)
+	// 	require.NoError(t, env3.heartbeat())
+	// 	_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+	// 	require.NoError(t, err)
+	// 	require.NoError(t, env3.heartbeat())
+	// }
 
-	// Finally, make sure environment 3 is closed.
-	require.NoError(t, env3.Close(context.Background()))
+	// // Ensure that all of our invocations above were actually served by environment3.
+	// require.Equal(t, 3, env3.NumActivatedActors())
+
+	// // Finally, make sure environment 3 is closed.
+	// require.NoError(t, env3.Close(context.Background()))
 }
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server
@@ -1128,10 +1106,15 @@ type testActor struct {
 	numInvocations     int
 	startupWasCalled   bool
 	shutdownWasCalled  bool
+	memUsage           int
 	instantiatePayload []byte
 }
 
 func (ta *testActor) MemoryUsageBytes() int {
+	if ta.memUsage != 0 {
+		return ta.memUsage
+	}
+
 	return ta.numInvocations * 10
 }
 
@@ -1202,6 +1185,13 @@ func (ta *testActor) Invoke(
 		return nil, err
 	case "invokeCustomHostFn":
 		return ta.host.CustomFn(ctx, string(payload), payload)
+	case "setMemoryUsage":
+		memUsage, err := strconv.ParseInt(string(payload), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing memUsage in payload: %w", err)
+		}
+		ta.memUsage = int(memUsage)
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("testActor: unhandled operation: %s", operation)
 	}
