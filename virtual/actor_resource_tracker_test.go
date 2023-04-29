@@ -63,6 +63,7 @@ func testActorResourceTrackerConcurrentProperty(t *testing.T) {
 
 	n := rand.Intn(len(actorIDs))
 	require.Equal(t, reference.topNByMemory(n), tracker.topNByMemory(n))
+	require.Equal(t, reference.bottomNByMemory(n), tracker.bottomNByMemory(n))
 }
 
 // actorResourceReferenceImpl is a simplified reference implementation of
@@ -124,5 +125,32 @@ func (a *testActorResourceReferenceImpl) topNByMemory(n int) []actorByMem {
 		return topN[a].id.Less(topN[b].id) > 0
 	})
 
-	return topN[:n:n]
+	if len(topN) > n {
+		topN = topN[:n]
+	}
+
+	return topN
+}
+
+func (a *testActorResourceReferenceImpl) bottomNByMemory(n int) []actorByMem {
+	a.Lock()
+	defer a.Unlock()
+
+	topN := make([]actorByMem, 0, n)
+	for k, v := range a.m {
+		topN = append(topN, actorByMem{id: k, memoryBytes: v.memoryBytes})
+	}
+
+	sort.Slice(topN, func(a, b int) bool {
+		if topN[a].memoryBytes != topN[b].memoryBytes {
+			return topN[a].memoryBytes < topN[b].memoryBytes
+		}
+		return topN[a].id.Less(topN[b].id) < 0
+	})
+
+	if len(topN) > n {
+		topN = topN[:n]
+	}
+
+	return topN
 }

@@ -408,6 +408,41 @@ func (r *environment) InvokeActorStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
+	resp, err := r.invokeActorStreamHelper(
+		ctx, namespace, actorID, moduleID, operation, payload, create)
+	if err == nil {
+		return resp, nil
+	}
+
+	if IsBlacklistedActivationError(err) {
+		// If we received an error because the target server has blacklisted activations
+		// of this actor, then we'll invalidate our cache to force the subsequent call
+		// to lookup the actor's new activation location in the registry. We'll also set
+		// a flag on the call to the registry to indicate that the server has blacklisted
+		// that actor to ensure we get an activation on a different serer since the registry
+		// may not know about the blacklist yet.
+		bufIface, cacheKey := actorCacheKeyUnsafePooled(namespace, moduleID, actorID)
+		defer bufPool.Put(bufIface)
+		r.activationCache.Del(cacheKey)
+
+		// TODO: Pickup here, need to be able to pass a flag telling the registry we want
+		//       a different activation than server X or Y.
+		return r.invokeActorStreamHelper(
+			ctx, namespace, actorID, moduleID, operation, payload, create)
+	}
+
+	return nil, err
+}
+
+func (r *environment) invokeActorStreamHelper(
+	ctx context.Context,
+	namespace string,
+	actorID string,
+	moduleID string,
+	operation string,
+	payload []byte,
+	create types.CreateIfNotExist,
+) (io.ReadCloser, error) {
 	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
 	}
@@ -427,11 +462,8 @@ func (r *environment) InvokeActorStream(
 		return nil, fmt.Errorf("error getting version stamp: %w", err)
 	}
 
-	bufIface := bufPool.Get()
+	bufIface, cacheKey := actorCacheKeyUnsafePooled(namespace, moduleID, actorID)
 	defer bufPool.Put(bufIface)
-	cacheKey := bufPool.Get().([]byte)[:0]
-	cacheKey = append(cacheKey, []byte(namespace)...)
-	cacheKey = append(cacheKey, []byte(actorID)...)
 
 	var (
 		references  []types.ActorReference
@@ -446,6 +478,7 @@ func (r *environment) InvokeActorStream(
 	} else {
 		var err error
 		// TODO: Need a concurrency limiter on this thing.
+		// TODO: Actually maybe more importantly, shouldn't this be single flight?
 		references, err = r.registry.EnsureActivation(ctx, namespace, actorID, moduleID)
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -691,6 +724,16 @@ func (r *environment) heartbeat() error {
 	// the most up-to-date ServerVersion, otherwise they could begin failing at
 	// some point.
 	r.activations.setServerState(r.serverID, result.ServerVersion)
+
+	if result.MemoryBytesToShed > 0 {
+		// Server told us we're using too much memory relative to our peers and
+		// should shed some of our actors to force rebalancing.
+		r.log.Info(
+			"attempting to shed memory usage",
+			slog.Int64("memory_bytes_to_shed", r.heartbeatState.MemoryBytesToShed))
+		r.activations.shedMemUsage(int(r.heartbeatState.MemoryBytesToShed))
+	}
+
 	return nil
 }
 
@@ -811,4 +854,38 @@ func getSelfIP() (net.IP, error) {
 	}
 
 	return nil, errors.New("could not discovery self IPV4")
+}
+
+// actorCacheKey formats namespace/module/actor into a pooled []byte to
+// avoid allocating for cache checks. The caller is responsible for
+// ensuring the []byte is returned to the pool once they're done and that
+// they don't retain any references to it after returning it to the pool.
+func actorCacheKeyUnsafePooled(
+	namespace string,
+	moduleID string,
+	actorID string,
+) (interface{}, []byte) {
+	bufIface := bufPool.Get()
+	cacheKey := bufIface.([]byte)[:0]
+	cacheKey = formatActorCacheKey(cacheKey, namespace, moduleID, actorID)
+
+	// Return both the interface and the []byte so the caller can return
+	// the interface to the pool directly which avoids an allocation.
+	return bufIface, cacheKey
+}
+
+func formatActorCacheKey(
+	dst []byte,
+	namespace string,
+	moduleID string,
+	actorID string,
+) []byte {
+	if cap(dst) == 0 {
+		dst = make([]byte, 0, len(namespace)+len(moduleID)+len(actorID))
+	}
+
+	dst = append(dst, []byte(namespace)...)
+	dst = append(dst, []byte(moduleID)...)
+	dst = append(dst, []byte(actorID)...)
+	return dst
 }

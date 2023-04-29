@@ -407,7 +407,7 @@ func (k *kvRegistry) Heartbeat(
 ) (HeartbeatResult, error) {
 	key := getServerKey(serverID)
 	var serverVersion int64
-	versionStamp, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
+	result, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
 		// First do all the logic to update the server's heartbeat state.
 		v, ok, err := tr.Get(ctx, key)
 		if err != nil {
@@ -477,17 +477,12 @@ func (k *kvRegistry) Heartbeat(
 			result.MemoryBytesToShed = int64(delta)
 		}
 
-		return vs, nil
+		return result, nil
 	})
 	if err != nil {
 		return HeartbeatResult{}, fmt.Errorf("Heartbeat: error: %w", err)
 	}
-	return HeartbeatResult{
-		VersionStamp: versionStamp.(int64),
-		// VersionStamp corresponds to ~ 1 million increments per second.
-		HeartbeatTTL:  int64(HeartbeatTTL.Microseconds()),
-		ServerVersion: serverVersion,
-	}, nil
+	return result.(HeartbeatResult), nil
 }
 
 func (k *kvRegistry) Close(ctx context.Context) error {

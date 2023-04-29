@@ -81,7 +81,7 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 
 	moduleBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -90,14 +90,14 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 	defer cc()
 	result, err := s.moduleStore.RegisterModule(ctx, namespace, moduleID, moduleBytes, registry.ModuleOptions{})
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	marshaled, err := json.Marshal(result)
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -123,14 +123,14 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	var req invokeActorRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -138,7 +138,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	if len(req.Payload) == 0 && req.PayloadJSON != nil {
 		marshaled, err := json.Marshal(req.PayloadJSON)
 		if err != nil {
-			w.WriteHeader(500)
+			writeStatusCodeForError(w, err)
 			w.Write([]byte(err.Error()))
 			return
 		}
@@ -151,7 +151,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	result, err := s.environment.InvokeActorStream(
 		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -188,14 +188,14 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	var req invokeActorDirectRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -206,7 +206,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 
 	ref, err := types.NewVirtualActorReference(req.Namespace, req.ModuleID, req.ActorID, uint64(req.Generation))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -215,7 +215,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref,
 		req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -249,14 +249,14 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	var req invokeWorkerRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -268,7 +268,7 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	result, err := s.environment.InvokeWorkerStream(
 		ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -289,7 +289,6 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 // after submitting an HTTP 200 status code, but then encounter an error reading from the
 // stream. In that scenario, we want to be very careful to ensure that the caller observes
 // an error (by closing the TCP connection) instead of a truncated response.
-
 func ensureHijackable(w http.ResponseWriter) error {
 	_, ok := w.(http.Hijacker)
 	if !ok {
@@ -306,4 +305,13 @@ func terminateConnection(w http.ResponseWriter) {
 		panic(fmt.Sprintf("[invariant violated] Hijack() returned error: %v", err))
 	}
 	conn.Close()
+}
+
+func writeStatusCodeForError(w http.ResponseWriter, err error) {
+	statusErr, ok := err.(HTTPError)
+	if ok {
+		w.WriteHeader(statusErr.StatusCode())
+	} else {
+		writeStatusCodeForError(w, err)
+	}
 }

@@ -727,6 +727,8 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 // TestHeartbeatAndRebalancingWithMemory tests that the interaction between the environment
 // heartbeating mechanism and the registry load balancing mechanism is able to effectively
 // rebalance actors across the available nodes based on memory usage.
+//
+// TODO: Test this with WASM too.
 func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 	var (
 		reg         = localregistry.NewLocalRegistry()
@@ -735,26 +737,29 @@ func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 	)
 	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
 	// needs its own port so it looks unique.
-	opts1 := defaultOptsWASM
+	opts1 := defaultOptsGoByte
 	opts1.Discovery.Port = 1
 	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
 	require.NoError(t, err)
 	defer env1.Close(context.Background())
+	env1.RegisterGoModule(
+		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
 
-	opts2 := defaultOptsWASM
+	opts2 := defaultOptsGoByte
 	opts2.Discovery.Port = 2
 	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
 	require.NoError(t, err)
 	defer env2.Close(context.Background())
+	env2.RegisterGoModule(
+		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
 
-	opts3 := defaultOptsWASM
+	opts3 := defaultOptsGoByte
 	opts3.Discovery.Port = 3
 	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
 	require.NoError(t, err)
 	defer env3.Close(context.Background())
-
-	_, err = moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(t, err)
+	env3.RegisterGoModule(
+		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
 
 	// Activate all the actors and hearbeat between each invocation so the registry can effectively load balance
 	// based on actor count to start.
@@ -773,8 +778,27 @@ func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 
 	// Now, lets make one of the actor appear to be a memory hog so that it ends up getting
 	// isolated
-	_, err = env1.InvokeActor(ctx, "ns-1", "actor-0", "test-module", "inc", nil, types.CreateIfNotExist{})
+	_, err = env1.InvokeActor(
+		ctx, "ns-1", "actor-0", "test-module", "setMemoryUsage",
+		[]byte(fmt.Sprintf("%d", 1<<32)), types.CreateIfNotExist{})
 	require.NoError(t, err)
+
+	for {
+		// Keep invoking all the actors to make sure they stay activated and don't get GC'd
+		// for being idle.
+		for i := 0; i < 100; i++ {
+			_, err = env1.InvokeActor(ctx, "ns-1", fmt.Sprintf("actor-%d", i), "test-module", "inc", nil, types.CreateIfNotExist{})
+			// require.NoError(t, err)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
+
+		fmt.Println("env1", env1.NumActivatedActors())
+		fmt.Println("env2", env2.NumActivatedActors())
+		fmt.Println("env3", env3.NumActivatedActors())
+		time.Sleep(time.Second)
+	}
 
 	// require.NoError(t, env1.Close(context.Background()))
 	// require.NoError(t, env2.Close(context.Background()))

@@ -120,7 +120,11 @@ func (a *activations) invoke(
 	invokePayload []byte,
 	isTimer bool,
 ) (io.ReadCloser, error) {
-	_, ok := a._blacklist.Get(reference.ActorID())
+	bufIface, cacheKey := actorCacheKeyUnsafePooled(
+		reference.Namespace(), reference.ModuleID().ID, reference.ActorID().ID)
+	_, ok := a._blacklist.Get(cacheKey)
+	// Immediately return to the pool cause we're done with it now regardless.
+	bufPool.Put(bufIface)
 	if ok {
 		return nil, NewBlacklistedActivationError(fmt.Errorf(
 			"actor %s is blacklisted on this server", reference.ActorID()))
@@ -453,10 +457,21 @@ func (a *activations) getServerState() (
 // TODO: Fix the issue in the paragraph above by making a helper function extracted from the
 // close() method to close the actors with some concurrency.
 func (a *activations) shedMemUsage(numBytes int) {
-	actorsByMem := a._actorResourceTracker.topNByMemory(1000)
-	toShed := make([]actorByMem, 0, len(actorsByMem))
+	var (
+		// TODO: Comment why bottomN not topN
+		actorsByMem = a._actorResourceTracker.bottomNByMemory(1000)
+		toShed      = make([]actorByMem, 0, len(actorsByMem))
+		remaining   = numBytes
+	)
 
-	remaining := numBytes
+	if len(actorsByMem) <= 1 {
+		// If there is only one actor left on the server, it doesn't really matter how much
+		// memory its using. We're not going to make the situation any better by moving it
+		// to another server so just leave it alone since at most the actor is just
+		// disrupting itself.
+		return
+	}
+
 	for _, a := range actorsByMem {
 		if remaining <= 0 {
 			break
@@ -468,8 +483,16 @@ func (a *activations) shedMemUsage(numBytes int) {
 		}
 	}
 
+	if len(toShed) == len(actorsByMem) {
+		// Always ensure we retain at least one actor on the server since there
+		// is no scenario (with homogenous nodes at least) where it makes sense
+		// to evict all the actors from the server.
+		toShed = toShed[:len(toShed)-1]
+	}
+
 	for _, v := range toShed {
-		a._blacklist.SetWithTTL(v.id, nil, 1, activationBlacklistCacheTTL)
+		key := formatActorCacheKey(nil, v.id.Namespace, v.id.Module, v.id.ID)
+		a._blacklist.SetWithTTL(key, nil, 1, activationBlacklistCacheTTL)
 	}
 }
 

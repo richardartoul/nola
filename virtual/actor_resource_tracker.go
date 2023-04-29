@@ -1,7 +1,6 @@
 package virtual
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/google/btree"
@@ -19,9 +18,6 @@ type actorResourceTracker struct {
 func newActorResourceTracker() *actorResourceTracker {
 	return &actorResourceTracker{
 		_actors: make(map[types.NamespacedActorID]*actorResources),
-		// _actors: btree.NewG(16, func(a, b *actorResources) bool {
-		// 	return a.id.Less(b.id) < 0
-		// }),
 		_topActorsByMem: btree.NewG(16, func(a, b actorByMem) bool {
 			if a.memoryBytes != b.memoryBytes {
 				return a.memoryBytes > b.memoryBytes
@@ -80,8 +76,25 @@ func (m *actorResourceTracker) topNByMemory(n int) []actorByMem {
 		return true
 	})
 
-	fmt.Println(len(topN), n)
-	return topN[:n:n]
+	return topN
+}
+
+func (m *actorResourceTracker) bottomNByMemory(n int) []actorByMem {
+	// Pre-alloc before acquiring lock to avoid tail latencies.
+	bottomN := make([]actorByMem, 0, n)
+
+	m.Lock()
+	defer m.Unlock()
+	m._topActorsByMem.Descend(func(x actorByMem) bool {
+		if len(bottomN) >= n {
+			return false
+		}
+
+		bottomN = append(bottomN, x)
+		return true
+	})
+
+	return bottomN
 }
 
 type actorResources struct {
