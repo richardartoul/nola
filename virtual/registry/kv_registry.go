@@ -25,6 +25,9 @@ const (
 
 var (
 	errActorDoesNotExist = errors.New("actor does not exist")
+
+	// Make sure kvRegistry implements ModuleStore as well.
+	_ ModuleStore = &validator{}
 )
 
 // IsActorDoesNotExistErr returns a boolean indicating whether the error is an
@@ -42,7 +45,7 @@ type kvRegistry struct {
 
 // NewKVRegistry creates a new KV-backed registry.
 func NewKVRegistry(kv kv.Store) Registry {
-	return newValidatedRegistry(&kvRegistry{
+	return NewValidatedRegistry(&kvRegistry{
 		kv: kv,
 	})
 }
@@ -61,15 +64,6 @@ func (k *kvRegistry) RegisterModule(
 			return nil, err
 		}
 		if ok {
-			if opts.AllowEmptyModuleBytes {
-				// If empty module bytes are allowed then the fact that the
-				// module already exists doesn't matter and we can just return
-				// success. This makes it easier to register pure Go modules
-				// on process startup each time without having to explicitly
-				// handle "module already exists" errors.
-				return RegisterModuleResult{}, nil
-			}
-
 			return RegisterModuleResult{}, fmt.Errorf(
 				"error creating module: %s in namespace: %s, already exists",
 				moduleID, namespace)
@@ -144,23 +138,6 @@ func (k *kvRegistry) GetModule(
 	return result.Bytes, result.Opts, nil
 }
 
-func (k *kvRegistry) CreateActor(
-	ctx context.Context,
-	namespace,
-	actorID,
-	moduleID string,
-	opts types.ActorOptions,
-) (CreateActorResult, error) {
-	r, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
-		return k.createActor(ctx, tr, namespace, actorID, moduleID, opts)
-	})
-	if err != nil {
-		return CreateActorResult{}, fmt.Errorf("CreateActor: error: %w", err)
-	}
-
-	return r.(CreateActorResult), nil
-}
-
 func (k *kvRegistry) createActor(
 	ctx context.Context,
 	tr kv.Transaction,
@@ -169,11 +146,7 @@ func (k *kvRegistry) createActor(
 	moduleID string,
 	opts types.ActorOptions,
 ) (CreateActorResult, error) {
-	fmt.Println("creating", actorID, moduleID)
-	var (
-		actorKey  = getActorKey(namespace, actorID, moduleID)
-		moduleKey = getModulePartKey(namespace, moduleID, 0)
-	)
+	actorKey := getActorKey(namespace, actorID, moduleID)
 	_, ok, err := k.getActorBytes(ctx, tr, actorKey)
 	if err != nil {
 		return CreateActorResult{}, err
@@ -182,16 +155,6 @@ func (k *kvRegistry) createActor(
 		return CreateActorResult{}, fmt.Errorf(
 			"error creating actor with ID: %s, already exists in namespace: %s",
 			actorID, namespace)
-	}
-
-	_, ok, err = tr.Get(ctx, moduleKey)
-	if err != nil {
-		return CreateActorResult{}, err
-	}
-	if !ok {
-		return CreateActorResult{}, fmt.Errorf(
-			"error creating actor, module: %s does not exist in namespace: %s",
-			moduleID, namespace)
 	}
 
 	ra := registeredActor{

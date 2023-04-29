@@ -39,6 +39,19 @@ type Environment interface {
 		createIfNotExist types.CreateIfNotExist,
 	) ([]byte, error)
 
+	// InvokeActorJSON is the same as InvokeActor, except it implements the functionality
+	// JSON marshaling the request payload and JSON unmarshaling the response payload.
+	InvokeActorJSON(
+		ctx context.Context,
+		namespace string,
+		actorID string,
+		moduleID string,
+		operation string,
+		payload any,
+		createIfNotExist types.CreateIfNotExist,
+		resp any,
+	) error
+
 	// InvokeActorStream is the same as InvokeActor, except it uses the streaming
 	// interface instead of returning a []byte directly. This is useful for actors
 	// that need to shuttle large volumes of data around (perhaps in an async manner).
@@ -120,9 +133,9 @@ type Environment interface {
 
 // debug contains private methods that are only used for debugging / tests.
 type debug interface {
-	// numActivatedActors returns the number of activated actors in the environment. It is
+	// NumActivatedActors returns the number of activated actors in the environment. It is
 	// primarily used for tests.
-	numActivatedActors() int
+	NumActivatedActors() int
 
 	// heartbeat forces the environment to heartbeat the Registry immediately. It is primarily
 	// used for tests.
@@ -172,6 +185,11 @@ type Module interface {
 
 // Actor represents an activated actor in memory.
 type Actor interface {
+	// MemoryUsageBytes returns the estimated amount of memory the actor is using
+	// in terms of bytes. This method will be called after every actor invocation
+	// so its implementation should be efficient.
+	MemoryUsageBytes() int
+
 	// Close closes the in-memory actor.
 	Close(ctx context.Context) error
 }

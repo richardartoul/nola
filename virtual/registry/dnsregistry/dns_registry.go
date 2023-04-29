@@ -119,35 +119,6 @@ func NewDNSRegistryFromResolver(
 	return d, nil
 }
 
-func (d *dnsRegistry) RegisterModule(
-	ctx context.Context,
-	namespace,
-	moduleID string,
-	moduleBytes []byte,
-	opts registry.ModuleOptions,
-) (registry.RegisterModuleResult, error) {
-	return registry.RegisterModuleResult{}, nil
-}
-
-// GetModule gets the bytes and options associated with the provided module.
-func (d *dnsRegistry) GetModule(
-	ctx context.Context,
-	namespace,
-	moduleID string,
-) ([]byte, registry.ModuleOptions, error) {
-	return nil, registry.ModuleOptions{}, nil
-}
-
-func (d *dnsRegistry) CreateActor(
-	ctx context.Context,
-	namespace,
-	actorID,
-	moduleID string,
-	opts types.ActorOptions,
-) (registry.CreateActorResult, error) {
-	return registry.CreateActorResult{}, nil
-}
-
 func (d *dnsRegistry) IncGeneration(
 	ctx context.Context,
 	namespace,

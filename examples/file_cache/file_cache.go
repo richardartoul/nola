@@ -143,6 +143,10 @@ type GetRangeRequest struct {
 	EndOffset   int `json:"end_offset"`
 }
 
+func (f *FileCacheActor) MemoryUsageBytes() int {
+	return 0
+}
+
 func (f *FileCacheActor) InvokeStream(
 	ctx context.Context,
 	operation string,

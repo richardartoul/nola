@@ -11,23 +11,6 @@ type Registry interface {
 	ActorStorage
 	ServiceDiscovery
 
-	// RegisterModule registers the provided module []byte and options with the
-	// provided module ID for subsequent calls to CreateActor().
-	RegisterModule(
-		ctx context.Context,
-		namespace,
-		moduleID string,
-		moduleBytes []byte,
-		opts ModuleOptions,
-	) (RegisterModuleResult, error)
-
-	// GetModule gets the bytes and options associated with the provided module.
-	GetModule(
-		ctx context.Context,
-		namespace,
-		moduleID string,
-	) ([]byte, ModuleOptions, error)
-
 	// IncGeneration increments the actor's generation count. This is useful for ensuring
 	// that all actor activations are invalidated and recreated.
 	IncGeneration(
@@ -109,17 +92,6 @@ type ServiceDiscovery interface {
 // CreateActorResult is the result of a call to CreateActor().
 type CreateActorResult struct{}
 
-// ModuleOptions contains the options for a given module.
-type ModuleOptions struct {
-	// AllowEmptyModuleBytes allows a module to be created with empty WASM bytes. This is
-	// useful in the scenario where NOLA is being used as a library and the Actor's are
-	// implemented in Go instead of WASM.
-	AllowEmptyModuleBytes bool
-}
-
-// RegisterModuleResult is the result of a call to RegisterModule().
-type RegisterModuleResult struct{}
-
 // HeartbeatState contains information that accompanies a server's heartbeat. It contains
 // various information about the current state of the server that might be useful to the
 // registry. For example, the number of currently activated actors on the server is useful
@@ -131,19 +103,52 @@ type RegisterModuleResult struct{}
 //	using, etc for hotspot detection.
 type HeartbeatState struct {
 	// NumActivatedActors is the number of actors currently activated on the server.
-	NumActivatedActors int
+	NumActivatedActors int `json:"num_activated_actors"`
+	// UsedMemory is the amount of memory currently being used by actors on the server.
+	UsedMemory int `json:"used_memory"`
+	// MemoryLimit is the maximum amount of memory that can be used by actors running on
+	// the server.
+	MemoryLimit int `json:"memory_limit"`
 	// Address is the address at which the server can be reached.
-	Address string
+	Address string `json:"address"`
 }
 
 // HeartbeatResult is the result returned by the Heartbeat() method.
 type HeartbeatResult struct {
 	// VersionStamp associated with the successful heartbeat.
-	VersionStamp int64
+	VersionStamp int64 `json:"version_stamp"`
 	// TTL of the successful heartbeat in the same unit as the
 	// VerisionStamp.
-	HeartbeatTTL int64
+	HeartbeatTTL int64 `json:"heartbeat_ttl"`
 	// ServerVersion is incremented every time a server's heartbeat expires and resumes,
 	// guaranteeing the server's ability to identify periods of inactivity/death for correctness purposes.
-	ServerVersion int64
+	ServerVersion int64 `json:"server_version"`
 }
+
+// ModuleStore is the interface that must be implemented by the module store so that the
+// virtual environment can store/retrieve new modules.
+type ModuleStore interface {
+	// RegisterModule registers the provided module []byte and options with the
+	// provided module ID for subsequent calls to CreateActor().
+	RegisterModule(
+		ctx context.Context,
+		namespace,
+		moduleID string,
+		moduleBytes []byte,
+		opts ModuleOptions,
+	) (RegisterModuleResult, error)
+
+	// GetModule gets the bytes and options associated with the provided module.
+	GetModule(
+		ctx context.Context,
+		namespace,
+		moduleID string,
+	) ([]byte, ModuleOptions, error)
+}
+
+// ModuleOptions contains the options for a given module.
+type ModuleOptions struct {
+}
+
+// RegisterModuleResult is the result of a call to RegisterModule().
+type RegisterModuleResult struct{}

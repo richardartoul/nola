@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // NamespacedID wraps an ID with its namespace. This is useful
 // for namespacing strings, for example when they're used as
 // map keys.
@@ -45,6 +47,25 @@ func NewNamespacedActorID(
 		Module:    module,
 		IDType:    idType,
 	}
+}
+
+func (n *NamespacedActorID) Less(b NamespacedActorID) int {
+	nsCmp := strings.Compare(n.Namespace, b.Namespace)
+	if nsCmp != 0 {
+		return nsCmp
+	}
+
+	moduleCmp := strings.Compare(n.Module, b.Module)
+	if moduleCmp != 0 {
+		return moduleCmp
+	}
+
+	idTypeCmp := strings.Compare(n.IDType, b.IDType)
+	if idTypeCmp != 0 {
+		return idTypeCmp
+	}
+
+	return strings.Compare(n.ID, b.ID)
 }
 
 // NamespacedIDNoType is the same as NamespacedID, but without the IDType

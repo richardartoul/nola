@@ -38,7 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	env, registry, err := virtual.NewDNSRegistryEnvironment(
+	env, _, err := virtual.NewDNSRegistryEnvironment(
 		context.Background(), *host, *port, virtual.EnvironmentOptions{Logger: log})
 	if err != nil {
 		log.Error("error creating virtual environment", slog.Any("error", err))
@@ -78,7 +78,7 @@ func main() {
 		}
 	}()
 
-	server := virtual.NewServer(registry, env)
+	server := virtual.NewServer(registry.NewNoopModuleStore(), env)
 	if err := server.Start(*port); err != nil {
 		log.Error("error starting server", slog.Any("error", err))
 		os.Exit(1)
@@ -107,6 +107,10 @@ type testActor struct {
 	host virtual.HostCapabilities
 
 	count int
+}
+
+func (ta *testActor) MemoryUsageBytes() int {
+	return 0
 }
 
 func (ta *testActor) Invoke(

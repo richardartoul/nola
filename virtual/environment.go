@@ -2,6 +2,7 @@ package virtual
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -92,9 +93,6 @@ type EnvironmentOptions struct {
 	// that originally received the request.
 	ForceRemoteProcedureCalls bool
 
-	// // GoModules contains a set of Modules implemented in Go (instead of
-	// // WASM). This is useful when using NOLA as a library.
-	// GoModules map[types.NamespacedIDNoType]Module
 	// CustomHostFns contains a set of additional user-defined host
 	// functions that can be exposed to activated actors. This allows
 	// developeres leveraging NOLA as a library to extend the environment
@@ -151,7 +149,8 @@ func NewDNSRegistryEnvironment(
 		return nil, nil, fmt.Errorf("error creating DNS registry: %w", err)
 	}
 
-	env, err := NewEnvironment(ctx, dnsregistry.DNSServerID, reg, NewHTTPClient(), opts)
+	env, err := NewEnvironment(
+		ctx, dnsregistry.DNSServerID, reg, registry.NewNoopModuleStore(), NewHTTPClient(), opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating new virtual environment: %w", err)
 	}
@@ -176,6 +175,12 @@ type DiscoveryOptions struct {
 	// Port is the port that the environment should advertise to the discovery
 	// service.
 	Port int
+	// AllowFailedInitialHeartbeat can be set to true to allow the environment
+	// to instantiate itself even if the initial heartbeat fails. This is useful
+	// to avoid circular startup dependencies when using the leaderregistry
+	// implementation which requires at least one environment to be up and running
+	// to bootstrap the cluster.
+	AllowFailedInitialHeartbeat bool
 }
 
 func (d *DiscoveryOptions) Validate() error {
@@ -207,6 +212,7 @@ func NewEnvironment(
 	ctx context.Context,
 	serverID string,
 	reg registry.Registry,
+	moduleStore registry.ModuleStore,
 	client RemoteClient,
 	opts EnvironmentOptions,
 ) (Environment, error) {
@@ -266,7 +272,7 @@ func NewEnvironment(
 		opts:            opts,
 	}
 	activations := newActivations(
-		opts.Logger, reg, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
+		opts.Logger, reg, moduleStore, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
 	env.activations = activations
 
 	// Skip confusing log if dnsregistry is being used since it doesn't use the registry-based
@@ -278,8 +284,15 @@ func NewEnvironment(
 	// Do one heartbeat right off the bat so the environment is immediately useable.
 	err = env.heartbeat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to perform initial heartbeat: %w", err)
+		if opts.Discovery.AllowFailedInitialHeartbeat {
+			opts.Logger.Error(
+				"failed to perform initial heartbeat, proceeding because AllowFailedInitialHeartbeat is set to true",
+				slog.String("error", err.Error()))
+		} else {
+			return nil, fmt.Errorf("failed to perform initial heartbeat: %w, failing because AllowedFailedInitialHeartbeat is set to false", err)
+		}
 	}
+	opts.Logger.Info("performed initial heartbeat", slog.String("address", address))
 
 	localEnvironmentsRouterLock.Lock()
 	defer localEnvironmentsRouterLock.Unlock()
@@ -321,18 +334,6 @@ func (r *environment) RegisterGoModule(id types.NamespacedIDNoType, module Modul
 		return ErrEnvironmentClosed
 	}
 
-	// Register all the GoModules in the registry so they're useable with calls to
-	// CreateActor() and EnsureActivation().
-	//
-	// Note that its safe to do this on every node in the cluster because the registry will
-	// ignore duplicate RegisterModule() calls if AllowEmptyModuleBytes is set to true.
-	_, err := r.registry.RegisterModule(context.TODO(), id.Namespace, id.ID, nil, registry.ModuleOptions{
-		AllowEmptyModuleBytes: true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to register go module with ID: %v, err: %w", id, err)
-	}
-
 	// After registering the Module with the registry, we also need to register it with the
 	// activations datastructure so it knows how to handle subsequent activations/invocations.
 	return r.activations.registerGoModule(id, module)
@@ -363,6 +364,39 @@ func (r *environment) InvokeActor(
 	}
 
 	return b, nil
+}
+
+func (r *environment) InvokeActorJSON(
+	ctx context.Context,
+	namespace string,
+	actorID string,
+	moduleID string,
+	operation string,
+	payload any,
+	create types.CreateIfNotExist,
+	resp any,
+) error {
+	marshaled, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf(
+			"error marshaling JSON payload of type: %T, err: %w", payload, err)
+	}
+
+	respBytes, err := r.InvokeActor(
+		ctx, namespace, actorID, moduleID, operation, marshaled, create)
+	if err != nil {
+		return err
+	}
+
+	if resp != nil {
+		if err := json.Unmarshal(respBytes, resp); err != nil {
+			return fmt.Errorf(
+				"error JSON unmarshaling response bytes into object of type: %T, err: %w",
+				resp, err)
+		}
+	}
+
+	return nil
 }
 
 func (r *environment) InvokeActorStream(
@@ -523,7 +557,7 @@ func (r *environment) InvokeActorDirectStream(
 
 	// Compare server version of this environment to the server version from the actor activation reference to ensure
 	// the env hasn't missed a heartbeat recently, which could cause it to lose ownership of the actor.
-	// This bug was identified using this mode.l https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
+	// This bug was identified using this model: https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
 	if heartbeatResult.ServerVersion != serverVersion {
 		return nil, fmt.Errorf(
 			"InvokeLocal: server version(%d) != server version from reference(%d)",
@@ -630,7 +664,7 @@ func (r *environment) Close(ctx context.Context) error {
 	return nil
 }
 
-func (r *environment) numActivatedActors() int {
+func (r *environment) NumActivatedActors() int {
 	return r.activations.numActivatedActors()
 }
 
@@ -638,7 +672,7 @@ func (r *environment) heartbeat() error {
 	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
 	defer cc()
 	result, err := r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
-		NumActivatedActors: r.numActivatedActors(),
+		NumActivatedActors: r.NumActivatedActors(),
 		Address:            r.address,
 	})
 	if err != nil {

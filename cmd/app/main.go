@@ -50,10 +50,15 @@ func main() {
 
 	log = log.With(slog.String("service", "nola"))
 
-	var reg registry.Registry
+	var (
+		reg         registry.Registry
+		moduleStore registry.ModuleStore
+	)
 	switch *registryType {
 	case "memory":
 		reg = localregistry.NewLocalRegistry()
+		// Local registry also implements ModuleStore for convenience.
+		moduleStore = reg.(registry.ModuleStore)
 	case "foundationdb":
 		var err error
 		reg, err = fdbregistry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
@@ -61,6 +66,8 @@ func main() {
 			log.Error("error creating FoundationDB registry", slog.Any("error", err))
 			os.Exit(1)
 		}
+		// FoundationDB registry also implements ModuleStore for convenience.
+		moduleStore = reg.(registry.ModuleStore)
 	default:
 		log.Error("unknown registry type", slog.String("registryType", *registryType))
 		os.Exit(1)
@@ -69,7 +76,7 @@ func main() {
 	client := virtual.NewHTTPClient()
 
 	ctx, cc := context.WithTimeout(context.Background(), 10*time.Second)
-	environment, err := virtual.NewEnvironment(ctx, *serverID, reg, client, virtual.EnvironmentOptions{
+	environment, err := virtual.NewEnvironment(ctx, *serverID, reg, moduleStore, client, virtual.EnvironmentOptions{
 		Discovery: virtual.DiscoveryOptions{
 			DiscoveryType: *discoveryType,
 			Port:          *port,
@@ -82,7 +89,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	var server virtualServer = virtual.NewServer(reg, environment)
+	var server virtualServer = virtual.NewServer(moduleStore, environment)
 
 	log.Info("server listening", slog.Int("port", *port))
 

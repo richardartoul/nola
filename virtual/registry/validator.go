@@ -9,6 +9,11 @@ import (
 	"github.com/richardartoul/nola/virtual/types"
 )
 
+var (
+	// Make sure validator implements ModuleStore as well.
+	_ ModuleStore = &validator{}
+)
+
 // validator wraps a Registry and ensures that all the arguments to it are
 // validated properly. This helps us ensure that validation occurs uniformly
 // across all registry implementations.
@@ -18,7 +23,11 @@ type validator struct {
 	r Registry
 }
 
-func newValidatedRegistry(r Registry) Registry {
+// NewValidatedRegistry wraps the provided Registry r such that it validates
+// inputs before delegating calls. This makes it easier to write new registry
+// implementations without making all of them re-implement the validation
+// logic.
+func NewValidatedRegistry(r Registry) Registry {
 	return &validator{
 		r: r,
 	}
@@ -31,13 +40,18 @@ func (v *validator) RegisterModule(
 	moduleBytes []byte,
 	opts ModuleOptions,
 ) (RegisterModuleResult, error) {
+	moduleStore, ok := v.r.(ModuleStore)
+	if !ok {
+		return RegisterModuleResult{}, errors.New("registry does not implement RegisterModule")
+	}
+
 	if err := validateString("namespace", namespace); err != nil {
 		return RegisterModuleResult{}, err
 	}
 	if err := validateString("moduleID", moduleID); err != nil {
 		return RegisterModuleResult{}, err
 	}
-	if len(moduleBytes) == 0 && !opts.AllowEmptyModuleBytes {
+	if len(moduleBytes) == 0 {
 		return RegisterModuleResult{}, errors.New("moduleBytes must not be empty")
 	}
 	if len(moduleBytes) > 1<<22 {
@@ -48,8 +62,7 @@ func (v *validator) RegisterModule(
 	}
 
 	// TODO: We could try compiling the WASM bytes here to make sure they're a valid program.
-
-	return v.r.RegisterModule(ctx, namespace, moduleID, moduleBytes, opts)
+	return moduleStore.RegisterModule(ctx, namespace, moduleID, moduleBytes, opts)
 }
 
 func (v *validator) GetModule(
@@ -57,13 +70,18 @@ func (v *validator) GetModule(
 	namespace,
 	moduleID string,
 ) ([]byte, ModuleOptions, error) {
+	moduleStore, ok := v.r.(ModuleStore)
+	if !ok {
+		return nil, ModuleOptions{}, errors.New("registry does not implement GetModule")
+	}
+
 	if err := validateString("namespace", namespace); err != nil {
 		return nil, ModuleOptions{}, err
 	}
 	if err := validateString("moduleID", moduleID); err != nil {
 		return nil, ModuleOptions{}, err
 	}
-	return v.r.GetModule(ctx, namespace, moduleID)
+	return moduleStore.GetModule(ctx, namespace, moduleID)
 }
 
 func (v *validator) IncGeneration(

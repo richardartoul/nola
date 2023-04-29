@@ -26,7 +26,6 @@ type hostFnActorTxnKey struct{}
 // run any host function.
 func newHostFnRouter(
 	log *slog.Logger,
-	reg registry.Registry,
 	environment Environment,
 	activations *activations,
 	customHostFns map[string]func([]byte) ([]byte, error),
@@ -198,6 +197,10 @@ func (w wazeroModule) Close(ctx context.Context) error {
 type wazeroActor struct {
 	obj       durable.Object
 	reference types.ActorReferenceVirtual
+}
+
+func (w wazeroActor) MemoryUsageBytes() int {
+	return 0
 }
 
 func (w wazeroActor) Invoke(

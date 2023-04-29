@@ -17,7 +17,7 @@ import (
 
 type server struct {
 	// Dependencies.
-	registry    registry.Registry
+	moduleStore registry.ModuleStore
 	environment Environment
 
 	server *http.Server
@@ -25,11 +25,11 @@ type server struct {
 
 // NewServer creates a new server for the actor virtual environment.
 func NewServer(
-	registry registry.Registry,
+	moduleStore registry.ModuleStore,
 	environment Environment,
 ) *server {
 	return &server{
-		registry:    registry,
+		moduleStore: moduleStore,
 		environment: environment,
 	}
 }
@@ -88,7 +88,7 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cc := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cc()
-	result, err := s.registry.RegisterModule(ctx, namespace, moduleID, moduleBytes, registry.ModuleOptions{})
+	result, err := s.moduleStore.RegisterModule(ctx, namespace, moduleID, moduleBytes, registry.ModuleOptions{})
 	if err != nil {
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))

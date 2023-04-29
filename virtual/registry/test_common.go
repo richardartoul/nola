@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,10 +15,6 @@ import (
 // This is called from the specific registry implementation subpackages like
 // fdbregistry, localregistry, dnsregistry, etc.
 func TestAllCommon(t *testing.T, registryCtor func() Registry) {
-	t.Run("simple", func(t *testing.T) {
-		testRegistrySimple(t, registryCtor())
-	})
-
 	t.Run("service discovery and ensure activation", func(t *testing.T) {
 		testRegistryServiceDiscoveryAndEnsureActivation(t, registryCtor())
 	})
@@ -25,23 +22,6 @@ func TestAllCommon(t *testing.T, registryCtor func() Registry) {
 	t.Run("kv simple", func(t *testing.T) {
 		testKVSimple(t, registryCtor())
 	})
-}
-
-// testRegistrySimple is a basic smoke test that ensures we can register modules and create actors.
-func testRegistrySimple(t *testing.T, registry Registry) {
-	ctx := context.Background()
-
-	// Create module.
-	_, err := registry.RegisterModule(ctx, "ns1", "test-module", []byte("wasm"), ModuleOptions{})
-	require.NoError(t, err)
-
-	// Subsequent module for same namespace should fail.
-	_, err = registry.RegisterModule(ctx, "ns1", "test-module", []byte("wasm"), ModuleOptions{})
-	require.Error(t, err)
-
-	// Succeeds with same module if different namespace.
-	_, err = registry.RegisterModule(ctx, "ns2", "test-module", []byte("wasm"), ModuleOptions{})
-	require.NoError(t, err)
 }
 
 // testRegistryServiceDiscoveryAndEnsureActivation tests the combination of the
@@ -52,16 +32,10 @@ func testRegistrySimple(t *testing.T, registry Registry) {
 //  4. Detect dead servers and reactive actors elsewhere.
 func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Registry) {
 	ctx := context.Background()
-
-	// Create modules to experiment with.
-	_, err := registry.RegisterModule(ctx, "ns1", "test-module1", []byte("wasm"), ModuleOptions{})
-	require.NoError(t, err)
-
-	_, err = registry.RegisterModule(ctx, "ns1", "test-module2", []byte("wasm"), ModuleOptions{})
-	require.NoError(t, err)
+	defer registry.Close(ctx)
 
 	// Should fail because there are no servers available to activate on.
-	_, err = registry.EnsureActivation(ctx, "ns1", "a", "test-module1")
+	_, err := registry.EnsureActivation(ctx, "ns1", "a", "test-module1")
 	require.Error(t, err)
 	require.False(t, IsActorDoesNotExistErr(err))
 
@@ -201,16 +175,14 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 
 func testKVSimple(t *testing.T, registry Registry) {
 	ctx := context.Background()
+	defer registry.Close(ctx)
 
 	for nsIdx, ns := range []string{"ns1", "ns2"} {
-		// Create the modules.
-		_, err := registry.RegisterModule(ctx, ns, "test-module1", []byte("wasm"), ModuleOptions{})
-		require.NoError(t, err)
+		_, err := registry.BeginTransaction(ctx, ns, "a", "test-module1", "server1", 0)
+		if err != nil && strings.Contains(err.Error(), "not implemented") {
+			t.Skip("skipping KV test for registry that does not implement KV")
+		}
 
-		_, err = registry.RegisterModule(ctx, ns, "test-module2", []byte("wasm"), ModuleOptions{})
-		require.NoError(t, err)
-
-		_, err = registry.BeginTransaction(ctx, ns, "a", "test-module1", "server1", 0)
 		// Cant start transaction for actor that doesn't exist (no call to EnsureActivation yet).
 		require.Error(t, err)
 
