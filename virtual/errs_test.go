@@ -13,8 +13,10 @@ func TestBlacklistedActivationError(t *testing.T) {
 	require.False(t, errors.Is(errors.New("random"), BlacklistedActivationErr{}))
 	require.False(t, IsBlacklistedActivationError(errors.New("random")))
 
-	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random")), &BlacklistedActivationErr{}))
-	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random")), BlacklistedActivationErr{}))
-	require.True(t, IsBlacklistedActivationError(NewBlacklistedActivationError(errors.New("random"))))
-	require.True(t, IsBlacklistedActivationError(fmt.Errorf("wrapped: %w", NewBlacklistedActivationError(errors.New("random")))))
+	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random"), "abc"), &BlacklistedActivationErr{}))
+	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random"), "abc"), BlacklistedActivationErr{}))
+	require.True(t, IsBlacklistedActivationError(NewBlacklistedActivationError(errors.New("random"), "abc")))
+	require.True(t, IsBlacklistedActivationError(fmt.Errorf("wrapped: %w", NewBlacklistedActivationError(errors.New("random"), "abc"))))
+
+	require.Equal(t, "abc", NewBlacklistedActivationError(errors.New("random"), "abc").(BlacklistedActivationErr).ServerID())
 }

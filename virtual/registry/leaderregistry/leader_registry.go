@@ -90,16 +90,8 @@ func (l *leaderRegistry) IncGeneration(
 
 func (l *leaderRegistry) EnsureActivation(
 	ctx context.Context,
-	namespace,
-	actorID string,
-	moduleID string,
+	req registry.EnsureActivationRequest,
 ) ([]types.ActorReference, error) {
-	req := ensureActivationRequest{
-		Namespace: namespace,
-		ActorID:   actorID,
-		ModuleID:  moduleID,
-	}
-
 	var ensureActivationResponse ensureActivationResponse
 	err := l.env.InvokeActorJSON(
 		ctx, leaderNamespace, leaderActorName, leaderModuleName,
@@ -261,11 +253,11 @@ func (a *leaderActor) handleEnsureActivation(
 	ctx context.Context,
 	payload []byte,
 ) ([]byte, error) {
-	var req ensureActivationRequest
+	var req registry.EnsureActivationRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("error unmarshaling ensureActivation request: %w", err)
 	}
-	result, err := a.registry.EnsureActivation(ctx, req.Namespace, req.ActorID, req.ModuleID)
+	result, err := a.registry.EnsureActivation(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("error ensuring activation: %w", err)
 	}

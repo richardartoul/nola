@@ -8,7 +8,11 @@ import (
 
 var (
 	statusCodeToErrorWrapper = map[int]func(err error) error{
-		410: NewBlacklistedActivationError,
+		// 410 is special because it needs a special constructor to provide the
+		// server ID so we handle it manually in client.go.
+		410: func(err error) error {
+			panic("[invariant violated] statusCodeToErrorWrapper used for status code 410 instead of being handled explicitly")
+		},
 	}
 )
 
@@ -25,16 +29,19 @@ type HTTPError interface {
 // blacklisted on this specific server temporarily (usually due to resource
 // usage or balancing reasons).
 type BlacklistedActivationErr struct {
-	err error
+	err      error
+	serverID string
 }
 
 // NewBlacklistedActivationError creates a new BlacklistedActivationErr.
-func NewBlacklistedActivationError(err error) error {
-	return BlacklistedActivationErr{err: err}
+func NewBlacklistedActivationError(err error, serverID string) error {
+	return BlacklistedActivationErr{err: err, serverID: serverID}
 }
 
 func (b BlacklistedActivationErr) Error() string {
-	return fmt.Sprintf("BlacklistedActivationError: %s", b.err.Error())
+	return fmt.Sprintf(
+		"BlacklistedActivationError(ServerID:%s): %s",
+		b.serverID, b.err.Error())
 }
 
 func (b BlacklistedActivationErr) Is(target error) bool {
@@ -49,6 +56,10 @@ func (b BlacklistedActivationErr) Is(target error) bool {
 
 func (b BlacklistedActivationErr) HTTPStatusCode() int {
 	return http.StatusGone
+}
+
+func (b BlacklistedActivationErr) ServerID() string {
+	return b.serverID
 }
 
 // IsBlacklistedActivationError returns a boolean indicating whether the error

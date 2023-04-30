@@ -101,17 +101,15 @@ func (v *validator) IncGeneration(
 
 func (v *validator) EnsureActivation(
 	ctx context.Context,
-	namespace,
-	actorID string,
-	moduleID string,
+	req EnsureActivationRequest,
 ) ([]types.ActorReference, error) {
-	if err := validateString("namespace", namespace); err != nil {
+	if err := validateString("namespace", req.Namespace); err != nil {
 		return nil, err
 	}
-	if err := validateString("actorID", actorID); err != nil {
+	if err := validateString("actorID", req.ActorID); err != nil {
 		return nil, err
 	}
-	return v.r.EnsureActivation(ctx, namespace, actorID, moduleID)
+	return v.r.EnsureActivation(ctx, req)
 }
 
 func (v *validator) GetVersionStamp(

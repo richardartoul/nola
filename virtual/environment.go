@@ -409,7 +409,7 @@ func (r *environment) InvokeActorStream(
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	resp, err := r.invokeActorStreamHelper(
-		ctx, namespace, actorID, moduleID, operation, payload, create)
+		ctx, namespace, actorID, moduleID, operation, payload, create, "")
 	if err == nil {
 		return resp, nil
 	}
@@ -425,10 +425,9 @@ func (r *environment) InvokeActorStream(
 		defer bufPool.Put(bufIface)
 		r.activationCache.Del(cacheKey)
 
-		// TODO: Pickup here, need to be able to pass a flag telling the registry we want
-		//       a different activation than server X or Y.
+		blacklistedServerID := err.(BlacklistedActivationErr).ServerID()
 		return r.invokeActorStreamHelper(
-			ctx, namespace, actorID, moduleID, operation, payload, create)
+			ctx, namespace, actorID, moduleID, operation, payload, create, blacklistedServerID)
 	}
 
 	return nil, err
@@ -442,6 +441,7 @@ func (r *environment) invokeActorStreamHelper(
 	operation string,
 	payload []byte,
 	create types.CreateIfNotExist,
+	blacklistedServerID string,
 ) (io.ReadCloser, error) {
 	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
@@ -479,7 +479,13 @@ func (r *environment) invokeActorStreamHelper(
 		var err error
 		// TODO: Need a concurrency limiter on this thing.
 		// TODO: Actually maybe more importantly, shouldn't this be single flight?
-		references, err = r.registry.EnsureActivation(ctx, namespace, actorID, moduleID)
+		references, err = r.registry.EnsureActivation(ctx, registry.EnsureActivationRequest{
+			Namespace: namespace,
+			ActorID:   actorID,
+			ModuleID:  moduleID,
+
+			BlacklistedServerID: blacklistedServerID,
+		})
 		if err != nil {
 			return nil, fmt.Errorf(
 				"error ensuring activation of actor: %s in registry: %w",

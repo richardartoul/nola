@@ -130,9 +130,7 @@ func (d *dnsRegistry) IncGeneration(
 
 func (d *dnsRegistry) EnsureActivation(
 	ctx context.Context,
-	namespace,
-	actorID string,
-	moduleID string,
+	req registry.EnsureActivationRequest,
 ) ([]types.ActorReference, error) {
 	d.RLock()
 	ring := d.hashRing
@@ -142,10 +140,10 @@ func (d *dnsRegistry) EnsureActivation(
 		return nil, fmt.Errorf("EnsureActivation: hashring is empty")
 	}
 
-	serverIP := ring.Get(fmt.Sprintf("%s::%s", actorID, moduleID))
+	serverIP := ring.Get(fmt.Sprintf("%s::%s", req.ActorID, req.ModuleID))
 	ref, err := types.NewActorReference(
-		DNSServerID, DNSServerVersion, serverIP, namespace,
-		moduleID, actorID, DNS_ACTOR_GENERATION)
+		DNSServerID, DNSServerVersion, serverIP, req.Namespace,
+		req.ModuleID, req.ActorID, DNS_ACTOR_GENERATION)
 	if err != nil {
 		return nil, fmt.Errorf("error creating actor reference: %w", err)
 	}

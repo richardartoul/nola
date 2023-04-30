@@ -68,8 +68,9 @@ func (h *httpClient) InvokeActorRemote(
 		// This ensures that errors that implement HTTPError *and* have a mapping
 		// in statusCodeToErrorWrapper will be converted back to the proper in memory
 		// error type if sent by a server to a client.
-		wrapper, ok := statusCodeToErrorWrapper[resp.StatusCode]
-		if ok {
+		if resp.StatusCode == 410 {
+			err = NewBlacklistedActivationError(err, reference.ServerID())
+		} else if wrapper, ok := statusCodeToErrorWrapper[resp.StatusCode]; ok {
 			err = wrapper(err)
 		}
 		return nil, err

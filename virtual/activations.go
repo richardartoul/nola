@@ -126,8 +126,9 @@ func (a *activations) invoke(
 	// Immediately return to the pool cause we're done with it now regardless.
 	bufPool.Put(bufIface)
 	if ok {
-		return nil, NewBlacklistedActivationError(fmt.Errorf(
-			"actor %s is blacklisted on this server", reference.ActorID()))
+		err := fmt.Errorf(
+			"actor %s is blacklisted on this server", reference.ActorID())
+		return nil, NewBlacklistedActivationError(err, a.serverState.serverID)
 	}
 
 	// First check if the actor is already activated.

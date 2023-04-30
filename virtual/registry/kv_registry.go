@@ -215,15 +215,14 @@ func (k *kvRegistry) IncGeneration(
 
 func (k *kvRegistry) EnsureActivation(
 	ctx context.Context,
-	namespace,
-	actorID string,
-	moduleID string,
+	req EnsureActivationRequest,
 ) ([]types.ActorReference, error) {
-	actorKey := getActorKey(namespace, actorID, moduleID)
+	actorKey := getActorKey(req.Namespace, req.ActorID, req.ModuleID)
 	references, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
 		ra, ok, err := k.getActor(ctx, tr, actorKey)
 		if err == nil && !ok {
-			_, err := k.createActor(ctx, tr, namespace, actorID, moduleID, types.ActorOptions{})
+			_, err := k.createActor(
+				ctx, tr, req.Namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
 			if err != nil {
 				return nil, fmt.Errorf("EnsureActivation: error creating actor: %w", err)
 			}
@@ -234,7 +233,7 @@ func (k *kvRegistry) EnsureActivation(
 			if !ok {
 				return nil, fmt.Errorf(
 					"[invariant violated] error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
-					actorID, namespace, errActorDoesNotExist)
+					req.ActorID, req.Namespace, errActorDoesNotExist)
 			}
 		}
 		if err != nil {
@@ -245,7 +244,7 @@ func (k *kvRegistry) EnsureActivation(
 			// errors.Is() on it.
 			return nil, fmt.Errorf(
 				"[invariant violated] error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
-				actorID, namespace, errActorDoesNotExist)
+				req.ActorID, req.Namespace, errActorDoesNotExist)
 		}
 
 		serverKey := getServerKey(ra.Activation.ServerID)
@@ -260,7 +259,7 @@ func (k *kvRegistry) EnsureActivation(
 		)
 		if ok {
 			if err := json.Unmarshal(v, &server); err != nil {
-				return nil, fmt.Errorf("error unmarsaling server state with ID: %s", actorID)
+				return nil, fmt.Errorf("error unmarsaling server state with ID: %s", req.ActorID)
 			}
 			serverExists = true
 		}
@@ -277,7 +276,13 @@ func (k *kvRegistry) EnsureActivation(
 			serverAddress                    string
 			serverVersion                    int64
 		)
-		if activationExists && serverExists && timeSinceLastHeartbeat < HeartbeatTTL {
+		if activationExists &&
+			serverExists &&
+			timeSinceLastHeartbeat < HeartbeatTTL &&
+			// TODO: Unit test for this part. Also its not enough to just consider the currently
+			// blacklisted one, the registry probably needs to remember all server it has been
+			// blacklisted from for some period of time? think about it more.
+			currActivation.ServerID != req.BlacklistedServerID {
 			// We have an existing activation and the server is still alive, so just use that.
 
 			// It is acceptable to look up the ServerVersion from the server discovery key directly,
@@ -311,7 +316,9 @@ func (k *kvRegistry) EnsureActivation(
 			tr.Put(ctx, actorKey, marshaled)
 		}
 
-		ref, err := types.NewActorReference(serverID, serverVersion, serverAddress, namespace, ra.ModuleID, actorID, ra.Generation)
+		fmt.Println("wtf", serverID, serverAddress)
+		ref, err := types.NewActorReference(
+			serverID, serverVersion, serverAddress, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation)
 		if err != nil {
 			return nil, fmt.Errorf("error creating new actor reference: %w", err)
 		}
@@ -693,8 +700,8 @@ func minMaxMemUsage(available []serverState) (serverState, serverState) {
 	}
 
 	var (
-		minMemUsage serverState
-		maxMemUsage serverState
+		minMemUsage = available[0]
+		maxMemUsage = available[0]
 	)
 	for _, s := range available {
 		if s.HeartbeatState.UsedMemory < minMemUsage.HeartbeatState.UsedMemory {

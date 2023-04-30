@@ -35,7 +35,11 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	defer registry.Close(ctx)
 
 	// Should fail because there are no servers available to activate on.
-	_, err := registry.EnsureActivation(ctx, "ns1", "a", "test-module1")
+	_, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
+		Namespace: "ns1",
+		ActorID:   "a",
+		ModuleID:  "test-module1",
+	})
 	require.Error(t, err)
 	require.False(t, IsActorDoesNotExistErr(err))
 
@@ -48,7 +52,11 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 
 	// Should succeed now that we have a server to activate on.
-	activations, err := registry.EnsureActivation(ctx, "ns1", "a", "test-module1")
+	activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
+		Namespace: "ns1",
+		ActorID:   "a",
+		ModuleID:  "test-module1",
+	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations))
 	require.Equal(t, "server1", activations[0].ServerID())
@@ -63,7 +71,11 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// Ensure we get back all the same information but with the generation
 	// bumped now.
 	require.NoError(t, registry.IncGeneration(ctx, "ns1", "a", "test-module1"))
-	activations, err = registry.EnsureActivation(ctx, "ns1", "a", "test-module1")
+	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+		Namespace: "ns1",
+		ActorID:   "a",
+		ModuleID:  "test-module1",
+	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations))
 	require.Equal(t, "server1", activations[0].ServerID())
@@ -87,7 +99,11 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// Keep checking the activation of the existing actor, it should remain sticky to
 	// server 1.
 	for i := 0; i < 10; i++ {
-		activations, err := registry.EnsureActivation(ctx, "ns1", "a", "test-module1")
+		activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
+			Namespace: "ns1",
+			ActorID:   "a",
+			ModuleID:  "test-module1",
+		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "server1", activations[0].ServerID())
@@ -101,7 +117,11 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 
 	// Reuse the same actor ID, but with a different module. The registry should consider
 	// it a completely separate entity therefore it will go on a different server.
-	activations, err = registry.EnsureActivation(ctx, "ns1", "a", "test-module2")
+	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+		Namespace: "ns1",
+		ActorID:   "a",
+		ModuleID:  "test-module2",
+	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations))
 	require.Equal(t, "server2", activations[0].ServerID())
@@ -115,7 +135,11 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// Next 10 activations should all go to server2 for balancing purposes.
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("0-%d", i)
-		activations, err = registry.EnsureActivation(ctx, "ns1", actorID, "test-module1")
+		activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+			Namespace: "ns1",
+			ActorID:   actorID,
+			ModuleID:  "test-module1",
+		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "server2", activations[0].ServerID())
@@ -131,7 +155,11 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	var lastServerID string
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("1-%d", i)
-		activations, err = registry.EnsureActivation(ctx, "ns1", actorID, "test-module1")
+		activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+			Namespace: "ns1",
+			ActorID:   actorID,
+			ModuleID:  "test-module1",
+		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations))
 
@@ -166,7 +194,11 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// server2 because its the only one available.
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("2-%d", i)
-		activations, err = registry.EnsureActivation(ctx, "ns1", actorID, "test-module1")
+		activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+			Namespace: "ns1",
+			ActorID:   actorID,
+			ModuleID:  "test-module1",
+		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations))
 		require.Equal(t, "server2", activations[0].ServerID())
@@ -197,7 +229,11 @@ func testKVSimple(t *testing.T, registry Registry) {
 					// first time.
 
 					// Cant ensure activation when no available servers.
-					_, err = registry.EnsureActivation(ctx, ns, actor, "test-module1")
+					_, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+						Namespace: ns,
+						ActorID:   actor,
+						ModuleID:  "test-module1",
+					})
 					require.Error(t, err)
 
 					// Heartbeat server so we can activate.
@@ -209,9 +245,17 @@ func testKVSimple(t *testing.T, registry Registry) {
 				}
 
 				// Same actor ID, but different modules, should end up with separate KV storage.
-				_, err = registry.EnsureActivation(ctx, ns, actor, "test-module1")
+				_, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+					Namespace: ns,
+					ActorID:   actor,
+					ModuleID:  "test-module1",
+				})
 				require.NoError(t, err)
-				_, err = registry.EnsureActivation(ctx, ns, actor, "test-module2")
+				_, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+					Namespace: ns,
+					ActorID:   actor,
+					ModuleID:  "test-module2",
+				})
 				require.NoError(t, err)
 
 				for _, module := range []string{"test-module1", "test-module2"} {
