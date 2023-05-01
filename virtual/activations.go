@@ -459,7 +459,45 @@ func (a *activations) getServerState() (
 // close() method to close the actors with some concurrency.
 func (a *activations) shedMemUsage(numBytes int) {
 	var (
-		// TODO: Comment why bottomN not topN
+		// This is counter intuitive, but when we want to shed actors to reduce memory usage we
+		// start by first shedding the actors using the *lowest* amount of memory instead of the
+		// *highest*.
+		//
+		// The reasons for this are:
+		//
+		//   1. Shedding low memory usage actors is less likely to result in "flapping". Imagine
+		//      the server has 1000 actors on it where 999 are using very little memory and one
+		//      actor is using many GiB. If we shed the highest memory usage actor, it will get
+		//      reactivated shortly on another server and then perhaps soon shed from there as
+		//      well resulting in a form of "ping-pong" flopping. However, if we shed the lowest
+		//      memory usage actor firsts, they're much likely to "bin-pack" nicely into the other
+		//      servers without flapping. This effectively results in a model where instead of
+		//      trying to bin-pack high memory actors we instead try to bin-pack low memory actors
+		//      and isolate high memory actors by "draining away" all other actors and in the most
+		//      extreme case leaving the high memory usage actor isolated on its own dedicated
+		//      server.
+		//   2. Intuitively an actor that is using a lot of memory will likely take a long time to
+		//      "snapshot" and subsequently "rehydrate" when it is moved to a different server. Or,
+		//      another way to think about it, is that a high memory actor has accumulated more
+		//      "state". A single actor can only snapshot/rehydrated single-threaded, so we can move
+		//      actors and load-balance faster if we instead move a higher number of low-memory
+		//      actors instead of a lower number of high-memory actors because there are significantly
+		//      more opportunitie for parallelism so we can use more CPU time to keep actor migration
+		//      *wall clock* time lower.
+		//
+		// The downside of this approach though is obviously that it requires moving/disrupting more
+		// actors. However, for the current situations NOLA is used for we believe this is the right
+		// trade off.
+		//
+		// TODO: We could consider some kind of hybrid approach where we try and move the high memory
+		//       usage actors first, but only those are that are below some threshold of memory usage.
+		//       For example if the threshold was 1GiB and the top actors used:
+		//           [15GiB, 8GiB, 900MiB, 500MiB, 400MiB, 50MiB, 25MiB]
+		//       Then we would ignore the first two actors and begin by draining the 900 and 500 MiB
+		//       actors. Then if we ran out of actors to drain from the topN, we would start iterating
+		//       the bottomN. I have not put a ton of thought into it, but this might work a lot better
+		//       in scenarios where there are many actors and draining the bottom N results in tons of
+		//       unncessary disruptions.
 		actorsByMem = a._actorResourceTracker.bottomNByMemory(1000)
 		toShed      = make([]actorByMem, 0, len(actorsByMem))
 		remaining   = numBytes
@@ -470,6 +508,9 @@ func (a *activations) shedMemUsage(numBytes int) {
 		// memory its using. We're not going to make the situation any better by moving it
 		// to another server so just leave it alone since at most the actor is just
 		// disrupting itself.
+		a.log.Info(
+			"skipping shedding actors for memory usage because there are <= 1 actors",
+			slog.Int("num_actors", len(actorsByMem)))
 		return
 	}
 
@@ -494,7 +535,17 @@ func (a *activations) shedMemUsage(numBytes int) {
 	for _, v := range toShed {
 		key := formatActorCacheKey(nil, v.id.Namespace, v.id.Module, v.id.ID)
 		a._blacklist.SetWithTTL(key, nil, 1, activationBlacklistCacheTTL)
+		a.log.Info(
+			"shedding actor to reduce memory usage",
+			slog.String("actor_namespace", v.id.Namespace),
+			slog.String("actor_module", v.id.Module),
+			slog.String("actor_id", v.id.ID))
 	}
+
+	a.log.Info(
+		"done shedding actors based on memory usage",
+		slog.Int("num_actors", len(actorsByMem)),
+		slog.Int("num_actors_shedded", len(toShed)))
 }
 
 func (a *activations) close(ctx context.Context, numWorkers int) error {

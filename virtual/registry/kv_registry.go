@@ -316,7 +316,6 @@ func (k *kvRegistry) EnsureActivation(
 			tr.Put(ctx, actorKey, marshaled)
 		}
 
-		fmt.Println("wtf", serverID, serverAddress)
 		ref, err := types.NewActorReference(
 			serverID, serverVersion, serverAddress, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation)
 		if err != nil {
