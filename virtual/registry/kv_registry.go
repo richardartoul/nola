@@ -44,15 +44,25 @@ func IsActorDoesNotExistErr(err error) bool {
 
 type kvRegistry struct {
 	versionStampBatcher singleflight.Group
+	kv                  kv.Store
+	opts                KVRegistryOptions
+}
 
-	// State.
-	kv kv.Store
+// KVRegistryOptions contains the options for the KVRegistry.
+type KVRegistryOptions struct {
+	// DisableHighConflictOperations disables operations that
+	// would lead to high conflict rates when using KV stores
+	// like FoundationDB. In general enabling this feature will
+	// not break correctness, but it may degrade the efficiency
+	// of features like balancing actors across servers.
+	DisableHighConflictOperations bool
 }
 
 // NewKVRegistry creates a new KV-backed registry.
-func NewKVRegistry(kv kv.Store) Registry {
+func NewKVRegistry(kv kv.Store, opts KVRegistryOptions) Registry {
 	return NewValidatedRegistry(&kvRegistry{
-		kv: kv,
+		kv:   kv,
+		opts: opts,
 	})
 }
 
@@ -314,6 +324,16 @@ func (k *kvRegistry) EnsureActivation(
 			}
 
 			tr.Put(ctx, actorKey, marshaled)
+
+			if !k.opts.DisableHighConflictOperations {
+				selected.HeartbeatState.NumActivatedActors++
+				marshaled, err := json.Marshal(&selected)
+				if err != nil {
+					return nil, fmt.Errorf("error marshaling server state: %w", err)
+				}
+
+				tr.Put(ctx, getServerKey(selected.ServerID), marshaled)
+			}
 		}
 
 		ref, err := types.NewActorReference(
@@ -672,25 +692,66 @@ func getLiveServers(
 	return liveServers, nil
 }
 
+// pickServerForActivation is responsible for deciding which server to activate an actor on. It
+// prioritizes activating actors on the server that currently has the lowest memory usage. However,
+// all else being equal, it will tiebreak by selecting the server with the lowest number of activated
+// actors.
+//
+// TODO: Would be nice to make this function pluggable/injectable for easier testing and to make the
+// system more flexible for more use cases.
 func pickServerForActivation(available []serverState) serverState {
 	if len(available) == 0 {
 		panic("[invariant violated] pickServerForActivation should not be called with empty slice")
 	}
 
-	minMemUsage, maxMemUsage := minMaxMemUsage(available)
-	if maxMemUsage.HeartbeatState.UsedMemory-minMemUsage.HeartbeatState.UsedMemory > RebalanceMemoryThreshold {
-		// If there is a large enough delta in memory usage between the minimum and maximum
-		// memory usage of servers in the cluster, assign new actors to the server with the
-		// lowest memory usage.
-		return minMemUsage
-	}
-
-	// Otherwise just try and keep an even balance in terms of the # of actors on each server.
 	sort.Slice(available, func(i, j int) bool {
-		return available[i].HeartbeatState.NumActivatedActors < available[j].HeartbeatState.NumActivatedActors
+		sI, sJ := available[i], available[j]
+		var (
+			minMemUsage = sI
+			maxMemUsage = sJ
+		)
+		if sI.HeartbeatState.UsedMemory > sJ.HeartbeatState.UsedMemory {
+			minMemUsage = sJ
+			maxMemUsage = sI
+		}
+		if maxMemUsage.HeartbeatState.UsedMemory-minMemUsage.HeartbeatState.UsedMemory > RebalanceMemoryThreshold {
+			return minMemUsage == sI
+		}
+		return sI.HeartbeatState.NumActivatedActors < sJ.HeartbeatState.NumActivatedActors
 	})
 
 	return available[0]
+
+	// TODO: Delete me.
+	// var last serverState
+	// for i, s := range available {
+	// 	if i == 0 {
+	// 		last = s
+	// 		continue
+	// 	}
+
+	// 	if s.
+	// }
+	// if len(available) == 1 {
+	// 	return available[0]
+	// }
+
+	// if available[0].HeartbeatState.UsedMemory
+
+	// minMemUsage, maxMemUsage := minMaxMemUsage(available)
+	// if maxMemUsage.HeartbeatState.UsedMemory-minMemUsage.HeartbeatState.UsedMemory > RebalanceMemoryThreshold {
+	// 	// If there is a large enough delta in memory usage between the minimum and maximum
+	// 	// memory usage of servers in the cluster, assign new actors to the server with the
+	// 	// lowest memory usage.
+	// 	return minMemUsage
+	// }
+
+	// // Otherwise just try and keep an even balance in terms of the # of actors on each server.
+	// sort.Slice(available, func(i, j int) bool {
+	// 	return available[i].HeartbeatState.NumActivatedActors < available[j].HeartbeatState.NumActivatedActors
+	// })
+
+	// return available[0]
 }
 
 func minMaxMemUsage(available []serverState) (serverState, serverState) {
