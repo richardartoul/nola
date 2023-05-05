@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -826,25 +825,25 @@ func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 	}
 }
 
-// func TestActivationCacheWorksWhenRegistryIsDown(t *testing.T) {
-// 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-// 		ctx := context.Background()
-// 		invokeReq := types.InvokeActorRequest{
-// 			ActorID:   "b",
-// 			ModuleID:  "test-module",
-// 			Operation: "inc",
-// 			Payload:   nil,
-// 		}
-// 		marshaled, err := json.Marshal(invokeReq)
-// 		require.NoError(t, err)
+func TestActivationCacheWorksWhenRegistryIsDown(t *testing.T) {
+	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		ctx := context.Background()
+		invokeReq := types.InvokeActorRequest{
+			ActorID:   "b",
+			ModuleID:  "test-module",
+			Operation: "inc",
+			Payload:   nil,
+		}
+		marshaled, err := json.Marshal(invokeReq)
+		require.NoError(t, err)
 
-// 		_, err = env.InvokeActor(
-// 			ctx, "ns-1", "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
-// 		require.NoError(t, err)
-// 	}
+		_, err = env.InvokeActor(
+			ctx, "ns-1", "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
+		require.NoError(t, err)
+	}
 
-// 	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
-// }
+	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+}
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server
 // around versionstamp coordination works by preventing the server from updating its
@@ -1311,9 +1310,10 @@ func noErrIgnoreDupeClose(t *testing.T, err error) {
 	require.NoError(t, err)
 }
 
-type testLeaderProvider struct {
-}
+// type errRegistry struct {
+// 	reg registry.Registry
+// }
 
-func (t *testLeaderProvider) GetLeader() (net.IP, error) {
-	return net.ParseIP("127.0.0.1"), nil
-}
+// func newErrRegistry(reg errRegistry) registry.Registry {
+// 	return &errRegistry{reg: reg}
+// }

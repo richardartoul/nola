@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// More tests for this package can be found in examples/leaderregistry/main_test.go
+
 func TestLeaderRegistry(t *testing.T) {
 	registry.TestAllCommon(t, func() registry.Registry {
 		lp := newTestLeaderProvider()

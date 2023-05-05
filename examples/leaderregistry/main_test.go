@@ -113,26 +113,86 @@ func TestMemoryBalancing(t *testing.T) {
 	}
 }
 
+// TestSurviveLeaderFailure tests that the implementation can tolerate failures of
+// the leader and continue serving requests for actors that are already activated
+// and whose activation is cached in-memory even if new actors cannot be activated
+// in the meantime.
+func TestSurviveLeaderFailure(t *testing.T) {
+	lp := &leaderProvider{}
+	lp.setLeader(registry.Address{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: baseRegistryPort,
+	})
+
+	var (
+		// Make one of the servers run the registry only, but no virtual environment
+		// so that when we "kill" the leader we don't lose any actors.
+		// TODO: We should add this as a setting to the leaderregistry to make it so
+		//       the leader never assigns itself any actors and if it has any once
+		//       it becomes the leader, it will drain them.
+		reg1    = newRegistry(t, lp, 0)
+		server2 = newServer(t, lp, 1)
+		server3 = newServer(t, lp, 2)
+	)
+
+	for i := 0; i < numActors; i++ {
+		_, err := server2.InvokeActor(
+			context.Background(), namespace, actorID(i), module, "keep-alive", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+	}
+
+	require.True(t, server2.NumActivatedActors() == numActors/2 || server2.NumActivatedActors() == numActors/2+1)
+	require.True(t, server3.NumActivatedActors() == numActors/2 || server3.NumActivatedActors() == numActors/2+1)
+
+	require.NoError(t, reg1.Close(context.Background()))
+
+	start := time.Now()
+	for i := 0; ; i++ {
+		time.Sleep(10 * time.Millisecond)
+
+		_, err := server2.InvokeActor(
+			context.Background(), namespace, actorID(0), module, "inc-memory-usage", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+
+		for j := 0; j < numActors; j++ {
+			if i == 0 { // i not j intentionally.
+				// Ensure every actor has non-zero memory usage because the memory balancing functionality only
+				// kicks in if there is more than 1 actor with > 0 memory usage on a server. I.E if a server has
+				// a single actor using way too much memory, but its the only actor on the server using any memory
+				// then no rebalancing will be done because moving a single actor will just move the problem somewhere
+				// else. However, if there are 2 actors using > 0 memory and the server is overloaded in terms of
+				// memory usage, the one with the lowest memory usage will be migrated away.
+				_, err := server2.InvokeActor(
+					context.Background(), namespace, actorID(j), module, "inc-memory-usage", nil, types.CreateIfNotExist{})
+				require.NoError(t, err)
+			}
+
+			_, err := server2.InvokeActor(
+				context.Background(), namespace, actorID(j), module, "keep-alive", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+		}
+
+		if time.Since(start) > time.Minute {
+			// It's impossible for this test to "prove" that we can keep running forever, but if we can keep running
+			// for 1 minute we'll assume everything is implemented correctly to handle leader failures. This is a
+			// bit risky because technically we could have done something dumb like cache activations for 62s, but
+			// its good enough for now.
+			break
+		}
+	}
+}
+
 func newServer(
 	t *testing.T,
 	lp leaderregistry.LeaderProvider,
 	idx int,
 ) virtual.Environment {
-	var (
-		registryServerID = fmt.Sprintf("registry-server-%d", idx)
-		envServerID      = fmt.Sprintf("env-server-%d", idx)
-		registryPort     = baseRegistryPort + idx
-		envPort          = baseEnvPort + idx
-	)
-	reg, err := leaderregistry.NewLeaderRegistry(
-		context.Background(), lp, registryServerID, virtual.EnvironmentOptions{
-			Discovery: virtual.DiscoveryOptions{
-				DiscoveryType: virtual.DiscoveryTypeLocalHost,
-				Port:          registryPort,
-			},
-		})
-	require.NoError(t, err)
+	reg := newRegistry(t, lp, idx)
 
+	var (
+		envServerID = fmt.Sprintf("env-server-%d", idx)
+		envPort     = baseEnvPort + idx
+	)
 	env, err := virtual.NewEnvironment(
 		context.Background(), envServerID, reg, registry.NewNoopModuleStore(), virtual.NewHTTPClient(),
 		virtual.EnvironmentOptions{
@@ -159,6 +219,27 @@ func newServer(
 	}()
 
 	return env
+}
+
+func newRegistry(
+	t *testing.T,
+	lp leaderregistry.LeaderProvider,
+	idx int,
+) registry.Registry {
+	var (
+		registryServerID = fmt.Sprintf("registry-server-%d", idx)
+		registryPort     = baseRegistryPort + idx
+	)
+	reg, err := leaderregistry.NewLeaderRegistry(
+		context.Background(), lp, registryServerID, virtual.EnvironmentOptions{
+			Discovery: virtual.DiscoveryOptions{
+				DiscoveryType: virtual.DiscoveryTypeLocalHost,
+				Port:          registryPort,
+			},
+		})
+	require.NoError(t, err)
+
+	return reg
 }
 
 type leaderProvider struct {
