@@ -28,6 +28,14 @@ const (
 	numActors = 10
 )
 
+// TestMemoryBalancing is an integration test / example that tests/demonstrates how
+// NOLA can be leveraged to load balance actors in a cluster automatically based on
+// their memory usage. The test creates 3 different servers running on different ports
+// connected via the LeaderRegistry implementation. After spawning some actors, the
+// test makes one of the actors begin using large amounts of memory. The test then
+// asserts that the cluster eventually rebalances so that the actor using large amounts
+// of memory is eventually isolated alone on 1 server with all other actors evenly
+// balanced between the two other servers.
 func TestMemoryBalancing(t *testing.T) {
 	lp := &leaderProvider{}
 	lp.setLeader(registry.Address{
