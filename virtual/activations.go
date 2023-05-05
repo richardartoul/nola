@@ -534,18 +534,22 @@ func (a *activations) shedMemUsage(numBytes int) {
 
 	for _, v := range toShed {
 		key := formatActorCacheKey(nil, v.id.Namespace, v.id.Module, v.id.ID)
-		a._blacklist.SetWithTTL(key, nil, 1, activationBlacklistCacheTTL)
-		a.log.Info(
-			"shedding actor to reduce memory usage",
-			slog.String("actor_namespace", v.id.Namespace),
-			slog.String("actor_module", v.id.Module),
-			slog.String("actor_id", v.id.ID))
+		if _, ok := a._blacklist.Get(key); !ok {
+			a._blacklist.SetWithTTL(key, nil, 1, activationBlacklistCacheTTL)
+			a.log.Info(
+				"shedding actor to reduce memory usage",
+				slog.String("actor", v.id.String()))
+		}
 	}
 
 	a.log.Info(
 		"done shedding actors based on memory usage",
 		slog.Int("num_actors", len(actorsByMem)),
 		slog.Int("num_actors_shedded", len(toShed)))
+}
+
+func (a *activations) topNByMem(n int) []actorByMem {
+	return a._actorResourceTracker.topNByMemory(n)
 }
 
 func (a *activations) close(ctx context.Context, numWorkers int) error {

@@ -308,10 +308,10 @@ func terminateConnection(w http.ResponseWriter) {
 }
 
 func writeStatusCodeForError(w http.ResponseWriter, err error) {
-	statusErr, ok := err.(HTTPError)
-	if ok {
-		w.WriteHeader(statusErr.StatusCode())
+	var httpErr HTTPError
+	if errors.As(err, &httpErr) {
+		w.WriteHeader(httpErr.HTTPStatusCode())
 	} else {
-		writeStatusCodeForError(w, err)
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }

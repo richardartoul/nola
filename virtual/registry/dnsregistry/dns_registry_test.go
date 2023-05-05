@@ -16,7 +16,7 @@ import (
 // consistent hashing to pick a server.
 func TestDNSRegistrySimple(t *testing.T) {
 	resolver := newConstResolver(nil)
-	reg, err := NewDNSRegistryFromResolver(resolver, "test", 9090, DNSRegistryOptions{
+	reg, err := NewDNSRegistryFromResolver(resolver, "test", DNSRegistryOptions{
 		ResolveEvery: 100 * time.Millisecond,
 	})
 	require.NoError(t, err)
@@ -44,10 +44,10 @@ func TestDNSRegistrySimple(t *testing.T) {
 		require.Equal(t, int64(1), versionStamp)
 	}
 
-	resolver.setIPs([]net.IP{
-		net.ParseIP("127.0.0.1"),
-		net.ParseIP("127.0.0.2"),
-		net.ParseIP("127.0.0.3"),
+	resolver.setIPs([]registry.Address{
+		{IP: net.ParseIP("127.0.0.1"), Port: 9090},
+		{IP: net.ParseIP("127.0.0.2"), Port: 9090},
+		{IP: net.ParseIP("127.0.0.3"), Port: 9090},
 	})
 
 	for {

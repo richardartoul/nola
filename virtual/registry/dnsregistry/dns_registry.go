@@ -32,7 +32,7 @@ const (
 // DNSResolver is the interface that must be implemented by a resolver
 // in order to map a hostname to set of live IPs.
 type DNSResolver interface {
-	LookupIP(host string) ([]net.IP, error)
+	LookupIP(host string) ([]registry.Address, error)
 }
 
 type dnsRegistry struct {
@@ -43,12 +43,11 @@ type dnsRegistry struct {
 	// Dependencies.
 	resolver DNSResolver
 	host     string
-	port     int
 	opts     DNSRegistryOptions
 
 	// State.
-	ips      []net.IP
-	hashRing *HashRing
+	addresses []registry.Address
+	hashRing  *HashRing
 
 	// Shutdown logic.
 	discoveryRunning bool
@@ -75,11 +74,14 @@ func NewDNSRegistry(
 ) (registry.Registry, error) {
 	var resolver DNSResolver
 	if host == Localhost {
-		resolver = newConstResolver([]net.IP{net.ParseIP(LocalAddress)})
+		resolver = newConstResolver([]registry.Address{{
+			IP:   net.ParseIP(LocalAddress),
+			Port: port,
+		}})
 	} else {
-		resolver = NewDNSResolver()
+		resolver = NewDNSResolver(port)
 	}
-	return NewDNSRegistryFromResolver(resolver, host, port, opts)
+	return NewDNSRegistryFromResolver(resolver, host, opts)
 }
 
 // NewDNSRegistryFromResolver is the same as NewDNSRegistry except it allows
@@ -87,7 +89,6 @@ func NewDNSRegistry(
 func NewDNSRegistryFromResolver(
 	resolver DNSResolver,
 	host string,
-	port int,
 	opts DNSRegistryOptions,
 ) (registry.Registry, error) {
 	if opts.ResolveEvery == 0 {
@@ -101,7 +102,6 @@ func NewDNSRegistryFromResolver(
 		log:      opts.Logger.With(slog.String("module", "Registry"), slog.String("subService", "dnsRegistry")),
 		resolver: resolver,
 		host:     host,
-		port:     port,
 		opts:     opts,
 
 		closeCh:  make(chan struct{}),
@@ -196,7 +196,7 @@ func (d *dnsRegistry) UnsafeWipeAll() error {
 }
 
 func (d *dnsRegistry) discover() error {
-	ips, err := d.resolver.LookupIP(d.host)
+	addresses, err := d.resolver.LookupIP(d.host)
 	if err != nil {
 		return fmt.Errorf("discover: error looking up IPs: %w", err)
 	}
@@ -206,26 +206,28 @@ func (d *dnsRegistry) discover() error {
 	// should investigate if we should pick a different value.
 	var ()
 	hashRing := NewHashRing(64, crc32.ChecksumIEEE)
-	ipStrs := make([]string, 0, len(ips))
-	for _, ip := range ips {
-		if ip.To4() != nil {
-			ipStrs = append(ipStrs, fmt.Sprintf("%s:%d", ip.To4().String(), d.port))
-		} else if ip.To16() != nil {
-			ipStrs = append(ipStrs, fmt.Sprintf("[%s]:%d", ip.To16().String(), d.port))
+	ipStrs := make([]string, 0, len(addresses))
+	for _, addr := range addresses {
+		if addr.IP.To4() != nil {
+			ipStrs = append(ipStrs, fmt.Sprintf("%s:%d", addr.IP.To4().String(), addr.Port))
+		} else if addr.IP.To16() != nil {
+			ipStrs = append(ipStrs, fmt.Sprintf("[%s]:%d", addr.IP.To16().String(), addr.Port))
 		} else {
-			d.log.Info("[invariant violated] IP is not IP4 or IP6, skipping", slog.Any("ip", ip))
+			d.log.Info("[invariant violated] IP is not IP4 or IP6, skipping", slog.Any("ip", addr))
 		}
 	}
 	hashRing.Add(ipStrs...)
 
 	d.Lock()
-	oldIPs := d.ips
-	d.ips = ips
+	oldAddresses := d.addresses
+	d.addresses = addresses
 	d.hashRing = hashRing
 	d.Unlock()
 
-	if len(d.ips) != len(oldIPs) {
-		d.log.Info("discovered new IP addresses", slog.Any("prev", oldIPs), slog.Any("curr", ips))
+	if len(d.addresses) != len(oldAddresses) {
+		d.log.Info(
+			"discovered new IP addresses",
+			slog.Any("prev", oldAddresses), slog.Any("curr", addresses))
 	}
 
 	return nil
@@ -255,23 +257,23 @@ func (d *dnsRegistry) discoveryLoop() {
 
 type constResolver struct {
 	sync.Mutex
-	ips []net.IP
+	addresses []registry.Address
 }
 
-func newConstResolver(ips []net.IP) *constResolver {
+func newConstResolver(addresses []registry.Address) *constResolver {
 	return &constResolver{
-		ips: ips,
+		addresses: addresses,
 	}
 }
 
-func (f *constResolver) setIPs(ips []net.IP) {
+func (f *constResolver) setIPs(addresses []registry.Address) {
 	f.Lock()
 	defer f.Unlock()
-	f.ips = ips
+	f.addresses = addresses
 }
 
-func (f *constResolver) LookupIP(host string) ([]net.IP, error) {
+func (f *constResolver) LookupIP(host string) ([]registry.Address, error) {
 	f.Lock()
 	defer f.Unlock()
-	return f.ips, nil
+	return f.addresses, nil
 }

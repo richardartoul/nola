@@ -12,6 +12,7 @@ import (
 	"github.com/richardartoul/nola/virtual/registry/tuple"
 	"github.com/richardartoul/nola/virtual/types"
 
+	"golang.org/x/exp/slog"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -56,10 +57,19 @@ type KVRegistryOptions struct {
 	// not break correctness, but it may degrade the efficiency
 	// of features like balancing actors across servers.
 	DisableHighConflictOperations bool
+
+	// Logger is a logging instance used for logging messages.
+	// If no logger is provided, the default logger from the slog
+	// package (slog.Default()) will be used.
+	Logger *slog.Logger
 }
 
 // NewKVRegistry creates a new KV-backed registry.
 func NewKVRegistry(kv kv.Store, opts KVRegistryOptions) Registry {
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
+
 	return NewValidatedRegistry(&kvRegistry{
 		kv:   kv,
 		opts: opts,
@@ -334,6 +344,13 @@ func (k *kvRegistry) EnsureActivation(
 
 				tr.Put(ctx, getServerKey(selected.ServerID), marshaled)
 			}
+
+			k.opts.Logger.Info(
+				"activated actor on server",
+				slog.String("actor_id", fmt.Sprintf("%s::%s:%s", req.Namespace, req.ModuleID, req.ActorID)),
+				slog.String("server_id", selected.ServerID),
+				slog.String("server_address", selected.HeartbeatState.Address),
+			)
 		}
 
 		ref, err := types.NewActorReference(
@@ -343,7 +360,6 @@ func (k *kvRegistry) EnsureActivation(
 		}
 
 		return []types.ActorReference{ref}, nil
-
 	})
 	if err != nil {
 		return nil, fmt.Errorf("EnsureActivation: error: %w", err)

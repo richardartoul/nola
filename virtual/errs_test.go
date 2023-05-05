@@ -19,4 +19,8 @@ func TestBlacklistedActivationError(t *testing.T) {
 	require.True(t, IsBlacklistedActivationError(fmt.Errorf("wrapped: %w", NewBlacklistedActivationError(errors.New("random"), "abc"))))
 
 	require.Equal(t, "abc", NewBlacklistedActivationError(errors.New("random"), "abc").(BlacklistedActivationErr).ServerID())
+
+	var httpErr HTTPError
+	require.True(t, errors.As(
+		NewBlacklistedActivationError(errors.New("random"), "abc"), &httpErr))
 }

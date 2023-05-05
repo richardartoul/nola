@@ -14,6 +14,9 @@ var (
 			panic("[invariant violated] statusCodeToErrorWrapper used for status code 410 instead of being handled explicitly")
 		},
 	}
+
+	// Make sure it implements interface.
+	_ HTTPError = NewBlacklistedActivationError(errors.New("n/a"), "n/a").(HTTPError)
 )
 
 // HTTPError is the interface implemented by errors that map to a specific
@@ -22,7 +25,7 @@ var (
 // code is automatically translated back into the appropriate error wrapped by
 // the client.
 type HTTPError interface {
-	StatusCode() int
+	HTTPStatusCode() int
 }
 
 // BlacklistedActivationErr indicates that the actor activation has been

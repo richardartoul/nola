@@ -1,6 +1,9 @@
 package types
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // NamespacedID wraps an ID with its namespace. This is useful
 // for namespacing strings, for example when they're used as
@@ -66,6 +69,12 @@ func (n *NamespacedActorID) Less(b NamespacedActorID) int {
 	}
 
 	return strings.Compare(n.ID, b.ID)
+}
+
+func (n *NamespacedActorID) String() string {
+	return fmt.Sprintf(
+		"%s::%s::%s:%s",
+		n.Namespace, n.Module, n.IDType, n.ID)
 }
 
 // NamespacedIDNoType is the same as NamespacedID, but without the IDType

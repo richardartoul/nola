@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -625,14 +626,19 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	opts1.Discovery.Port = 1
 	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
 	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
 	opts2 := defaultOptsWASM
 	opts2.Discovery.Port = 2
 	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
 	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
 	opts3 := defaultOptsWASM
 	opts3.Discovery.Port = 3
 	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
 	require.NoError(t, err)
+	defer env3.Close(context.Background())
 
 	_, err = moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
@@ -796,23 +802,49 @@ func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 			env2Actors = env2.NumActivatedActors()
 			env3Actors = env3.NumActivatedActors()
 		)
+
+		// env1 should get drained down to 1 actor as all the low memory usage actors are drained
+		// away and only the high memory usage actor remains.
 		if env1.NumActivatedActors() != 1 {
 			continue
 		}
 
+		// Eventually env2/env3 should stabilize with roughly the same number of actors.
 		delta := int(math.Abs(float64(env2Actors) - float64(env3Actors)))
 		if delta > 1 {
 			continue
 		}
 
+		// Finally, all actors should be activated.
 		sum := env1Actors + env2Actors + env3Actors
 		if sum != 100 {
 			continue
 		}
 
+		// All balancing criteria have been met, we're done.
 		break
 	}
 }
+
+// func TestActivationCacheWorksWhenRegistryIsDown(t *testing.T) {
+// 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+// 		ctx := context.Background()
+// 		invokeReq := types.InvokeActorRequest{
+// 			ActorID:   "b",
+// 			ModuleID:  "test-module",
+// 			Operation: "inc",
+// 			Payload:   nil,
+// 		}
+// 		marshaled, err := json.Marshal(invokeReq)
+// 		require.NoError(t, err)
+
+// 		_, err = env.InvokeActor(
+// 			ctx, "ns-1", "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
+// 		require.NoError(t, err)
+// 	}
+
+// 	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+// }
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server
 // around versionstamp coordination works by preventing the server from updating its
@@ -1071,6 +1103,26 @@ func runWithDifferentConfigs(
 			testFn(t, reg, env)
 		})
 	}
+
+	t.Run("go-leader-registry", func(t *testing.T) {
+		// opts := defaultOptsGoDNS
+		// opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
+
+		// reg, err := leaderregistry.NewLeaderRegistry(
+		// 	context.Background(), &testLeaderProvider{}, "serverID1", 9093, EnvironmentOptions{})
+		// require.NoError(t, err)
+		// env, err := NewEnvironment(context.Background(), "serverID1", reg, newTestModuleStore(), nil, opts)
+		// require.NoError(t, err)
+		// defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
+
+		// env.RegisterGoModule(
+		// 	types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
+		// env.RegisterGoModule(
+		// 	types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testStreamModule{})
+
+		// testFnAfterClose(t, reg, env)
+		// // defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
+	})
 }
 
 type testModule struct {
@@ -1257,4 +1309,11 @@ func noErrIgnoreDupeClose(t *testing.T, err error) {
 	}
 
 	require.NoError(t, err)
+}
+
+type testLeaderProvider struct {
+}
+
+func (t *testLeaderProvider) GetLeader() (net.IP, error) {
+	return net.ParseIP("127.0.0.1"), nil
 }

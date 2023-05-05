@@ -16,14 +16,17 @@ import (
 func TestLeaderRegistry(t *testing.T) {
 	registry.TestAllCommon(t, func() registry.Registry {
 		lp := newTestLeaderProvider()
-		lp.setLeader(net.ParseIP(dnsregistry.LocalAddress))
+		lp.setLeader(registry.Address{
+			IP:   net.ParseIP(dnsregistry.LocalAddress),
+			Port: 9093,
+		})
 
 		envOpts := virtual.EnvironmentOptions{Discovery: virtual.DiscoveryOptions{
 			DiscoveryType: virtual.DiscoveryTypeLocalHost,
 			Port:          9093,
 		}}
 
-		reg, err := NewLeaderRegistry(context.Background(), lp, "server1", 9093, envOpts)
+		reg, err := NewLeaderRegistry(context.Background(), lp, "server1", envOpts)
 		require.NoError(t, err)
 
 		return reg
@@ -32,22 +35,22 @@ func TestLeaderRegistry(t *testing.T) {
 
 type testLeaderProvider struct {
 	sync.Mutex
-	leader net.IP
+	leader registry.Address
 }
 
 func newTestLeaderProvider() *testLeaderProvider {
 	return &testLeaderProvider{}
 }
 
-func (lp *testLeaderProvider) GetLeader() (net.IP, error) {
+func (lp *testLeaderProvider) GetLeader() (registry.Address, error) {
 	lp.Lock()
 	defer lp.Unlock()
 
 	return lp.leader, nil
 }
 
-func (lp *testLeaderProvider) setLeader(ip net.IP) {
+func (lp *testLeaderProvider) setLeader(addr registry.Address) {
 	lp.Lock()
 	defer lp.Unlock()
-	lp.leader = ip
+	lp.leader = addr
 }

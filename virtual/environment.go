@@ -33,7 +33,8 @@ var (
 	ErrEnvironmentClosed = errors.New("environment is closed")
 
 	// Var so can be modified by tests.
-	defaultActivationsCacheTTL = heartbeatTimeout
+	defaultActivationsCacheTTL                    = heartbeatTimeout
+	DefaultGCActorsAfterDurationWithNoInvocations = time.Minute
 )
 
 type environment struct {
@@ -42,6 +43,7 @@ type environment struct {
 	// State.
 	activations     *activations // Internally synchronized.
 	activationCache *ristretto.Cache
+	lastHearbeatLog time.Time
 
 	heartbeatState struct {
 		sync.RWMutex
@@ -220,7 +222,7 @@ func NewEnvironment(
 		opts.ActivationCacheTTL = defaultActivationsCacheTTL
 	}
 	if opts.GCActorsAfterDurationWithNoInvocations == 0 {
-		opts.GCActorsAfterDurationWithNoInvocations = time.Minute
+		opts.GCActorsAfterDurationWithNoInvocations = DefaultGCActorsAfterDurationWithNoInvocations
 	}
 	if opts.MaxNumShutdownWorkers == 0 {
 		opts.MaxNumShutdownWorkers = runtime.NumCPU()
@@ -260,8 +262,15 @@ func NewEnvironment(
 	}
 	address := fmt.Sprintf("%s:%d", host, opts.Discovery.Port)
 
+	opts.Logger = opts.Logger.With(
+		slog.String("server_id", serverID),
+		slog.String("address", address),
+	)
+
 	env := &environment{
-		log:             opts.Logger.With(slog.String("module", "environment"), slog.String("subService", "environment")),
+		log: opts.Logger.With(
+			slog.String("module", "environment"),
+			slog.String("sub_service", "environment")),
 		activationCache: activationCache,
 		closeCh:         make(chan struct{}),
 		closedCh:        make(chan struct{}),
@@ -710,14 +719,21 @@ func (r *environment) NumActivatedActors() int {
 func (r *environment) heartbeat() error {
 	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
 	defer cc()
+
+	var (
+		numActors  = r.NumActivatedActors()
+		usedMemory = r.activations.memUsageBytes()
+	)
 	result, err := r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
-		NumActivatedActors: r.NumActivatedActors(),
-		UsedMemory:         r.activations.memUsageBytes(),
+		NumActivatedActors: numActors,
+		UsedMemory:         usedMemory,
 		Address:            r.address,
 	})
 	if err != nil {
 		return fmt.Errorf("error heartbeating: %w", err)
 	}
+
+	r.maybeLogHeartbeatState(numActors, usedMemory)
 
 	r.heartbeatState.Lock()
 	if !r.heartbeatState.frozen {
@@ -741,6 +757,38 @@ func (r *environment) heartbeat() error {
 	}
 
 	return nil
+}
+
+func (r *environment) maybeLogHeartbeatState(
+	numActors int,
+	usedMemory int,
+) {
+	if time.Since(r.lastHearbeatLog) < 10*time.Second {
+		return
+	}
+	r.lastHearbeatLog = time.Now()
+
+	attrs := make([]slog.Attr, 0, 8)
+	attrs = append(attrs, slog.Int("num_actors", numActors))
+	attrs = append(attrs, slog.Int("used_memory", usedMemory))
+
+	var (
+		topByMem       = r.activations.topNByMem(10)
+		filtered       []string
+		thresholdBytes = 1 << 28
+	)
+	for _, a := range topByMem {
+		if a.memoryBytes > thresholdBytes {
+			filtered = append(filtered, fmt.Sprintf("%s(%d MiB)", a.id.String(), a.memoryBytes/1024/1024))
+		}
+	}
+
+	if len(filtered) > 0 {
+		attrs = append(attrs, slog.Int("logging_threshold_mib", thresholdBytes/1024/1024), slog.Any("actors", filtered))
+	}
+
+	r.log.LogAttrs(
+		context.Background(), slog.LevelInfo, "heartbeat state", attrs...)
 }
 
 // TODO: This is kind of a giant hack, but it's really only used for testing. The idea is that

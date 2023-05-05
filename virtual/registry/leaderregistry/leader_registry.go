@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
@@ -25,7 +24,7 @@ const (
 // registry knows which node / I.P address is the current "leader". It is
 // pluggable so various different leader-election solutions can be used.
 type LeaderProvider interface {
-	GetLeader() (net.IP, error)
+	GetLeader() (registry.Address, error)
 }
 
 type leaderRegistry struct {
@@ -43,12 +42,11 @@ func NewLeaderRegistry(
 	ctx context.Context,
 	lp LeaderProvider,
 	serverID string,
-	envPort int,
 	envOpts virtual.EnvironmentOptions,
 ) (registry.Registry, error) {
 	// TODO: Explain this.
 	resolver := newLeaderProviderToDNSResolver(lp)
-	reg, err := dnsregistry.NewDNSRegistryFromResolver(resolver, "", envPort, dnsregistry.DNSRegistryOptions{})
+	reg, err := dnsregistry.NewDNSRegistryFromResolver(resolver, "", dnsregistry.DNSRegistryOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("NewLeaderRegistry: error creating new DNS registry from resolver: %w", err)
 	}
@@ -60,6 +58,12 @@ func NewLeaderRegistry(
 	}
 
 	env.RegisterGoModule(types.NewNamespacedIDNoType(leaderNamespace, leaderModuleName), newLeaderActorModule())
+	server := virtual.NewServer(registry.NewNoopModuleStore(), env)
+	go func() {
+		if err := server.Start(envOpts.Discovery.Port); err != nil {
+			panic(err)
+		}
+	}()
 
 	return registry.NewValidatedRegistry(&leaderRegistry{
 		env: env,
@@ -268,7 +272,6 @@ func (a *leaderActor) handleEnsureActivation(
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling JSON for activation: %w", err)
 		}
-		fmt.Println("activation", a)
 		activations = append(activations, marshaled)
 	}
 	marshaled, err := json.Marshal(&ensureActivationResponse{
@@ -319,7 +322,7 @@ func newLeaderProviderToDNSResolver(lp LeaderProvider) dnsregistry.DNSResolver {
 	}
 }
 
-func (lp *leaderProviderToDNSResolver) LookupIP(host string) ([]net.IP, error) {
+func (lp *leaderProviderToDNSResolver) LookupIP(host string) ([]registry.Address, error) {
 	// Ignore the host parameter because it doesn't matter, the leader-provider will
 	// already be hard-coded with how to resolve the leader.
 	leader, err := lp.lp.GetLeader()
@@ -327,7 +330,7 @@ func (lp *leaderProviderToDNSResolver) LookupIP(host string) ([]net.IP, error) {
 		return nil, fmt.Errorf("error resolving leader from leader provider: %w", err)
 	}
 
-	return []net.IP{leader}, nil
+	return []registry.Address{leader}, nil
 }
 
 type heartbeatRequest struct {

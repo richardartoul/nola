@@ -1,6 +1,7 @@
 package virtual
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/google/btree"
@@ -34,6 +35,7 @@ func (m *actorResourceTracker) track(
 ) {
 	m.Lock()
 	defer m.Unlock()
+	defer m.assertInvariantsWithLock()
 
 	// First, find the actor (if it exists) and updates its current memory usage.
 	curr, ok := m._actors[id]
@@ -54,6 +56,13 @@ func (m *actorResourceTracker) track(
 		m._topActorsByMem.ReplaceOrInsert(actorByMem{id: id, memoryBytes: memUsageBytes})
 	}
 }
+
+// func (m *actorResourceTracker) delete(id types.NamespacedActorID) {
+// 	m.Lock()
+// 	defer m.Unlock()
+// 	defer m.assertInvariantsWithLock()
+// 	delete(m._actors, id)
+// }
 
 func (m *actorResourceTracker) memUsageBytes() int {
 	m.Lock()
@@ -95,6 +104,20 @@ func (m *actorResourceTracker) bottomNByMemory(n int) []actorByMem {
 	})
 
 	return bottomN
+}
+
+func (m *actorResourceTracker) assertInvariantsWithLock() {
+	if len(m._actors) != (m._topActorsByMem.Len()) {
+		panic(fmt.Sprintf(
+			"[invariant violated] len(m._actors) %d != m._topActorsByMem.Len() %d",
+			len(m._actors), m._topActorsByMem.Len()))
+	}
+
+	if len(m._actors) == 0 && m._currMemoryUsageBytes != 0 {
+		panic(fmt.Sprintf(
+			"[invariant violated] len(m._actors) == 0 but m._currMemoryUsageBytes == %d",
+			m._currMemoryUsageBytes))
+	}
 }
 
 type actorResources struct {

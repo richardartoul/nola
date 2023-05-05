@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"net"
 
 	"github.com/richardartoul/nola/virtual/types"
 )
@@ -168,4 +169,11 @@ type EnsureActivationRequest struct {
 	// track of that information and ensure the actor is activated elsewhere / balanced
 	// properly.
 	BlacklistedServerID string `json:"blacklisted_server_id"`
+}
+
+// Address is a tuple of net.IP and port so that the implementation can
+// be used without assuming every server is running on the same port.
+type Address struct {
+	IP   net.IP
+	Port int
 }
