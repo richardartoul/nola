@@ -88,10 +88,9 @@ func (h *hostCapabilities) ScheduleSelfTimer(
 	payloadCopy := make([]byte, len(req.Payload))
 	copy(payloadCopy, req.Payload)
 
-	// TODO: When the actor gets GC'd (which is not currently implemented), this
-	//       timer won't get GC'd with it. We should keep track of all outstanding
-	//       timers with the instantiation and terminate them if the actor is
-	//       killed.
+	// TODO: When the actor gets GC'd this timer won't get GC'd with it. We
+	// should keep track of all outstanding timers with the instantiation and
+	// terminate them if the actor is killed, but its fine for now.
 	time.AfterFunc(time.Duration(req.AfterMillis)*time.Millisecond, func() {
 		reader, err := h.activations.invoke(
 			context.Background(), h.reference, req.Operation, nil, payloadCopy, true)

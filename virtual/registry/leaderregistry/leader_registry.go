@@ -37,17 +37,42 @@ type leaderRegistry struct {
 	server *virtual.Server
 }
 
-// LeaderRegistry creates a new leader-backed registry.
-// TODO: Explain what this means. Explain options.
+// LeaderRegistry creates a new leader-backed registry. The idea with the LeaderRegistry is
+// that the user provides an implementation of LeaderProvider that uses some external mechanism
+// to elect one of the NOLA nodes as the "leader" at any given moment.
+//
+// The node that is elected as the leader then runs an "in-memory" registry implementation. While
+// the user must provide a leader election implementation via the LeaderProvider interface, the
+// LeaderRegistry implementation takes care of all the actual registry logic, as well as routing
+// all registry requests to whichever I.P address the LeaderProvider says is the current leader.
+//
+// See the comments in the method body below for more details for how the implementation works
+// (by leveraging NOLA recursively).
 func NewLeaderRegistry(
 	ctx context.Context,
 	lp LeaderProvider,
 	serverID string,
 	envOpts virtual.EnvironmentOptions,
 ) (registry.Registry, error) {
-	// TODO: Explain this.
+	// This is a bit of a hack/shortcut, but TLDR is that the LeaderRegistry implementation needs
+	// some way for each registry implementation running on each server to "route" requests to
+	// the current leader. Instead of writing a bunch of boilerplate client/server code for this,
+	// I "cheated" by creating a child NOLA "cluster" that connects all the LeaderRegistries. This
+	// "child" NOLA cluster uses the DNSRegistry implementation to run the "local in-memory KV"
+	// registry implementation as a singleton actor.
+	//
+	// Basically each node running the leaderregistry code is constantly updating a child NOLA
+	// "cluster" running the dnsregistry with a single I.P address that corresponds to the leader
+	// and therefore all registry requests will eventually get routed to whichever node the
+	// LeaderProvider says is the current leader. Running the local in-memory KV registry as an actor
+	// in that NOLA cluster lets us re-use all of the in-memory KV code within the distributed
+	// environment.
+	//
+	// So... it's turtles all the way down unfortunately, but this saves a *lot* of code that would
+	// have to be written to achieve a similar (or worse) effect.
 	resolver := newLeaderProviderToDNSResolver(lp)
-	reg, err := dnsregistry.NewDNSRegistryFromResolver(resolver, "", dnsregistry.DNSRegistryOptions{})
+	reg, err := dnsregistry.NewDNSRegistryFromResolver(
+		resolver, "", dnsregistry.DNSRegistryOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("NewLeaderRegistry: error creating new DNS registry from resolver: %w", err)
 	}
@@ -110,8 +135,28 @@ func (l *leaderRegistry) EnsureActivation(
 func (l *leaderRegistry) GetVersionStamp(
 	ctx context.Context,
 ) (int64, error) {
-	// TODO: DOes this make sense?
-	// Must always return 1 because <= 0 is not a legal versionstamp in the system.
+	// For now we return dnsregistry.DNSVersionstamp so we can tap into the same
+	// logic in environment.go that is leveraged by the dnsregistry to make the
+	// versionstamp operations (GetVersionStamp() and the versionstamp returned
+	// in Heartbeat()) all basicall no-ops. This is fine because the leaderregistry
+	// implementation does not attempt to guarantee linearizability like the FDB
+	// registry does. Note that since there *is* a leader which can provide a
+	// monotonic clock, we could just return the equivalent of
+	// l.env.Invoke(leaderActor, localKV.getVersionStamp()) here and use the local
+	// KV's time.Since() implementation as the versionstamp. This would be completely
+	// linearizable except when the leader changes which would require some extra
+	// logic to be added (proably in the LeaderProvider implementation).
+	//
+	// For now we ignore all of that and just do what the dnsregistry does because
+	// again, we don't care about linearizability for this implementation. However,
+	// we should still consider providing a real monotonically increasing value here
+	// because it's useful for other things, like how activations_cache.go used it
+	// to "sequence" concurrent cache refreshes and make sure the cache only retains
+	// registry results that are "newer" than whatever is already cached (see the
+	// comments in activation_cache.go for more details). Actually... technically
+	// activations_cache.go is fine right now because it uses the versionstamp from
+	// the EnsureActivation() method which *is* currently leveraging the leader's
+	// monotonically incrementing clock so go figure.
 	return dnsregistry.DNSVersionStamp, nil
 }
 
@@ -223,8 +268,7 @@ func (a *leaderActor) Invoke(
 	case "ensureActivation":
 		return a.handleEnsureActivation(ctx, payload)
 	case "getVersionStamp":
-		// TODO: Implement me.
-		return nil, errors.New("ensureActivation not implemented")
+		return nil, errors.New("getVersionStamp not implemented")
 	case "beginTransaction":
 		return nil, errors.New("beginTransaction not implemented")
 	case "heartbeat":

@@ -114,8 +114,6 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		require.Equal(t, "test-module1", activations.References[0].ModuleID().ID)
 		require.Equal(t, "ns1", activations.References[0].ActorID().Namespace)
 		require.Equal(t, "a", activations.References[0].ActorID().ID)
-		require.True(t, activations.VersionStamp > prevVS)
-		prevVS = activations.VersionStamp
 	}
 
 	// Reuse the same actor ID, but with a different module. The registry should consider

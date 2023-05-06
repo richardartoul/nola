@@ -22,7 +22,7 @@ type hostFnActorReferenceCtxKey struct{}
 // lazyTransaction from the context.
 type hostFnActorTxnKey struct{}
 
-// TODO: Should have some kind of ACL enforcement polic here, but for now allow any module to
+// TODO: Should have some kind of ACL enforcement policy here, but for now allow any module to
 // run any host function.
 func newHostFnRouter(
 	log *slog.Logger,
@@ -109,12 +109,10 @@ func newHostFnRouter(
 			payloadCopy := make([]byte, len(req.Payload))
 			copy(payloadCopy, req.Payload)
 
-			// TODO: When the actor gets GC'd (which is not currently implemented), this
-			//       timer won't get GC'd with it. We should keep track of all outstanding
-			//       timers with the instantiation and terminate them if the actor is
-			//       killed.
+			// TODO: When the actor gets GC'd, this timer won't get GC'd with it. We
+			// should keep track of all outstanding timers with the instantiation and
+			// terminate them if the actor is killed, but it's fine for now.
 			time.AfterFunc(time.Duration(req.AfterMillis)*time.Millisecond, func() {
-				// TODO: Fix generation number.
 				reader, err := activations.invoke(context.Background(), actorRef, req.Operation, nil, payloadCopy, true)
 				if err == nil {
 					if reader != nil {

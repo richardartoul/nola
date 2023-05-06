@@ -89,8 +89,7 @@ type CreateActorResult struct{}
 // achieve uniformity.
 //
 // TODO: This should include things like how many CPU seconds and memory the actors are
-//
-//	using, etc for hotspot detection.
+// using, etc for hotspot detection.
 type HeartbeatState struct {
 	// NumActivatedActors is the number of actors currently activated on the server.
 	NumActivatedActors int `json:"num_activated_actors"`

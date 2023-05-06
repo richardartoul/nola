@@ -26,7 +26,6 @@ import (
 
 const (
 	// TODO: This should be configurable.
-	// TODO: Does 1 minute make sense as a default?
 	activationBlacklistCacheTTL = time.Minute
 )
 

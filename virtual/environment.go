@@ -551,9 +551,6 @@ func (r *environment) InvokeActorDirectStream(
 		return nil, fmt.Errorf("versionStamp must be >= 0, but was: %d", versionStamp)
 	}
 
-	// TODO: Delete me, but useful for now.
-	// log.Printf("%d::%s:%s::%s::%s\n", versionStamp, serverID, reference.ModuleID().ID, reference.ActorID().ID, operation)
-
 	r.heartbeatState.RLock()
 	heartbeatResult := r.heartbeatState.HeartbeatResult
 	r.heartbeatState.RUnlock()

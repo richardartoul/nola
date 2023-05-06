@@ -23,11 +23,8 @@ const (
 	// TODO: Should be configurable.
 	HeartbeatTTL = 5 * time.Second
 
-	// RebalanceMemoryThreshold is the minimum delta between the memory usage of the
-	// minimum and maximum servers before the registry will begin making balancing
-	// decisions based on memory usage.
-	// TODO: Replace magic constant with config option.
-	RebalanceMemoryThreshold = 1 << 31
+	// 2GiB, see KVRegistryOptions.RebalanceMemoryThreshold for more details.
+	DefaultRebalanceMemoryThreshold = 1 << 31
 )
 
 var (
@@ -58,6 +55,14 @@ type KVRegistryOptions struct {
 	// of features like balancing actors across servers.
 	DisableHighConflictOperations bool
 
+	// RebalanceMemoryThreshold is the minimum delta between the memory usage of the
+	// minimum and maximum servers before the registry will begin making balancing
+	// decisions based on memory usage.
+	RebalanceMemoryThreshold int
+	// DisableMemoryRebalancing will disable rebalancing actors based on memory
+	// usage if set.
+	DisableMemoryRebalancing bool
+
 	// Logger is a logging instance used for logging messages.
 	// If no logger is provided, the default logger from the slog
 	// package (slog.Default()) will be used.
@@ -68,6 +73,9 @@ type KVRegistryOptions struct {
 func NewKVRegistry(kv kv.Store, opts KVRegistryOptions) Registry {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
+	}
+	if opts.RebalanceMemoryThreshold <= 0 {
+		opts.RebalanceMemoryThreshold = DefaultRebalanceMemoryThreshold
 	}
 
 	return NewValidatedRegistry(&kvRegistry{
@@ -285,7 +293,7 @@ func (k *kvRegistry) EnsureActivation(
 				return nil, fmt.Errorf("0 live servers available for new activation")
 			}
 
-			selected := pickServerForActivation(liveServers)
+			selected := pickServerForActivation(liveServers, k.opts)
 			serverID = selected.ServerID
 			serverAddress = selected.HeartbeatState.Address
 			serverVersion = selected.ServerVersion
@@ -464,7 +472,10 @@ func (k *kvRegistry) Heartbeat(
 		// Next, check if we should ask the server to shed some load to force
 		// rebalancing.
 		//
-		// TODO: Unit test this logic in this package.
+		// TODO: The load balancing logic should probably be tested in this
+		// package directly, but right now its tested in environment.go and
+		// examples/leaderregistry/main_test.go
+
 		liveServers, err := getLiveServers(ctx, vs, tr)
 		if err != nil {
 			return nil, fmt.Errorf("error getting live servers during heartbeat for load balancing: %w", err)
@@ -479,7 +490,7 @@ func (k *kvRegistry) Heartbeat(
 
 		min, max := minMaxMemUsage(liveServers)
 		delta := max.HeartbeatState.UsedMemory - min.HeartbeatState.UsedMemory
-		if delta > RebalanceMemoryThreshold && max.ServerID == serverID {
+		if delta > k.opts.RebalanceMemoryThreshold && max.ServerID == serverID {
 			// If the server currently heartbeating is also the server with the highest memory usage
 			// and its memory usage delta vs. the server with the lowest memory usage is above the
 			// threshold, ask it to shed some actors to balance memory usage.
@@ -682,13 +693,24 @@ func getLiveServers(
 //
 // TODO: Would be nice to make this function pluggable/injectable for easier testing and to make the
 // system more flexible for more use cases.
-func pickServerForActivation(available []serverState) serverState {
+func pickServerForActivation(
+	available []serverState,
+	opts KVRegistryOptions,
+) serverState {
 	if len(available) == 0 {
 		panic("[invariant violated] pickServerForActivation should not be called with empty slice")
 	}
 
 	sort.Slice(available, func(i, j int) bool {
 		sI, sJ := available[i], available[j]
+		if opts.DisableMemoryRebalancing {
+			// Memory load balancing is disabled, so just look at number of activated
+			// actors.
+			return sI.HeartbeatState.NumActivatedActors < sJ.HeartbeatState.NumActivatedActors
+		}
+
+		// Memory load balancing is enabled so we need to look at memory usage *and*
+		// number of activated actors (as a tie breaker).
 		var (
 			minMemUsage = sI
 			maxMemUsage = sJ
@@ -697,44 +719,13 @@ func pickServerForActivation(available []serverState) serverState {
 			minMemUsage = sJ
 			maxMemUsage = sI
 		}
-		if maxMemUsage.HeartbeatState.UsedMemory-minMemUsage.HeartbeatState.UsedMemory > RebalanceMemoryThreshold {
+		if maxMemUsage.HeartbeatState.UsedMemory-minMemUsage.HeartbeatState.UsedMemory > opts.RebalanceMemoryThreshold {
 			return minMemUsage == sI
 		}
 		return sI.HeartbeatState.NumActivatedActors < sJ.HeartbeatState.NumActivatedActors
 	})
 
 	return available[0]
-
-	// TODO: Delete me.
-	// var last serverState
-	// for i, s := range available {
-	// 	if i == 0 {
-	// 		last = s
-	// 		continue
-	// 	}
-
-	// 	if s.
-	// }
-	// if len(available) == 1 {
-	// 	return available[0]
-	// }
-
-	// if available[0].HeartbeatState.UsedMemory
-
-	// minMemUsage, maxMemUsage := minMaxMemUsage(available)
-	// if maxMemUsage.HeartbeatState.UsedMemory-minMemUsage.HeartbeatState.UsedMemory > RebalanceMemoryThreshold {
-	// 	// If there is a large enough delta in memory usage between the minimum and maximum
-	// 	// memory usage of servers in the cluster, assign new actors to the server with the
-	// 	// lowest memory usage.
-	// 	return minMemUsage
-	// }
-
-	// // Otherwise just try and keep an even balance in terms of the # of actors on each server.
-	// sort.Slice(available, func(i, j int) bool {
-	// 	return available[i].HeartbeatState.NumActivatedActors < available[j].HeartbeatState.NumActivatedActors
-	// })
-
-	// return available[0]
 }
 
 func minMaxMemUsage(available []serverState) (serverState, serverState) {

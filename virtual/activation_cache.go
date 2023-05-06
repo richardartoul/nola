@@ -180,6 +180,11 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			// versionstamp which ensures that we never overwrite the cache with a more
 			// stale result due to async non-determinism.
 			existingAce := existingAceI.(activationCacheEntry)
+			// Note that it is important that we allow the cache to be overwritten in the
+			// case where existingAce.registryVersionStamp == ace.registryVersionStamp because
+			// some registry implementations like dnsregistry (in the current implementation at
+			// least) always return the exact same constant value for the versionstamp so we need
+			// to ensure that the cache will still eventually update in that case.
 			if existingAce.registryVersionStamp > ace.registryVersionStamp {
 				return existingAce.references, nil
 			}
