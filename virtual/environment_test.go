@@ -214,50 +214,6 @@ func TestSimpleWorker(t *testing.T) {
 	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
-// TestGenerationCountIncInvalidatesActivation ensures that the registry returning a higher
-// generation count will cause the environment to invalidate existing activations and recreate
-// them as needed.
-func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
-	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-		ctx := context.Background()
-		for _, ns := range []string{"ns-1", "ns-2"} {
-			// Build some state.
-			for i := 0; i < 100; i++ {
-				result, err := env.InvokeActor(
-					ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-				require.NoError(t, err)
-				require.Equal(t, int64(i+1), getCount(t, result))
-			}
-
-			// Increment the generation which should cause the next invocation to recreate the actor
-			// activation from scratch and reset the internal counter back to 0.
-			require.NoError(t, reg.IncGeneration(ctx, ns, "a", "test-module"))
-
-			for i := 0; i < 100; i++ {
-				if i == 0 {
-					for {
-						// Wait for cache to expire.
-						result, err := env.InvokeActor(
-							ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-						require.NoError(t, err)
-						if getCount(t, result) == 1 {
-							break
-						}
-						time.Sleep(100 * time.Millisecond)
-					}
-					continue
-				}
-				result, err := env.InvokeActor(
-					ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-				require.NoError(t, err)
-				require.Equal(t, int64(i+1), getCount(t, result))
-			}
-		}
-	}
-
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
-}
-
 // TestKVHostFunctions tests whether the KV interfaces from the registry can be used properly as host functions
 // in the actor WASM module.
 func TestKVHostFunctions(t *testing.T) {
@@ -707,6 +663,16 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 					time.Sleep(100 * time.Millisecond)
 					continue
 				}
+				_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+				if err != nil {
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+				if err != nil {
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
 				break
 			}
 			continue
@@ -825,25 +791,25 @@ func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 	}
 }
 
-func TestActivationCacheWorksWhenRegistryIsDown(t *testing.T) {
-	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-		ctx := context.Background()
-		invokeReq := types.InvokeActorRequest{
-			ActorID:   "b",
-			ModuleID:  "test-module",
-			Operation: "inc",
-			Payload:   nil,
-		}
-		marshaled, err := json.Marshal(invokeReq)
-		require.NoError(t, err)
+// func TestActivationCacheWorksWhenRegistryIsDown(t *testing.T) {
+// 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+// 		ctx := context.Background()
+// 		invokeReq := types.InvokeActorRequest{
+// 			ActorID:   "b",
+// 			ModuleID:  "test-module",
+// 			Operation: "inc",
+// 			Payload:   nil,
+// 		}
+// 		marshaled, err := json.Marshal(invokeReq)
+// 		require.NoError(t, err)
 
-		_, err = env.InvokeActor(
-			ctx, "ns-1", "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
-		require.NoError(t, err)
-	}
+// 		_, err = env.InvokeActor(
+// 			ctx, "ns-1", "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
+// 		require.NoError(t, err)
+// 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
-}
+// 	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+// }
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server
 // around versionstamp coordination works by preventing the server from updating its

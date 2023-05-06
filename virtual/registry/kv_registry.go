@@ -197,46 +197,10 @@ func (k *kvRegistry) createActor(
 	return CreateActorResult{}, nil
 }
 
-func (k *kvRegistry) IncGeneration(
-	ctx context.Context,
-	namespace,
-	actorID string,
-	moduleID string,
-) error {
-	actorKey := getActorKey(namespace, actorID, moduleID)
-	_, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
-		ra, ok, err := k.getActor(ctx, tr, actorKey)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return RegisterModuleResult{}, fmt.Errorf(
-				"error incrementing generation for actor with ID: %s, actor does not exist in namespace: %s",
-				actorID, namespace)
-		}
-
-		ra.Generation++
-
-		marshaled, err := json.Marshal(&ra)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling registered actor: %w", err)
-		}
-
-		tr.Put(ctx, actorKey, marshaled)
-
-		return nil, nil
-	})
-	if err != nil {
-		return fmt.Errorf("IncGeneration: error: %w", err)
-	}
-
-	return nil
-}
-
 func (k *kvRegistry) EnsureActivation(
 	ctx context.Context,
 	req EnsureActivationRequest,
-) ([]types.ActorReference, error) {
+) (EnsureActivationResult, error) {
 	actorKey := getActorKey(req.Namespace, req.ActorID, req.ModuleID)
 	references, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
 		ra, ok, err := k.getActor(ctx, tr, actorKey)
@@ -359,13 +323,16 @@ func (k *kvRegistry) EnsureActivation(
 			return nil, fmt.Errorf("error creating new actor reference: %w", err)
 		}
 
-		return []types.ActorReference{ref}, nil
+		return EnsureActivationResult{
+			References:   []types.ActorReference{ref},
+			VersionStamp: vs,
+		}, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("EnsureActivation: error: %w", err)
+		return EnsureActivationResult{}, fmt.Errorf("EnsureActivation: error: %w", err)
 	}
 
-	return references.([]types.ActorReference), nil
+	return references.(EnsureActivationResult), nil
 }
 
 func (k *kvRegistry) GetVersionStamp(

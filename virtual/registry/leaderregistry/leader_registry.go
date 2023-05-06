@@ -70,50 +70,33 @@ func NewLeaderRegistry(
 	}), nil
 }
 
-func (l *leaderRegistry) IncGeneration(
-	ctx context.Context,
-	namespace,
-	actorID string,
-	moduleID string,
-) error {
-	req := incGenerationRequest{
-		Namespace: namespace,
-		ActorID:   actorID,
-		ModuleID:  moduleID,
-	}
-
-	err := l.env.InvokeActorJSON(
-		ctx, leaderNamespace, leaderActorName, leaderModuleName,
-		"incGeneration", &req, types.CreateIfNotExist{}, nil)
-	if err != nil {
-		return fmt.Errorf("error incrementing generation on leader: %w", err)
-	}
-
-	return nil
-}
-
 func (l *leaderRegistry) EnsureActivation(
 	ctx context.Context,
 	req registry.EnsureActivationRequest,
-) ([]types.ActorReference, error) {
+) (registry.EnsureActivationResult, error) {
 	var ensureActivationResponse ensureActivationResponse
 	err := l.env.InvokeActorJSON(
 		ctx, leaderNamespace, leaderActorName, leaderModuleName,
 		"ensureActivation", &req, types.CreateIfNotExist{}, &ensureActivationResponse)
 	if err != nil {
-		return nil, fmt.Errorf("error invoking ensureActivation on leader: %w", err)
+		return registry.EnsureActivationResult{}, fmt.Errorf(
+			"error invoking ensureActivation on leader: %w", err)
 	}
 
 	references := make([]types.ActorReference, 0, len(ensureActivationResponse.Activations))
 	for _, a := range ensureActivationResponse.Activations {
 		ref, err := types.NewActorReferenceFromJSON(a)
 		if err != nil {
-			return nil, fmt.Errorf("error unmarshaling actor reference from JSON: %w", err)
+			return registry.EnsureActivationResult{}, fmt.Errorf(
+				"error unmarshaling actor reference from JSON: %w", err)
 		}
 		references = append(references, ref)
 	}
 
-	return references, nil
+	return registry.EnsureActivationResult{
+		References:   references,
+		VersionStamp: ensureActivationResponse.VersionStamp,
+	}, nil
 }
 
 func (l *leaderRegistry) GetVersionStamp(
@@ -219,8 +202,6 @@ func (a *leaderActor) Invoke(
 		return nil, nil
 	case wapcutils.ShutdownOperationName:
 		return nil, nil
-	case "incGeneration":
-		return a.handleIncGeneration(ctx, payload)
 	case "ensureActivation":
 		return a.handleEnsureActivation(ctx, payload)
 	case "getVersionStamp":
@@ -237,22 +218,6 @@ func (a *leaderActor) Invoke(
 	}
 }
 
-func (a *leaderActor) handleIncGeneration(
-	ctx context.Context,
-	payload []byte,
-) ([]byte, error) {
-	var req incGenerationRequest
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("error unmarshaling incGenerationRequest: %w", err)
-	}
-	err := a.registry.IncGeneration(ctx, req.Namespace, req.ActorID, req.ModuleID)
-	if err != nil {
-		return nil, fmt.Errorf("error incrementing generation: %w", err)
-	}
-
-	return nil, nil
-}
-
 func (a *leaderActor) handleEnsureActivation(
 	ctx context.Context,
 	payload []byte,
@@ -266,8 +231,8 @@ func (a *leaderActor) handleEnsureActivation(
 		return nil, fmt.Errorf("error ensuring activation: %w", err)
 	}
 
-	activations := make([][]byte, 0, len(result))
-	for _, a := range result {
+	activations := make([][]byte, 0, len(result.References))
+	for _, a := range result.References {
 		marshaled, err := a.MarshalJSON()
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling JSON for activation: %w", err)
@@ -275,7 +240,8 @@ func (a *leaderActor) handleEnsureActivation(
 		activations = append(activations, marshaled)
 	}
 	marshaled, err := json.Marshal(&ensureActivationResponse{
-		Activations: activations,
+		Activations:  activations,
+		VersionStamp: result.VersionStamp,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling ensureActivation result: %w", err)
@@ -338,18 +304,7 @@ type heartbeatRequest struct {
 	HeartbeatState registry.HeartbeatState `json:"heartbeat_state"`
 }
 
-type ensureActivationRequest struct {
-	Namespace string `json:"namespace"`
-	ActorID   string `json:"actor_id"`
-	ModuleID  string `json:"heartbeat_state"`
-}
-
 type ensureActivationResponse struct {
-	Activations [][]byte
-}
-
-type incGenerationRequest struct {
-	Namespace string `json:"namespace"`
-	ActorID   string `json:"actor_id"`
-	ModuleID  string `json:"heartbeat_state"`
+	Activations  [][]byte
+	VersionStamp int64
 }

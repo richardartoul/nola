@@ -12,15 +12,6 @@ type Registry interface {
 	ActorStorage
 	ServiceDiscovery
 
-	// IncGeneration increments the actor's generation count. This is useful for ensuring
-	// that all actor activations are invalidated and recreated.
-	IncGeneration(
-		ctx context.Context,
-		namespace,
-		actorID string,
-		moduleID string,
-	) error
-
 	// EnsureActivation checks the registry to see if the provided actor is already
 	// activated, and if so it returns an ActorReference that points to its activated
 	// location. Otherwise, the registry will pick a location to activate the actor at
@@ -34,7 +25,7 @@ type Registry interface {
 	EnsureActivation(
 		ctx context.Context,
 		req EnsureActivationRequest,
-	) ([]types.ActorReference, error)
+	) (EnsureActivationResult, error)
 
 	// GetVersionStamp() returns a monotonically increasing integer that should increase
 	// at a rate of ~ 1 million/s.
@@ -157,8 +148,8 @@ type RegisterModuleResult struct{}
 // EnsureActiationRequest contains the arguments for the EnsureActivation method.
 type EnsureActivationRequest struct {
 	Namespace string `json:"namespace"`
-	ActorID   string `json:"actor_id"`
 	ModuleID  string `json:"module_id"`
+	ActorID   string `json:"actor_id"`
 
 	// BlacklistedServerID is set if the caller is calling the EnsureActivation method
 	// after receiving an error from the server the actor is *supposed* to be activated
@@ -169,6 +160,12 @@ type EnsureActivationRequest struct {
 	// track of that information and ensure the actor is activated elsewhere / balanced
 	// properly.
 	BlacklistedServerID string `json:"blacklisted_server_id"`
+}
+
+// EnsureActivationResult contains the result of invoking the EnsureActivation method.
+type EnsureActivationResult struct {
+	References   []types.ActorReference
+	VersionStamp int64
 }
 
 // Address is a tuple of net.IP and port so that the implementation can

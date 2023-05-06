@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/richardartoul/nola/virtual/types"
 )
 
 var (
@@ -84,30 +82,15 @@ func (v *validator) GetModule(
 	return moduleStore.GetModule(ctx, namespace, moduleID)
 }
 
-func (v *validator) IncGeneration(
-	ctx context.Context,
-	namespace,
-	actorID string,
-	moduuleID string,
-) error {
-	if err := validateString("namespace", namespace); err != nil {
-		return err
-	}
-	if err := validateString("actorID", actorID); err != nil {
-		return err
-	}
-	return v.r.IncGeneration(ctx, namespace, actorID, moduuleID)
-}
-
 func (v *validator) EnsureActivation(
 	ctx context.Context,
 	req EnsureActivationRequest,
-) ([]types.ActorReference, error) {
+) (EnsureActivationResult, error) {
 	if err := validateString("namespace", req.Namespace); err != nil {
-		return nil, err
+		return EnsureActivationResult{}, err
 	}
 	if err := validateString("actorID", req.ActorID); err != nil {
-		return nil, err
+		return EnsureActivationResult{}, err
 	}
 	return v.r.EnsureActivation(ctx, req)
 }

@@ -538,7 +538,7 @@ func (a *activations) shedMemUsage(numBytes int) {
 			a._blacklist.SetWithTTL(key, nil, 1, activationBlacklistCacheTTL)
 			a.log.Info(
 				"shedding actor to reduce memory usage",
-				slog.String("actor", v.id.String()))
+				slog.String("actor_id", v.id.String()))
 		}
 	}
 
@@ -577,13 +577,17 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 
 			actor, err := futActor.Wait()
 			if err != nil {
-				a.log.Error("failed to resolve actor future during activations clean shutdown", slog.String("actor", actorId.ID), slog.Any("error", err))
+				a.log.Error(
+					"failed to resolve actor future during activations clean shutdown",
+					slog.String("actor_id", actorId.ID), slog.Any("error", err))
 				return
 			}
 
 			a._actorResourceTracker.track(actorId, 0)
 			if err := actor.close(ctx); err != nil {
-				a.log.Error("failed to close actor future during activations clean shutdown", slog.String("actor", actorId.ID), slog.Any("error", err))
+				a.log.Error(
+					"failed to close actor future during activations clean shutdown",
+					slog.String("actor_id", actorId.ID), slog.Any("error", err))
 				return
 			}
 
@@ -697,7 +701,8 @@ func (a *activatedActor) invoke(
 	}
 
 	if a._closed {
-		return 0, nil, fmt.Errorf("tried to invoke actor: %v which has already been closed", a._reference)
+		return 0, nil, fmt.Errorf(
+			"tried to invoke actor: %s which has already been closed", a._reference.ActorID())
 	}
 
 	// Set a._lastInvoke to now so that if the timer function runs after we release the lock it will

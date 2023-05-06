@@ -58,34 +58,35 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		ModuleID:  "test-module1",
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(activations))
-	require.Equal(t, "server1", activations[0].ServerID())
-	require.Equal(t, "server1_address", activations[0].Address())
-	require.Equal(t, "ns1", activations[0].Namespace())
-	require.Equal(t, "ns1", activations[0].ModuleID().Namespace)
-	require.Equal(t, "test-module1", activations[0].ModuleID().ID)
-	require.Equal(t, "ns1", activations[0].ActorID().Namespace)
-	require.Equal(t, "a", activations[0].ActorID().ID)
-	require.Equal(t, uint64(1), activations[0].Generation())
+	require.Equal(t, 1, len(activations.References))
+	require.Equal(t, "server1", activations.References[0].ServerID())
+	require.Equal(t, "server1_address", activations.References[0].Address())
+	require.Equal(t, "ns1", activations.References[0].Namespace())
+	require.Equal(t, "ns1", activations.References[0].ModuleID().Namespace)
+	require.Equal(t, "test-module1", activations.References[0].ModuleID().ID)
+	require.Equal(t, "ns1", activations.References[0].ActorID().Namespace)
+	require.Equal(t, "a", activations.References[0].ActorID().ID)
+	require.Equal(t, uint64(1), activations.References[0].Generation())
+	require.True(t, activations.VersionStamp > 0)
+	prevVS := activations.VersionStamp
 
-	// Ensure we get back all the same information but with the generation
-	// bumped now.
-	require.NoError(t, registry.IncGeneration(ctx, "ns1", "a", "test-module1"))
 	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
 		Namespace: "ns1",
 		ActorID:   "a",
 		ModuleID:  "test-module1",
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(activations))
-	require.Equal(t, "server1", activations[0].ServerID())
-	require.Equal(t, "server1_address", activations[0].Address())
-	require.Equal(t, "ns1", activations[0].Namespace())
-	require.Equal(t, "ns1", activations[0].ModuleID().Namespace)
-	require.Equal(t, "test-module1", activations[0].ModuleID().ID)
-	require.Equal(t, "ns1", activations[0].ActorID().Namespace)
-	require.Equal(t, "a", activations[0].ActorID().ID)
-	require.Equal(t, uint64(2), activations[0].Generation())
+	require.Equal(t, 1, len(activations.References))
+	require.Equal(t, "server1", activations.References[0].ServerID())
+	require.Equal(t, "server1_address", activations.References[0].Address())
+	require.Equal(t, "ns1", activations.References[0].Namespace())
+	require.Equal(t, "ns1", activations.References[0].ModuleID().Namespace)
+	require.Equal(t, "test-module1", activations.References[0].ModuleID().ID)
+	require.Equal(t, "ns1", activations.References[0].ActorID().Namespace)
+	require.Equal(t, "a", activations.References[0].ActorID().ID)
+	require.Equal(t, uint64(1), activations.References[0].Generation())
+	require.True(t, activations.VersionStamp > prevVS)
+	prevVS = activations.VersionStamp
 
 	// Add another server, this one with no existing activations.
 	newHeartbeatResult, err := registry.Heartbeat(ctx, "server2", HeartbeatState{
@@ -105,14 +106,16 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 			ModuleID:  "test-module1",
 		})
 		require.NoError(t, err)
-		require.Equal(t, 1, len(activations))
-		require.Equal(t, "server1", activations[0].ServerID())
-		require.Equal(t, "server1_address", activations[0].Address())
-		require.Equal(t, "ns1", activations[0].Namespace())
-		require.Equal(t, "ns1", activations[0].ModuleID().Namespace)
-		require.Equal(t, "test-module1", activations[0].ModuleID().ID)
-		require.Equal(t, "ns1", activations[0].ActorID().Namespace)
-		require.Equal(t, "a", activations[0].ActorID().ID)
+		require.Equal(t, 1, len(activations.References))
+		require.Equal(t, "server1", activations.References[0].ServerID())
+		require.Equal(t, "server1_address", activations.References[0].Address())
+		require.Equal(t, "ns1", activations.References[0].Namespace())
+		require.Equal(t, "ns1", activations.References[0].ModuleID().Namespace)
+		require.Equal(t, "test-module1", activations.References[0].ModuleID().ID)
+		require.Equal(t, "ns1", activations.References[0].ActorID().Namespace)
+		require.Equal(t, "a", activations.References[0].ActorID().ID)
+		require.True(t, activations.VersionStamp > prevVS)
+		prevVS = activations.VersionStamp
 	}
 
 	// Reuse the same actor ID, but with a different module. The registry should consider
@@ -123,14 +126,16 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		ModuleID:  "test-module2",
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(activations))
-	require.Equal(t, "server2", activations[0].ServerID())
-	require.Equal(t, "server2_address", activations[0].Address())
-	require.Equal(t, "ns1", activations[0].Namespace())
-	require.Equal(t, "ns1", activations[0].ModuleID().Namespace)
-	require.Equal(t, "test-module2", activations[0].ModuleID().ID)
-	require.Equal(t, "ns1", activations[0].ActorID().Namespace)
-	require.Equal(t, "a", activations[0].ActorID().ID)
+	require.Equal(t, 1, len(activations.References))
+	require.Equal(t, "server2", activations.References[0].ServerID())
+	require.Equal(t, "server2_address", activations.References[0].Address())
+	require.Equal(t, "ns1", activations.References[0].Namespace())
+	require.Equal(t, "ns1", activations.References[0].ModuleID().Namespace)
+	require.Equal(t, "test-module2", activations.References[0].ModuleID().ID)
+	require.Equal(t, "ns1", activations.References[0].ActorID().Namespace)
+	require.Equal(t, "a", activations.References[0].ActorID().ID)
+	require.True(t, activations.VersionStamp > prevVS)
+	prevVS = activations.VersionStamp
 
 	// Next 10 activations should all go to server2 for balancing purposes.
 	for i := 0; i < 10; i++ {
@@ -141,8 +146,8 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 			ModuleID:  "test-module1",
 		})
 		require.NoError(t, err)
-		require.Equal(t, 1, len(activations))
-		require.Equal(t, "server2", activations[0].ServerID())
+		require.Equal(t, 1, len(activations.References))
+		require.Equal(t, "server2", activations.References[0].ServerID())
 
 		_, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
 			NumActivatedActors: i + 1,
@@ -161,20 +166,20 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 			ModuleID:  "test-module1",
 		})
 		require.NoError(t, err)
-		require.Equal(t, 1, len(activations))
+		require.Equal(t, 1, len(activations.References))
 
 		if lastServerID == "" {
 		} else if lastServerID == "server1" {
-			require.Equal(t, "server2", activations[0].ServerID())
+			require.Equal(t, "server2", activations.References[0].ServerID())
 		} else {
-			require.Equal(t, "server1", activations[0].ServerID())
+			require.Equal(t, "server1", activations.References[0].ServerID())
 		}
-		_, err = registry.Heartbeat(ctx, activations[0].ServerID(), HeartbeatState{
+		_, err = registry.Heartbeat(ctx, activations.References[0].ServerID(), HeartbeatState{
 			NumActivatedActors: 10 + i + 1,
-			Address:            fmt.Sprintf("%s_address", activations[0].ServerID()),
+			Address:            fmt.Sprintf("%s_address", activations.References[0].ServerID()),
 		})
 		require.NoError(t, err)
-		lastServerID = activations[0].ServerID()
+		lastServerID = activations.References[0].ServerID()
 	}
 
 	// Wait for server1's heartbeat to expire.
@@ -200,8 +205,8 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 			ModuleID:  "test-module1",
 		})
 		require.NoError(t, err)
-		require.Equal(t, 1, len(activations))
-		require.Equal(t, "server2", activations[0].ServerID())
+		require.Equal(t, 1, len(activations.References))
+		require.Equal(t, "server2", activations.References[0].ServerID())
 	}
 }
 

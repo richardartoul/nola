@@ -16,7 +16,6 @@ import (
 	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
 	"github.com/richardartoul/nola/virtual/types"
 
-	"github.com/dgraph-io/ristretto"
 	"golang.org/x/exp/slog"
 )
 
@@ -41,9 +40,9 @@ type environment struct {
 	log *slog.Logger
 
 	// State.
-	activations     *activations // Internally synchronized.
-	activationCache *ristretto.Cache
-	lastHearbeatLog time.Time
+	activations      *activations // Internally synchronized.
+	activationsCache *activationsCache
+	lastHearbeatLog  time.Time
 
 	heartbeatState struct {
 		sync.RWMutex
@@ -239,19 +238,6 @@ func NewEnvironment(
 		client = newNOOPRemoteClient()
 	}
 
-	activationCache, err := ristretto.NewCache(&ristretto.Config{
-		NumCounters: maxNumActivationsToCache * 10, // * 10 per the docs.
-		// Maximum number of entries in cache (~1million). Note that
-		// technically this is a measure in bytes, but we pass a cost of 1
-		// always to make it behave as a limit on number of activations.
-		MaxCost: maxNumActivationsToCache,
-		// Recommended default.
-		BufferItems: 64,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error creating activationCache: %w", err)
-	}
-
 	host := Localhost
 	if opts.Discovery.DiscoveryType == DiscoveryTypeRemote {
 		selfIP, err := getSelfIP()
@@ -271,14 +257,21 @@ func NewEnvironment(
 		log: opts.Logger.With(
 			slog.String("module", "environment"),
 			slog.String("sub_service", "environment")),
-		activationCache: activationCache,
-		closeCh:         make(chan struct{}),
-		closedCh:        make(chan struct{}),
-		registry:        reg,
-		client:          client,
-		address:         address,
-		serverID:        serverID,
-		opts:            opts,
+		activationsCache: newActivationsCache(
+			reg,
+			opts.ActivationCacheTTL,
+			opts.DisableActivationCache,
+			opts.Logger.With(
+				slog.String("module", "environment"),
+				slog.String("sub_service", "activations_cache"),
+			)),
+		closeCh:  make(chan struct{}),
+		closedCh: make(chan struct{}),
+		registry: reg,
+		client:   client,
+		address:  address,
+		serverID: serverID,
+		opts:     opts,
 	}
 	activations := newActivations(
 		opts.Logger, reg, moduleStore, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
@@ -291,7 +284,7 @@ func NewEnvironment(
 	}
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
-	err = env.heartbeat()
+	err := env.heartbeat()
 	if err != nil {
 		if opts.Discovery.AllowFailedInitialHeartbeat {
 			opts.Logger.Error(
@@ -364,7 +357,7 @@ func (r *environment) InvokeActor(
 	reader, err := r.InvokeActorStream(
 		ctx, namespace, actorID, moduleID, operation, payload, create)
 	if err != nil {
-		return nil, fmt.Errorf("error invoking actor: %w", err)
+		return nil, fmt.Errorf("InvokeActor: error invoking actor: %w", err)
 	}
 
 	b, err := ioutil.ReadAll(reader)
@@ -420,25 +413,36 @@ func (r *environment) InvokeActorStream(
 	resp, err := r.invokeActorStreamHelper(
 		ctx, namespace, actorID, moduleID, operation, payload, create, "")
 	if err == nil {
+		fmt.Println(1, err, actorID)
 		return resp, nil
 	}
 
+	fmt.Println(2, err, actorID)
 	if IsBlacklistedActivationError(err) {
+		fmt.Println(3, err, actorID)
 		// If we received an error because the target server has blacklisted activations
 		// of this actor, then we'll invalidate our cache to force the subsequent call
 		// to lookup the actor's new activation location in the registry. We'll also set
 		// a flag on the call to the registry to indicate that the server has blacklisted
 		// that actor to ensure we get an activation on a different serer since the registry
 		// may not know about the blacklist yet.
-		bufIface, cacheKey := actorCacheKeyUnsafePooled(namespace, moduleID, actorID)
-		defer bufPool.Put(bufIface)
-		r.activationCache.Del(cacheKey)
-
+		r.activationsCache.delete(namespace, moduleID, actorID)
 		blacklistedServerID := err.(BlacklistedActivationErr).ServerID()
+
+		r.log.Warn(
+			"encountered blacklisted actor, forcing activation cache refresh and retrying",
+			slog.String("actor_id", fmt.Sprintf("%s::%s::%s", namespace, moduleID, actorID)),
+			slog.String("blacklisted_server_id", blacklistedServerID))
+
+		fmt.Println(4, err, actorID)
 		return r.invokeActorStreamHelper(
 			ctx, namespace, actorID, moduleID, operation, payload, create, blacklistedServerID)
+	} else {
+		fmt.Println(5, err)
+		panic("wtf")
 	}
 
+	fmt.Println(6, err)
 	return nil, err
 }
 
@@ -471,46 +475,10 @@ func (r *environment) invokeActorStreamHelper(
 		return nil, fmt.Errorf("error getting version stamp: %w", err)
 	}
 
-	bufIface, cacheKey := actorCacheKeyUnsafePooled(namespace, moduleID, actorID)
-	defer bufPool.Put(bufIface)
-
-	var (
-		references  []types.ActorReference
-		referencesI any = nil
-		ok              = false
-	)
-	if !r.opts.DisableActivationCache {
-		referencesI, ok = r.activationCache.Get(cacheKey)
-	}
-	if ok {
-		references = referencesI.([]types.ActorReference)
-	} else {
-		var err error
-		// TODO: Need a concurrency limiter on this thing.
-		// TODO: Actually maybe more importantly, shouldn't this be single flight?
-		references, err = r.registry.EnsureActivation(ctx, registry.EnsureActivationRequest{
-			Namespace: namespace,
-			ActorID:   actorID,
-			ModuleID:  moduleID,
-
-			BlacklistedServerID: blacklistedServerID,
-		})
-		if err != nil {
-			return nil, fmt.Errorf(
-				"error ensuring activation of actor: %s in registry: %w",
-				actorID, err)
-		}
-
-		// Note that we need to copy the cache key before we call Set() since it will be
-		// returned to the pool when this function returns.
-		cacheKeyClone := append([]byte(nil), cacheKey...)
-
-		// Set a TTL on the cache entry so that if the generation count increases
-		// it will eventually get reflected in the system even if its not immediate.
-		// Note that the purpose the generation count is is for code/setting upgrades
-		// so it does not need to take effect immediately.
-		// r.activationCache.SetWithTTL(cacheKeyClone, references, 1, r.opts.ActivationCacheTTL)
-		r.activationCache.Set(cacheKeyClone, references, 1)
+	references, err := r.activationsCache.ensureActivation(
+		ctx, namespace, moduleID, actorID, blacklistedServerID)
+	if err != nil {
+		return nil, fmt.Errorf("error ensuring actor activation: %w", err)
 	}
 	if len(references) == 0 {
 		return nil, fmt.Errorf(
@@ -538,7 +506,7 @@ func (r *environment) InvokeActorDirect(
 		ctx, versionStamp, serverID, serverVersion,
 		reference, operation, payload, create)
 	if err != nil {
-		return nil, fmt.Errorf("error invoking actor: %w", err)
+		return nil, fmt.Errorf("InvokeActorDirect: error invoking actor: %w", err)
 	}
 
 	b, err := ioutil.ReadAll(reader)

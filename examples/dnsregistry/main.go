@@ -65,16 +65,22 @@ func main() {
 				types.CreateIfNotExist{})
 			cc()
 			if err != nil {
-				log.Error("error calling actor", slog.String("actor", actorID), slog.Any("error", err))
+				log.Error(
+					"error calling actor",
+					slog.String("actor_id", actorID), slog.Any("error", err))
 				continue
 			}
 
 			v, err := strconv.ParseInt(string(resp), 10, 64)
 			if err != nil {
-				log.Error("actor returned unparseable response", slog.String("actor", actorID), slog.String("response", string(resp)))
+				log.Error(
+					"actor returned unparseable response",
+					slog.String("actor_id", actorID), slog.String("response", string(resp)))
 				os.Exit(1)
 			}
-			log.Info("actor responded", slog.String("actor", actorID), slog.Int64("response", v))
+			log.Info(
+				"actor responded",
+				slog.String("actor_id", actorID), slog.Int64("response", v))
 		}
 	}()
 

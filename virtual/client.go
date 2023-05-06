@@ -127,5 +127,5 @@ func (n *noopClient) InvokeActorRemote(
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	return nil, fmt.Errorf(
-		"noopClient: tried to invoke actor(%v) remotely using noop client. Instantiate Environment with a real client instead", reference)
+		"noopClient: tried to invoke actor(%s) remotely using noop client. Instantiate Environment with a real client instead", reference.ActorID())
 }

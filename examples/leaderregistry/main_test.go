@@ -44,13 +44,16 @@ func TestMemoryBalancing(t *testing.T) {
 	})
 
 	var (
-		server1 = newServer(t, lp, 0)
-		server2 = newServer(t, lp, 1)
-		server3 = newServer(t, lp, 2)
+		server1, reg1 = newServer(t, lp, 0)
+		server2, reg2 = newServer(t, lp, 1)
+		server3, reg3 = newServer(t, lp, 2)
 	)
 	defer server1.Close(context.Background())
 	defer server2.Close(context.Background())
 	defer server3.Close(context.Background())
+	defer reg1.Close(context.Background())
+	defer reg2.Close(context.Background())
+	defer reg3.Close(context.Background())
 
 	for i := 0; i < numActors; i++ {
 		_, err := server1.InvokeActor(
@@ -133,13 +136,15 @@ func TestSurviveLeaderFailure(t *testing.T) {
 		// TODO: We should add this as a setting to the leaderregistry to make it so
 		//       the leader never assigns itself any actors and if it has any once
 		//       it becomes the leader, it will drain them.
-		reg1    = newRegistry(t, lp, 0)
-		server2 = newServer(t, lp, 1)
-		server3 = newServer(t, lp, 2)
+		reg1          = newRegistry(t, lp, 0)
+		server2, reg2 = newServer(t, lp, 1)
+		server3, reg3 = newServer(t, lp, 2)
 	)
 	defer reg1.Close(context.Background())
 	defer server2.Close(context.Background())
 	defer server3.Close(context.Background())
+	defer reg2.Close(context.Background())
+	defer reg3.Close(context.Background())
 
 	for i := 0; i < numActors; i++ {
 		_, err := server2.InvokeActor(
@@ -192,7 +197,7 @@ func newServer(
 	t *testing.T,
 	lp leaderregistry.LeaderProvider,
 	idx int,
-) virtual.Environment {
+) (virtual.Environment, registry.Registry) {
 	reg := newRegistry(t, lp, idx)
 
 	var (
@@ -224,7 +229,7 @@ func newServer(
 		}
 	}()
 
-	return env
+	return env, reg
 }
 
 func newRegistry(

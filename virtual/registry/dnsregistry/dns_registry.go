@@ -119,25 +119,17 @@ func NewDNSRegistryFromResolver(
 	return d, nil
 }
 
-func (d *dnsRegistry) IncGeneration(
-	ctx context.Context,
-	namespace,
-	actorID string,
-	moduleID string,
-) error {
-	return errors.New("DNSRegistry: IncGeneration: not implemented")
-}
-
 func (d *dnsRegistry) EnsureActivation(
 	ctx context.Context,
 	req registry.EnsureActivationRequest,
-) ([]types.ActorReference, error) {
+) (registry.EnsureActivationResult, error) {
 	d.RLock()
 	ring := d.hashRing
 	d.RUnlock()
 
 	if ring.IsEmpty() {
-		return nil, fmt.Errorf("EnsureActivation: hashring is empty")
+		return registry.EnsureActivationResult{}, fmt.Errorf(
+			"EnsureActivation: hashring is empty")
 	}
 
 	serverIP := ring.Get(fmt.Sprintf("%s::%s", req.ActorID, req.ModuleID))
@@ -145,11 +137,14 @@ func (d *dnsRegistry) EnsureActivation(
 		DNSServerID, DNSServerVersion, serverIP, req.Namespace,
 		req.ModuleID, req.ActorID, DNS_ACTOR_GENERATION)
 	if err != nil {
-		return nil, fmt.Errorf("error creating actor reference: %w", err)
+		return registry.EnsureActivationResult{}, fmt.Errorf(
+			"error creating actor reference: %w", err)
 	}
 
-	return []types.ActorReference{ref}, nil
-
+	return registry.EnsureActivationResult{
+		References:   []types.ActorReference{ref},
+		VersionStamp: DNSVersionStamp,
+	}, nil
 }
 
 func (d *dnsRegistry) GetVersionStamp(
