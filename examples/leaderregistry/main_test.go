@@ -48,6 +48,9 @@ func TestMemoryBalancing(t *testing.T) {
 		server2 = newServer(t, lp, 1)
 		server3 = newServer(t, lp, 2)
 	)
+	defer server1.Close(context.Background())
+	defer server2.Close(context.Background())
+	defer server3.Close(context.Background())
 
 	for i := 0; i < numActors; i++ {
 		_, err := server1.InvokeActor(
@@ -134,6 +137,9 @@ func TestSurviveLeaderFailure(t *testing.T) {
 		server2 = newServer(t, lp, 1)
 		server3 = newServer(t, lp, 2)
 	)
+	defer reg1.Close(context.Background())
+	defer server2.Close(context.Background())
+	defer server3.Close(context.Background())
 
 	for i := 0; i < numActors; i++ {
 		_, err := server2.InvokeActor(

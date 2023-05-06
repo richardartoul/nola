@@ -509,7 +509,8 @@ func (r *environment) invokeActorStreamHelper(
 		// it will eventually get reflected in the system even if its not immediate.
 		// Note that the purpose the generation count is is for code/setting upgrades
 		// so it does not need to take effect immediately.
-		r.activationCache.SetWithTTL(cacheKeyClone, references, 1, r.opts.ActivationCacheTTL)
+		// r.activationCache.SetWithTTL(cacheKeyClone, references, 1, r.opts.ActivationCacheTTL)
+		r.activationCache.Set(cacheKeyClone, references, 1)
 	}
 	if len(references) == 0 {
 		return nil, fmt.Errorf(
