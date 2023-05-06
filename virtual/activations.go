@@ -438,7 +438,7 @@ func (a *activations) getServerState() (
 }
 
 // shedMemUsage instructs the activation cache to try and shed numBytes worth of memory
-// usage. It does this by figuring out the TopN actors in terms of memory usage and then
+// usage. It does this by figuring out the bottomN actors in terms of memory usage and then
 // adding some (or all) of them to the activations blacklist cache. This will cause all
 // subsequent invocations for those actors to fail with a special error message/code that
 // will signal to the caller that they need to communicate with the registry to find a new
@@ -481,7 +481,7 @@ func (a *activations) shedMemUsage(numBytes int) {
 		//      "state". A single actor can only snapshot/rehydrated single-threaded, so we can move
 		//      actors and load-balance faster if we instead move a higher number of low-memory
 		//      actors instead of a lower number of high-memory actors because there are significantly
-		//      more opportunitie for parallelism so we can use more CPU time to keep actor migration
+		//      more opportunities for parallelism so we can use more CPU time to keep actor migration
 		//      *wall clock* time lower.
 		//
 		// The downside of this approach though is obviously that it requires moving/disrupting more

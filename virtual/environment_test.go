@@ -24,6 +24,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// We have some more integration tests in other packages, for example the package
+// examples/leaderregistry has a few really good tests that are worth looking at
+// as well.
+
 var (
 	streamInterfaceWasCalledMutex sync.Mutex
 	streamInterfaceWasCalled      = false
@@ -699,11 +703,11 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 // TestHeartbeatAndRebalancingWithMemory tests that the interaction between the environment
 // heartbeating mechanism and the registry load balancing mechanism is able to effectively
 // rebalance actors across the available nodes based on memory usage.
-//
-// TODO: Test this with WASM too.
-func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
+func TestHeartbeatAndRebalancingWithMemoryGoModule(t *testing.T) {
 	var (
-		reg         = localregistry.NewLocalRegistry()
+		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
+			RebalanceMemoryThreshold: 1 << 24,
+		})
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
@@ -733,10 +737,55 @@ func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 	env3.RegisterGoModule(
 		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
 
+	testHeartbeatAndRebalancingWithMemory(t, env1, env2, env3)
+}
+
+// TestHeartbeatAndRebalancingWithMemoryWASMModule is the same as
+// TestHeartbeatAndRebalancingWithMemoryGoModule, but for WASM modules.
+func TestHeartbeatAndRebalancingWithMemoryWASMModule(t *testing.T) {
+	var (
+		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
+			RebalanceMemoryThreshold: 1 << 24,
+		})
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
+	)
+	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+	// needs its own port so it looks unique.
+	opts1 := defaultOptsWASM
+	opts1.Discovery.Port = 1
+	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
+	opts2 := defaultOptsWASM
+	opts2.Discovery.Port = 2
+	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
+	opts3 := defaultOptsWASM
+	opts3.Discovery.Port = 3
+	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+	require.NoError(t, err)
+	defer env3.Close(context.Background())
+
+	testHeartbeatAndRebalancingWithMemory(t, env1, env2, env3)
+}
+
+func testHeartbeatAndRebalancingWithMemory(
+	t *testing.T,
+	env1, env2, env3 Environment,
+) {
+	ctx := context.Background()
+
 	// Activate all the actors and hearbeat between each invocation so the registry can effectively load balance
 	// based on actor count to start.
 	for i := 0; i < 100; i++ {
-		_, err = env1.InvokeActor(ctx, "ns-1", fmt.Sprintf("actor-%d", i), "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err := env1.InvokeActor(ctx, "ns-1", fmt.Sprintf("actor-%d", i), "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 	}
 
@@ -745,20 +794,24 @@ func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 	require.Equal(t, 33, env2.NumActivatedActors())
 	require.Equal(t, 33, env3.NumActivatedActors())
 
-	// Now, lets make one of the actor appear to be a memory hog so that it ends up getting
-	// isolated
-	_, err = env1.InvokeActor(
-		ctx, "ns-1", "actor-0", "test-module", "setMemoryUsage",
-		[]byte(fmt.Sprintf("%d", 1<<32)), types.CreateIfNotExist{})
-	require.NoError(t, err)
-
 	for {
 		time.Sleep(10 * time.Millisecond)
 
 		// Keep invoking all the actors to make sure they stay activated and don't get GC'd
 		// for being idle.
 		for i := 0; i < 100; i++ {
-			_, err = env1.InvokeActor(ctx, "ns-1", fmt.Sprintf("actor-%d", i), "test-module", "inc", nil, types.CreateIfNotExist{})
+			// Make one of the actors look like they have really high memory usage.
+			if i == 0 {
+				_, err := env1.InvokeActor(
+					ctx, "ns-1", "actor-0", "test-module", "setMemoryUsage",
+					[]byte(fmt.Sprintf("%d", 1<<26)), types.CreateIfNotExist{})
+				require.NoError(t, err)
+				continue
+			}
+
+			// Only actors with memoryUsage >0 have their memory usage tracked and are eligible to be drained
+			// so make sure each actor has at least 1 byte of perceived memory usage.
+			_, err := env1.InvokeActor(ctx, "ns-1", fmt.Sprintf("actor-%d", i), "test-module", "setMemoryUsage", []byte("1"), types.CreateIfNotExist{})
 			require.NoError(t, err)
 		}
 
@@ -790,26 +843,6 @@ func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
 		break
 	}
 }
-
-// func TestActivationCacheWorksWhenRegistryIsDown(t *testing.T) {
-// 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-// 		ctx := context.Background()
-// 		invokeReq := types.InvokeActorRequest{
-// 			ActorID:   "b",
-// 			ModuleID:  "test-module",
-// 			Operation: "inc",
-// 			Payload:   nil,
-// 		}
-// 		marshaled, err := json.Marshal(invokeReq)
-// 		require.NoError(t, err)
-
-// 		_, err = env.InvokeActor(
-// 			ctx, "ns-1", "a", "test-module", "invokeActor", marshaled, types.CreateIfNotExist{})
-// 		require.NoError(t, err)
-// 	}
-
-// 	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
-// }
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server
 // around versionstamp coordination works by preventing the server from updating its
@@ -1067,26 +1100,6 @@ func runWithDifferentConfigs(
 			testFn(t, reg, env)
 		})
 	}
-
-	t.Run("go-leader-registry", func(t *testing.T) {
-		// opts := defaultOptsGoDNS
-		// opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
-
-		// reg, err := leaderregistry.NewLeaderRegistry(
-		// 	context.Background(), &testLeaderProvider{}, "serverID1", 9093, EnvironmentOptions{})
-		// require.NoError(t, err)
-		// env, err := NewEnvironment(context.Background(), "serverID1", reg, newTestModuleStore(), nil, opts)
-		// require.NoError(t, err)
-		// defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
-
-		// env.RegisterGoModule(
-		// 	types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
-		// env.RegisterGoModule(
-		// 	types.NamespacedIDNoType{Namespace: "ns-2", ID: "test-module"}, testStreamModule{})
-
-		// testFnAfterClose(t, reg, env)
-		// // defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
-	})
 }
 
 type testModule struct {
@@ -1124,11 +1137,7 @@ type testActor struct {
 }
 
 func (ta *testActor) MemoryUsageBytes() int {
-	if ta.memUsage != 0 {
-		return ta.memUsage
-	}
-
-	return ta.numInvocations * 10
+	return ta.memUsage
 }
 
 func (ta *testActor) Invoke(
@@ -1274,11 +1283,3 @@ func noErrIgnoreDupeClose(t *testing.T, err error) {
 
 	require.NoError(t, err)
 }
-
-// type errRegistry struct {
-// 	reg registry.Registry
-// }
-
-// func newErrRegistry(reg errRegistry) registry.Registry {
-// 	return &errRegistry{reg: reg}
-// }

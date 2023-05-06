@@ -198,7 +198,7 @@ type wazeroActor struct {
 }
 
 func (w wazeroActor) MemoryUsageBytes() int {
-	return 0
+	return w.obj.MemoryUsageBytes()
 }
 
 func (w wazeroActor) Invoke(

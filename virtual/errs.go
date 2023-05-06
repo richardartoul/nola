@@ -7,12 +7,8 @@ import (
 )
 
 var (
-	statusCodeToErrorWrapper = map[int]func(err error) error{
-		// 410 is special because it needs a special constructor to provide the
-		// server ID so we handle it manually in client.go.
-		410: func(err error) error {
-			panic("[invariant violated] statusCodeToErrorWrapper used for status code 410 instead of being handled explicitly")
-		},
+	statusCodeToErrorWrapper = map[int]func(err error, serverID string) error{
+		410: NewBlacklistedActivationError,
 	}
 
 	// Make sure it implements interface.

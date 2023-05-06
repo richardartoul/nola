@@ -13,10 +13,14 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// activationCache is an "intelligent" cache that tries to balance caching activations
-// to prevent overloading the registry and be resilient to registry failures, while
-// still updating and invalidating itself in a timely manner when the registry is
-// available.
+const (
+	defaultActivationCacheTimeout = 5 * time.Second
+)
+
+// activationCache is an "intelligent" cache that tries to balance:
+//  1. Caching activations to prevent overloading the registry.
+//  2. Being resilient to arbitrarily long registry failures for actors whose activations are already cached.
+//  3. Updating in a timely manner and invalidating itself when the registry is healthy and available.
 type activationsCache struct {
 	sync.Mutex
 
@@ -26,6 +30,7 @@ type activationsCache struct {
 	logger              *slog.Logger
 
 	// "State".
+
 	c       *ristretto.Cache
 	deduper singleflight.Group
 }
@@ -75,6 +80,10 @@ func (a *activationsCache) ensureActivation(
 
 	blacklistedServerID string,
 ) ([]types.ActorReference, error) {
+	// Ensure we have a short timeout when communicating with registry.
+	ctx, cc := context.WithTimeout(ctx, defaultActivationCacheTimeout)
+	defer cc()
+
 	if a.c == nil {
 		// Cache disabled, load directly.
 		return a.ensureActivationAndUpdateCache(
@@ -88,8 +97,12 @@ func (a *activationsCache) ensureActivation(
 	bufIface, cacheKey = actorCacheKeyUnsafePooled(namespace, moduleID, actorID)
 	aceI, ok := a.c.Get(cacheKey)
 	bufPool.Put(bufIface)
-	if !ok {
-		// Cache miss, fill cache.
+	// Cache miss, fill the cache.
+	if !ok ||
+		// There is an existing cache entry, however, it was satisfied by a request that did not provide
+		// the same blacklistedServerID we have currently. We must ignore this entry because it could be
+		// stale and end up routing us back to the blacklisted server ID.
+		(blacklistedServerID != "" && aceI.(activationCacheEntry).blacklistedServerID != blacklistedServerID) {
 		return a.ensureActivationAndUpdateCache(
 			ctx, namespace, moduleID, actorID, blacklistedServerID)
 	}
@@ -125,6 +138,7 @@ func (a *activationsCache) delete(
 ) {
 	bufIface, cacheKey := actorCacheKeyUnsafePooled(namespace, moduleID, actorID)
 	defer bufPool.Put(bufIface)
+
 	a.c.Del(cacheKey)
 	a.deduper.Forget(string(cacheKey))
 }
@@ -160,7 +174,17 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 				"error ensuring activation of actor: %s in registry: %w",
 				actorID, err)
 		}
+
+		for _, ref := range references.References {
+			if ref.ServerID() == blacklistedServerID {
+				return nil, fmt.Errorf(
+					"[invariant violated] registry returned blacklisted server ID: %s in references",
+					blacklistedServerID)
+			}
+		}
+
 		if a.c == nil {
+			// Cache is disabled, just return immediately.
 			return references.References, nil
 		}
 
@@ -168,6 +192,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			references:           references.References,
 			cachedAt:             time.Now(),
 			registryVersionStamp: references.VersionStamp,
+			blacklistedServerID:  blacklistedServerID,
 		}
 
 		// a.c is internally synchronized, but we use a lock here so we can do an atomic
@@ -201,8 +226,10 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 	return referencesI.([]types.ActorReference), nil
 }
 
+// activationCacheEntry is stored in the cache at a key to represent a cached actor activation.
 type activationCacheEntry struct {
 	references           []types.ActorReference
 	cachedAt             time.Time
 	registryVersionStamp int64
+	blacklistedServerID  string
 }
