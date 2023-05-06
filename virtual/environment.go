@@ -413,13 +413,10 @@ func (r *environment) InvokeActorStream(
 	resp, err := r.invokeActorStreamHelper(
 		ctx, namespace, actorID, moduleID, operation, payload, create, "")
 	if err == nil {
-		fmt.Println(1, err, actorID)
 		return resp, nil
 	}
 
-	fmt.Println(2, err, actorID)
 	if IsBlacklistedActivationError(err) {
-		fmt.Println(3, err, actorID)
 		// If we received an error because the target server has blacklisted activations
 		// of this actor, then we'll invalidate our cache to force the subsequent call
 		// to lookup the actor's new activation location in the registry. We'll also set
@@ -434,15 +431,10 @@ func (r *environment) InvokeActorStream(
 			slog.String("actor_id", fmt.Sprintf("%s::%s::%s", namespace, moduleID, actorID)),
 			slog.String("blacklisted_server_id", blacklistedServerID))
 
-		fmt.Println(4, err, actorID)
 		return r.invokeActorStreamHelper(
 			ctx, namespace, actorID, moduleID, operation, payload, create, blacklistedServerID)
-	} else {
-		fmt.Println(5, err)
-		panic("wtf")
 	}
 
-	fmt.Println(6, err)
 	return nil, err
 }
 

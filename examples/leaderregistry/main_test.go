@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,16 +45,13 @@ func TestMemoryBalancing(t *testing.T) {
 	})
 
 	var (
-		server1, reg1 = newServer(t, lp, 0)
-		server2, reg2 = newServer(t, lp, 1)
-		server3, reg3 = newServer(t, lp, 2)
+		server1, _, cleaupFn1 = newServer(t, lp, 0)
+		server2, _, cleaupFn2 = newServer(t, lp, 1)
+		server3, _, cleaupFn3 = newServer(t, lp, 2)
 	)
-	defer server1.Close(context.Background())
-	defer server2.Close(context.Background())
-	defer server3.Close(context.Background())
-	defer reg1.Close(context.Background())
-	defer reg2.Close(context.Background())
-	defer reg3.Close(context.Background())
+	defer cleaupFn1()
+	defer cleaupFn2()
+	defer cleaupFn3()
 
 	for i := 0; i < numActors; i++ {
 		_, err := server1.InvokeActor(
@@ -136,15 +134,13 @@ func TestSurviveLeaderFailure(t *testing.T) {
 		// TODO: We should add this as a setting to the leaderregistry to make it so
 		//       the leader never assigns itself any actors and if it has any once
 		//       it becomes the leader, it will drain them.
-		reg1          = newRegistry(t, lp, 0)
-		server2, reg2 = newServer(t, lp, 1)
-		server3, reg3 = newServer(t, lp, 2)
+		reg1                   = newRegistry(t, lp, 0)
+		server2, _, cleanupFn2 = newServer(t, lp, 1)
+		server3, _, cleanupFn3 = newServer(t, lp, 2)
 	)
 	defer reg1.Close(context.Background())
-	defer server2.Close(context.Background())
-	defer server3.Close(context.Background())
-	defer reg2.Close(context.Background())
-	defer reg3.Close(context.Background())
+	defer cleanupFn2()
+	defer cleanupFn3()
 
 	for i := 0; i < numActors; i++ {
 		_, err := server2.InvokeActor(
@@ -197,7 +193,7 @@ func newServer(
 	t *testing.T,
 	lp leaderregistry.LeaderProvider,
 	idx int,
-) (virtual.Environment, registry.Registry) {
+) (virtual.Environment, registry.Registry, func()) {
 	reg := newRegistry(t, lp, idx)
 
 	var (
@@ -225,11 +221,18 @@ func newServer(
 	server := virtual.NewServer(registry.NewNoopModuleStore(), env)
 	go func() {
 		if err := server.Start(envPort); err != nil {
+			if strings.Contains(err.Error(), "closed") {
+				return
+			}
 			panic(err)
 		}
 	}()
 
-	return env, reg
+	return env, reg, func() {
+		reg.Close(context.Background())
+		env.Close(context.Background())
+		server.Stop(context.Background())
+	}
 }
 
 func newRegistry(

@@ -33,7 +33,8 @@ type leaderRegistry struct {
 	// clients/servers manually by implementing the leader as a singleton
 	// virtual actor that runs on whatever host happens to be the elected
 	// leader currently.
-	env virtual.Environment
+	env    virtual.Environment
+	server *virtual.Server
 }
 
 // LeaderRegistry creates a new leader-backed registry.
@@ -58,15 +59,22 @@ func NewLeaderRegistry(
 	}
 
 	env.RegisterGoModule(types.NewNamespacedIDNoType(leaderNamespace, leaderModuleName), newLeaderActorModule())
-	server := virtual.NewServer(registry.NewNoopModuleStore(), env)
-	go func() {
-		if err := server.Start(envOpts.Discovery.Port); err != nil {
-			panic(err)
-		}
-	}()
+
+	var server *virtual.Server
+	if envOpts.Discovery.DiscoveryType != virtual.DiscoveryTypeLocalHost {
+		// Skip this if DiscoveryTypeLocalhost because it usually means we're running in
+		// a test environment where we don't actually want to physically bind ports.
+		server = virtual.NewServer(registry.NewNoopModuleStore(), env)
+		go func() {
+			if err := server.Start(envOpts.Discovery.Port); err != nil {
+				panic(err)
+			}
+		}()
+	}
 
 	return registry.NewValidatedRegistry(&leaderRegistry{
-		env: env,
+		env:    env,
+		server: server,
 	}), nil
 }
 
@@ -140,8 +148,18 @@ func (l *leaderRegistry) Heartbeat(
 }
 
 func (l *leaderRegistry) Close(ctx context.Context) error {
-	if err := l.env.Close(ctx); err != nil {
-		return fmt.Errorf("LeaderRegistry: Close: error closing virtual environment: %w", err)
+	var (
+		envErr    = l.env.Close(ctx)
+		serverErr error
+	)
+	if l.server != nil {
+		serverErr = l.server.Stop(ctx)
+	}
+	if envErr != nil {
+		return fmt.Errorf("LeaderRegistry: Close: error closing virtual environment: %w", envErr)
+	}
+	if serverErr != nil {
+		return fmt.Errorf("LeaderRegistry: Close: error closing server: %w", serverErr)
 	}
 
 	return nil

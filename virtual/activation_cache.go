@@ -180,7 +180,6 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			// versionstamp which ensures that we never overwrite the cache with a more
 			// stale result due to async non-determinism.
 			existingAce := existingAceI.(activationCacheEntry)
-			fmt.Println(existingAce.registryVersionStamp, ace.registryVersionStamp)
 			if existingAce.registryVersionStamp > ace.registryVersionStamp {
 				return existingAce.references, nil
 			}

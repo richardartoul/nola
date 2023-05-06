@@ -15,7 +15,7 @@ import (
 	"github.com/richardartoul/nola/virtual/types"
 )
 
-type server struct {
+type Server struct {
 	// Dependencies.
 	moduleStore registry.ModuleStore
 	environment Environment
@@ -27,15 +27,15 @@ type server struct {
 func NewServer(
 	moduleStore registry.ModuleStore,
 	environment Environment,
-) *server {
-	return &server{
+) *Server {
+	return &Server{
 		moduleStore: moduleStore,
 		environment: environment,
 	}
 }
 
 // Start starts the server.
-func (s *server) Start(port int) error {
+func (s *Server) Start(port int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/register-module", s.registerModule)
 	mux.HandleFunc("/api/v1/invoke-actor", s.invoke)
@@ -54,7 +54,7 @@ func (s *server) Start(port int) error {
 	return nil
 }
 
-func (s *server) Stop(ctx context.Context) error {
+func (s *Server) Stop(ctx context.Context) error {
 	log.Print("shutting down http server")
 	if err := s.server.Shutdown(ctx); err != nil {
 		return fmt.Errorf("failed to shut down http server: %w", err)
@@ -73,7 +73,7 @@ func (s *server) Stop(ctx context.Context) error {
 // This one is a bit weird because its basically a file upload with some JSON
 // so we just shove the JSON into the headers cause I'm lazy to do anything
 // more clever.
-func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
+func (s *Server) registerModule(w http.ResponseWriter, r *http.Request) {
 	var (
 		namespace = r.Header.Get("namespace")
 		moduleID  = r.Header.Get("module_id")
@@ -115,7 +115,7 @@ type invokeActorRequest struct {
 	PayloadJSON interface{} `json:"payload_json"`
 }
 
-func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
+func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {
 		// Error already written to w.
 		return
@@ -180,7 +180,7 @@ type invokeActorDirectRequest struct {
 	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
 }
 
-func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
+func (s *Server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {
 		// Error already written to w.
 		return
@@ -241,7 +241,7 @@ type invokeWorkerRequest struct {
 	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
 }
 
-func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
+func (s *Server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {
 		// Error already written to w.
 		return

@@ -906,10 +906,9 @@ func TestServerVersionIsHonored(t *testing.T) {
 	require.NoError(t, env.heartbeat())
 
 	_, err = env.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-	require.Equal(
+	require.True(
 		t,
-		errors.New("error invoking actor: InvokeLocal: server version(2) != server version from reference(1)").Error(),
-		err.Error())
+		strings.Contains(err.Error(), "server version(2) != server version from reference(1)"))
 }
 
 func TestCleanShutdown(t *testing.T) {
