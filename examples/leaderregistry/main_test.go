@@ -65,7 +65,7 @@ func TestMemoryBalancing(t *testing.T) {
 
 	// Now, make one of the processes use way more memory than the others.
 	for i := 0; ; i++ {
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(1 * time.Millisecond)
 
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "inc-memory-usage", nil, types.CreateIfNotExist{})
