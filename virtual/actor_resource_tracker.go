@@ -57,13 +57,6 @@ func (m *actorResourceTracker) track(
 	}
 }
 
-// func (m *actorResourceTracker) delete(id types.NamespacedActorID) {
-// 	m.Lock()
-// 	defer m.Unlock()
-// 	defer m.assertInvariantsWithLock()
-// 	delete(m._actors, id)
-// }
-
 func (m *actorResourceTracker) memUsageBytes() int {
 	m.Lock()
 	defer m.Unlock()

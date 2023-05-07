@@ -1015,7 +1015,9 @@ func (ta *testActor) Invoke(
 		return nil, nil
 	case wapcutils.ShutdownOperationName:
 		ta.shutdownWasCalled = true
+		testCleanShutdownHappenedLock.Lock()
 		testCleanShutdownHappened = true
+		testCleanShutdownHappenedLock.Unlock()
 		return nil, nil
 	case "getShutdownValue":
 		return []byte(strconv.FormatBool(ta.shutdownWasCalled)), nil
