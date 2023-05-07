@@ -3,6 +3,7 @@ package virtual
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -10,11 +11,14 @@ import (
 	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"golang.org/x/exp/slog"
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
 )
 
-const (
-	defaultActivationCacheTimeout = 5 * time.Second
+var (
+	// TODO: Make these configurable.
+	defaultMaxConcurrentEnsureActivationCalls = runtime.NumCPU() * 16
+	defaultActivationCacheTimeout             = 5 * time.Second
 )
 
 // activationCache is an "intelligent" cache that tries to balance:
@@ -30,9 +34,9 @@ type activationsCache struct {
 	logger              *slog.Logger
 
 	// "State".
-
-	c       *ristretto.Cache
-	deduper singleflight.Group
+	ensureSem *semaphore.Weighted
+	c         *ristretto.Cache
+	deduper   singleflight.Group
 }
 
 func newActivationsCache(
@@ -65,6 +69,7 @@ func newActivationsCache(
 	}
 
 	return &activationsCache{
+		ensureSem:           semaphore.NewWeighted(maxNumActivationsToCache),
 		c:                   c,
 		registry:            registry,
 		idealCacheStaleness: idealCacheStaleness,
@@ -156,8 +161,6 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 	cachedReferences []types.ActorReference,
 	blacklistedServerID string,
 ) ([]types.ActorReference, error) {
-	// TODO: Check semaphore capacity here.
-
 	// Since this method is less common (cache miss) we just allocate instead of messing
 	// around with unsafe object pooling.
 	cacheKey := formatActorCacheKey(nil, namespace, moduleID, actorID)
@@ -172,6 +175,13 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			cachedServerIDs = append(cachedServerIDs, ref.ServerID())
 		}
 
+		// Acquire the semaphore before making the network call to avoid DDOSing the
+		// registry in pathological workloads/scenarios.
+		if err := a.ensureSem.Acquire(ctx, 1); err != nil {
+			return nil, fmt.Errorf(
+				"context expired while waiting to acquire ensureActivation semaphore: %w",
+				err)
+		}
 		references, err := a.registry.EnsureActivation(ctx, registry.EnsureActivationRequest{
 			Namespace: namespace,
 			ModuleID:  moduleID,
@@ -180,6 +190,9 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			BlacklistedServerID:       blacklistedServerID,
 			CachedActivationServerIDs: cachedServerIDs,
 		})
+		// Release the semaphore as soon as we're done with the network call since the purpose
+		// of this semaphore is really just to avoid DDOSing the registry.
+		a.ensureSem.Release(1)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"error ensuring activation of actor: %s in registry: %w",
