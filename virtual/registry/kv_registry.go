@@ -283,9 +283,6 @@ func (k *kvRegistry) EnsureActivation(
 		if activationExists &&
 			serverExists &&
 			timeSinceLastHeartbeat < HeartbeatTTL &&
-			// TODO: Unit test for this part. Also its not enough to just consider the currently
-			// blacklisted one, the registry probably needs to remember all server it has been
-			// blacklisted from for some period of time? think about it more.
 			currActivation.ServerID != req.BlacklistedServerID {
 			// We have an existing activation and the server is still alive, so just use that.
 
@@ -296,7 +293,11 @@ func (k *kvRegistry) EnsureActivation(
 			serverID = currActivation.ServerID
 			serverAddress = server.HeartbeatState.Address
 		} else {
-			// We need to create a new activation.
+			// We need to create a new activation because either:
+			//   1. There is no activation OR
+			//   2. The server the actor is currently activated on has stopped heartbeating OR
+			//   3. The server the actor is currently activated on has blacklisted this actor (most
+			//       likely for balancing reasons)
 			liveServers, err := getLiveServers(ctx, vs, tr)
 			if err != nil {
 				return nil, err
