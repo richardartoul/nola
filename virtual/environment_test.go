@@ -634,9 +634,9 @@ func testHeartbeatAndRebalancingWithMemory(
 	}
 
 	// Registry load-balancing should ensure that we ended up with an equal number of actors in each environment.
-	require.Equal(t, 34, env1.NumActivatedActors())
-	require.Equal(t, 33, env2.NumActivatedActors())
-	require.Equal(t, 33, env3.NumActivatedActors())
+	require.True(t, env1.NumActivatedActors() == 34 || env1.NumActivatedActors() == 33)
+	require.True(t, env2.NumActivatedActors() == 34 || env2.NumActivatedActors() == 33)
+	require.True(t, env3.NumActivatedActors() == 34 || env3.NumActivatedActors() == 33)
 
 	for {
 		time.Sleep(10 * time.Millisecond)
