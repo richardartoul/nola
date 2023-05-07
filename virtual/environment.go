@@ -2,6 +2,7 @@ package virtual
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +16,6 @@ import (
 	"github.com/richardartoul/nola/virtual/registry/dnsregistry"
 	"github.com/richardartoul/nola/virtual/types"
 
-	"github.com/dgraph-io/ristretto"
 	"golang.org/x/exp/slog"
 )
 
@@ -32,15 +32,17 @@ var (
 	ErrEnvironmentClosed = errors.New("environment is closed")
 
 	// Var so can be modified by tests.
-	defaultActivationsCacheTTL = heartbeatTimeout
+	defaultActivationsCacheTTL                    = heartbeatTimeout
+	DefaultGCActorsAfterDurationWithNoInvocations = time.Minute
 )
 
 type environment struct {
 	log *slog.Logger
 
 	// State.
-	activations     *activations // Internally synchronized.
-	activationCache *ristretto.Cache
+	activations      *activations // Internally synchronized.
+	activationsCache *activationsCache
+	lastHearbeatLog  time.Time
 
 	heartbeatState struct {
 		sync.RWMutex
@@ -92,9 +94,6 @@ type EnvironmentOptions struct {
 	// that originally received the request.
 	ForceRemoteProcedureCalls bool
 
-	// // GoModules contains a set of Modules implemented in Go (instead of
-	// // WASM). This is useful when using NOLA as a library.
-	// GoModules map[types.NamespacedIDNoType]Module
 	// CustomHostFns contains a set of additional user-defined host
 	// functions that can be exposed to activated actors. This allows
 	// developeres leveraging NOLA as a library to extend the environment
@@ -151,7 +150,8 @@ func NewDNSRegistryEnvironment(
 		return nil, nil, fmt.Errorf("error creating DNS registry: %w", err)
 	}
 
-	env, err := NewEnvironment(ctx, dnsregistry.DNSServerID, reg, NewHTTPClient(), opts)
+	env, err := NewEnvironment(
+		ctx, dnsregistry.DNSServerID, reg, registry.NewNoopModuleStore(), NewHTTPClient(), opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating new virtual environment: %w", err)
 	}
@@ -176,6 +176,12 @@ type DiscoveryOptions struct {
 	// Port is the port that the environment should advertise to the discovery
 	// service.
 	Port int
+	// AllowFailedInitialHeartbeat can be set to true to allow the environment
+	// to instantiate itself even if the initial heartbeat fails. This is useful
+	// to avoid circular startup dependencies when using the leaderregistry
+	// implementation which requires at least one environment to be up and running
+	// to bootstrap the cluster.
+	AllowFailedInitialHeartbeat bool
 }
 
 func (d *DiscoveryOptions) Validate() error {
@@ -207,6 +213,7 @@ func NewEnvironment(
 	ctx context.Context,
 	serverID string,
 	reg registry.Registry,
+	moduleStore registry.ModuleStore,
 	client RemoteClient,
 	opts EnvironmentOptions,
 ) (Environment, error) {
@@ -214,7 +221,7 @@ func NewEnvironment(
 		opts.ActivationCacheTTL = defaultActivationsCacheTTL
 	}
 	if opts.GCActorsAfterDurationWithNoInvocations == 0 {
-		opts.GCActorsAfterDurationWithNoInvocations = time.Minute
+		opts.GCActorsAfterDurationWithNoInvocations = DefaultGCActorsAfterDurationWithNoInvocations
 	}
 	if opts.MaxNumShutdownWorkers == 0 {
 		opts.MaxNumShutdownWorkers = runtime.NumCPU()
@@ -231,19 +238,6 @@ func NewEnvironment(
 		client = newNOOPRemoteClient()
 	}
 
-	activationCache, err := ristretto.NewCache(&ristretto.Config{
-		NumCounters: maxNumActivationsToCache * 10, // * 10 per the docs.
-		// Maximum number of entries in cache (~1million). Note that
-		// technically this is a measure in bytes, but we pass a cost of 1
-		// always to make it behave as a limit on number of activations.
-		MaxCost: 1e6,
-		// Recommended default.
-		BufferItems: 64,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error creating activationCache: %w", err)
-	}
-
 	host := Localhost
 	if opts.Discovery.DiscoveryType == DiscoveryTypeRemote {
 		selfIP, err := getSelfIP()
@@ -254,19 +248,33 @@ func NewEnvironment(
 	}
 	address := fmt.Sprintf("%s:%d", host, opts.Discovery.Port)
 
+	opts.Logger = opts.Logger.With(
+		slog.String("server_id", serverID),
+		slog.String("address", address),
+	)
+
 	env := &environment{
-		log:             opts.Logger.With(slog.String("module", "environment"), slog.String("subService", "environment")),
-		activationCache: activationCache,
-		closeCh:         make(chan struct{}),
-		closedCh:        make(chan struct{}),
-		registry:        reg,
-		client:          client,
-		address:         address,
-		serverID:        serverID,
-		opts:            opts,
+		log: opts.Logger.With(
+			slog.String("module", "environment"),
+			slog.String("sub_service", "environment")),
+		activationsCache: newActivationsCache(
+			reg,
+			opts.ActivationCacheTTL,
+			opts.DisableActivationCache,
+			opts.Logger.With(
+				slog.String("module", "environment"),
+				slog.String("sub_service", "activations_cache"),
+			)),
+		closeCh:  make(chan struct{}),
+		closedCh: make(chan struct{}),
+		registry: reg,
+		client:   client,
+		address:  address,
+		serverID: serverID,
+		opts:     opts,
 	}
 	activations := newActivations(
-		opts.Logger, reg, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
+		opts.Logger, reg, moduleStore, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
 	env.activations = activations
 
 	// Skip confusing log if dnsregistry is being used since it doesn't use the registry-based
@@ -276,10 +284,17 @@ func NewEnvironment(
 	}
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
-	err = env.heartbeat()
+	err := env.heartbeat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to perform initial heartbeat: %w", err)
+		if opts.Discovery.AllowFailedInitialHeartbeat {
+			opts.Logger.Error(
+				"failed to perform initial heartbeat, proceeding because AllowFailedInitialHeartbeat is set to true",
+				slog.String("error", err.Error()))
+		} else {
+			return nil, fmt.Errorf("failed to perform initial heartbeat: %w, failing because AllowedFailedInitialHeartbeat is set to false", err)
+		}
 	}
+	opts.Logger.Info("performed initial heartbeat", slog.String("address", address))
 
 	localEnvironmentsRouterLock.Lock()
 	defer localEnvironmentsRouterLock.Unlock()
@@ -321,18 +336,6 @@ func (r *environment) RegisterGoModule(id types.NamespacedIDNoType, module Modul
 		return ErrEnvironmentClosed
 	}
 
-	// Register all the GoModules in the registry so they're useable with calls to
-	// CreateActor() and EnsureActivation().
-	//
-	// Note that its safe to do this on every node in the cluster because the registry will
-	// ignore duplicate RegisterModule() calls if AllowEmptyModuleBytes is set to true.
-	_, err := r.registry.RegisterModule(context.TODO(), id.Namespace, id.ID, nil, registry.ModuleOptions{
-		AllowEmptyModuleBytes: true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to register go module with ID: %v, err: %w", id, err)
-	}
-
 	// After registering the Module with the registry, we also need to register it with the
 	// activations datastructure so it knows how to handle subsequent activations/invocations.
 	return r.activations.registerGoModule(id, module)
@@ -354,7 +357,7 @@ func (r *environment) InvokeActor(
 	reader, err := r.InvokeActorStream(
 		ctx, namespace, actorID, moduleID, operation, payload, create)
 	if err != nil {
-		return nil, fmt.Errorf("error invoking actor: %w", err)
+		return nil, fmt.Errorf("InvokeActor: error invoking actor: %w", err)
 	}
 
 	b, err := ioutil.ReadAll(reader)
@@ -365,6 +368,39 @@ func (r *environment) InvokeActor(
 	return b, nil
 }
 
+func (r *environment) InvokeActorJSON(
+	ctx context.Context,
+	namespace string,
+	actorID string,
+	moduleID string,
+	operation string,
+	payload any,
+	create types.CreateIfNotExist,
+	resp any,
+) error {
+	marshaled, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf(
+			"error marshaling JSON payload of type: %T, err: %w", payload, err)
+	}
+
+	respBytes, err := r.InvokeActor(
+		ctx, namespace, actorID, moduleID, operation, marshaled, create)
+	if err != nil {
+		return err
+	}
+
+	if resp != nil {
+		if err := json.Unmarshal(respBytes, resp); err != nil {
+			return fmt.Errorf(
+				"error JSON unmarshaling response bytes into object of type: %T, err: %w",
+				resp, err)
+		}
+	}
+
+	return nil
+}
+
 func (r *environment) InvokeActorStream(
 	ctx context.Context,
 	namespace string,
@@ -373,6 +409,44 @@ func (r *environment) InvokeActorStream(
 	operation string,
 	payload []byte,
 	create types.CreateIfNotExist,
+) (io.ReadCloser, error) {
+	resp, err := r.invokeActorStreamHelper(
+		ctx, namespace, actorID, moduleID, operation, payload, create, "")
+	if err == nil {
+		return resp, nil
+	}
+
+	if IsBlacklistedActivationError(err) {
+		// If we received an error because the target server has blacklisted activations
+		// of this actor, then we'll invalidate our cache to force the subsequent call
+		// to lookup the actor's new activation location in the registry. We'll also set
+		// a flag on the call to the registry to indicate that the server has blacklisted
+		// that actor to ensure we get an activation on a different serer since the registry
+		// may not know about the blacklist yet.
+		r.activationsCache.delete(namespace, moduleID, actorID)
+		blacklistedServerID := err.(BlacklistedActivationErr).ServerID()
+
+		r.log.Warn(
+			"encountered blacklisted actor, forcing activation cache refresh and retrying",
+			slog.String("actor_id", fmt.Sprintf("%s::%s::%s", namespace, moduleID, actorID)),
+			slog.String("blacklisted_server_id", blacklistedServerID))
+
+		return r.invokeActorStreamHelper(
+			ctx, namespace, actorID, moduleID, operation, payload, create, blacklistedServerID)
+	}
+
+	return nil, err
+}
+
+func (r *environment) invokeActorStreamHelper(
+	ctx context.Context,
+	namespace string,
+	actorID string,
+	moduleID string,
+	operation string,
+	payload []byte,
+	create types.CreateIfNotExist,
+	blacklistedServerID string,
 ) (io.ReadCloser, error) {
 	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
@@ -393,41 +467,10 @@ func (r *environment) InvokeActorStream(
 		return nil, fmt.Errorf("error getting version stamp: %w", err)
 	}
 
-	bufIface := bufPool.Get()
-	defer bufPool.Put(bufIface)
-	cacheKey := bufPool.Get().([]byte)[:0]
-	cacheKey = append(cacheKey, []byte(namespace)...)
-	cacheKey = append(cacheKey, []byte(actorID)...)
-
-	var (
-		references  []types.ActorReference
-		referencesI any = nil
-		ok              = false
-	)
-	if !r.opts.DisableActivationCache {
-		referencesI, ok = r.activationCache.Get(cacheKey)
-	}
-	if ok {
-		references = referencesI.([]types.ActorReference)
-	} else {
-		var err error
-		// TODO: Need a concurrency limiter on this thing.
-		references, err = r.registry.EnsureActivation(ctx, namespace, actorID, moduleID)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"error ensuring activation of actor: %s in registry: %w",
-				actorID, err)
-		}
-
-		// Note that we need to copy the cache key before we call Set() since it will be
-		// returned to the pool when this function returns.
-		cacheKeyClone := append([]byte(nil), cacheKey...)
-
-		// Set a TTL on the cache entry so that if the generation count increases
-		// it will eventually get reflected in the system even if its not immediate.
-		// Note that the purpose the generation count is is for code/setting upgrades
-		// so it does not need to take effect immediately.
-		r.activationCache.SetWithTTL(cacheKeyClone, references, 1, r.opts.ActivationCacheTTL)
+	references, err := r.activationsCache.ensureActivation(
+		ctx, namespace, moduleID, actorID, blacklistedServerID)
+	if err != nil {
+		return nil, fmt.Errorf("error ensuring actor activation: %w", err)
 	}
 	if len(references) == 0 {
 		return nil, fmt.Errorf(
@@ -455,7 +498,7 @@ func (r *environment) InvokeActorDirect(
 		ctx, versionStamp, serverID, serverVersion,
 		reference, operation, payload, create)
 	if err != nil {
-		return nil, fmt.Errorf("error invoking actor: %w", err)
+		return nil, fmt.Errorf("InvokeActorDirect: error invoking actor: %w", err)
 	}
 
 	b, err := ioutil.ReadAll(reader)
@@ -508,9 +551,6 @@ func (r *environment) InvokeActorDirectStream(
 		return nil, fmt.Errorf("versionStamp must be >= 0, but was: %d", versionStamp)
 	}
 
-	// TODO: Delete me, but useful for now.
-	// log.Printf("%d::%s:%s::%s::%s\n", versionStamp, serverID, reference.ModuleID().ID, reference.ActorID().ID, operation)
-
 	r.heartbeatState.RLock()
 	heartbeatResult := r.heartbeatState.HeartbeatResult
 	r.heartbeatState.RUnlock()
@@ -523,7 +563,7 @@ func (r *environment) InvokeActorDirectStream(
 
 	// Compare server version of this environment to the server version from the actor activation reference to ensure
 	// the env hasn't missed a heartbeat recently, which could cause it to lose ownership of the actor.
-	// This bug was identified using this mode.l https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
+	// This bug was identified using this model: https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
 	if heartbeatResult.ServerVersion != serverVersion {
 		return nil, fmt.Errorf(
 			"InvokeLocal: server version(%d) != server version from reference(%d)",
@@ -630,20 +670,28 @@ func (r *environment) Close(ctx context.Context) error {
 	return nil
 }
 
-func (r *environment) numActivatedActors() int {
+func (r *environment) NumActivatedActors() int {
 	return r.activations.numActivatedActors()
 }
 
 func (r *environment) heartbeat() error {
 	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
 	defer cc()
+
+	var (
+		numActors  = r.NumActivatedActors()
+		usedMemory = r.activations.memUsageBytes()
+	)
 	result, err := r.registry.Heartbeat(ctx, r.serverID, registry.HeartbeatState{
-		NumActivatedActors: r.numActivatedActors(),
+		NumActivatedActors: numActors,
+		UsedMemory:         usedMemory,
 		Address:            r.address,
 	})
 	if err != nil {
 		return fmt.Errorf("error heartbeating: %w", err)
 	}
+
+	r.maybeLogHeartbeatState(numActors, usedMemory)
 
 	r.heartbeatState.Lock()
 	if !r.heartbeatState.frozen {
@@ -651,12 +699,52 @@ func (r *environment) heartbeat() error {
 	}
 	r.heartbeatState.Unlock()
 
-	// Ensure the latest ServerVersion is set on the activation struct as well so
-	// that new calls to BeginTransaction() in the registry from actors will have
-	// the most up-to-date ServerVersion, otherwise they could begin failing at
-	// some point.
+	// Ensure the latest ServerVersion is set on the activation struct as well since
+	// it used to do things like construct NewBlacklistedActivationErrors, etc.
 	r.activations.setServerState(r.serverID, result.ServerVersion)
+
+	if result.MemoryBytesToShed > 0 {
+		// Server told us we're using too much memory relative to our peers and
+		// should shed some of our actors to force rebalancing.
+		r.log.Info(
+			"attempting to shed memory usage",
+			slog.Int64("memory_bytes_to_shed", r.heartbeatState.MemoryBytesToShed))
+		r.activations.shedMemUsage(int(r.heartbeatState.MemoryBytesToShed))
+	}
+
 	return nil
+}
+
+func (r *environment) maybeLogHeartbeatState(
+	numActors int,
+	usedMemory int,
+) {
+	if time.Since(r.lastHearbeatLog) < 10*time.Second {
+		return
+	}
+	r.lastHearbeatLog = time.Now()
+
+	attrs := make([]slog.Attr, 0, 8)
+	attrs = append(attrs, slog.Int("num_actors", numActors))
+	attrs = append(attrs, slog.Int("used_memory", usedMemory))
+
+	var (
+		topByMem       = r.activations.topNByMem(10)
+		filtered       []string
+		thresholdBytes = 1 << 28
+	)
+	for _, a := range topByMem {
+		if a.memoryBytes > thresholdBytes {
+			filtered = append(filtered, fmt.Sprintf("%s(%d MiB)", a.id.String(), a.memoryBytes/1024/1024))
+		}
+	}
+
+	if len(filtered) > 0 {
+		attrs = append(attrs, slog.Int("logging_threshold_mib", thresholdBytes/1024/1024), slog.Any("actors", filtered))
+	}
+
+	r.log.LogAttrs(
+		context.Background(), slog.LevelInfo, "heartbeat state", attrs...)
 }
 
 // TODO: This is kind of a giant hack, but it's really only used for testing. The idea is that
@@ -776,4 +864,38 @@ func getSelfIP() (net.IP, error) {
 	}
 
 	return nil, errors.New("could not discovery self IPV4")
+}
+
+// actorCacheKey formats namespace/module/actor into a pooled []byte to
+// avoid allocating for cache checks. The caller is responsible for
+// ensuring the []byte is returned to the pool once they're done and that
+// they don't retain any references to it after returning it to the pool.
+func actorCacheKeyUnsafePooled(
+	namespace string,
+	moduleID string,
+	actorID string,
+) (interface{}, []byte) {
+	bufIface := bufPool.Get()
+	cacheKey := bufIface.([]byte)[:0]
+	cacheKey = formatActorCacheKey(cacheKey, namespace, moduleID, actorID)
+
+	// Return both the interface and the []byte so the caller can return
+	// the interface to the pool directly which avoids an allocation.
+	return bufIface, cacheKey
+}
+
+func formatActorCacheKey(
+	dst []byte,
+	namespace string,
+	moduleID string,
+	actorID string,
+) []byte {
+	if cap(dst) == 0 {
+		dst = make([]byte, 0, len(namespace)+len(moduleID)+len(actorID))
+	}
+
+	dst = append(dst, []byte(namespace)...)
+	dst = append(dst, []byte(moduleID)...)
+	dst = append(dst, []byte(actorID)...)
+	return dst
 }

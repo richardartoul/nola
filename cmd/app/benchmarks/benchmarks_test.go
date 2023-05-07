@@ -68,13 +68,15 @@ func BenchmarkFoundationDBRegistryInvokeWorker(b *testing.B) {
 }
 
 func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	moduleStore := reg.(registry.ModuleStore)
+	env, err := virtual.NewEnvironment(
+		context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close(context.Background())
 
 	ctx := context.Background()
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	_, err = moduleStore.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(b, err)
 
 	defer reportOpsPerSecond(b)()
@@ -89,13 +91,15 @@ func benchmarkInvokeActor(b *testing.B, reg registry.Registry) {
 }
 
 func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	moduleStore := reg.(registry.ModuleStore)
+	env, err := virtual.NewEnvironment(
+		context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close(context.Background())
 
 	ctx := context.Background()
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	_, err = moduleStore.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(b, err)
 
 	defer reportOpsPerSecond(b)()
@@ -112,14 +116,18 @@ func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
 }
 
 func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
-	reg := localregistry.NewLocalRegistry()
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	var (
+		reg         = localregistry.NewLocalRegistry()
+		moduleStore = reg.(registry.ModuleStore)
+	)
+	env, err := virtual.NewEnvironment(
+		context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close(context.Background())
 
 	ctx := context.Background()
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	_, err = moduleStore.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(b, err)
 
 	defer reportOpsPerSecond(b)()
@@ -134,14 +142,18 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 }
 
 func BenchmarkLocalActorToActorCommunication(b *testing.B) {
-	reg := localregistry.NewLocalRegistry()
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	var (
+		reg         = localregistry.NewLocalRegistry()
+		moduleStore = reg.(registry.ModuleStore)
+	)
+	env, err := virtual.NewEnvironment(
+		context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsWASM)
 	require.NoError(b, err)
 	defer env.Close(context.Background())
 
 	ctx := context.Background()
 
-	_, err = reg.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	_, err = moduleStore.RegisterModule(ctx, "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(b, err)
 
 	invokeReq := types.InvokeActorRequest{
@@ -194,11 +206,12 @@ func testSimpleBench(
 	require.NoError(t, err)
 	require.NoError(t, reg.UnsafeWipeAll())
 
-	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+	moduleStore := reg.(registry.ModuleStore)
+	env, err := virtual.NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsWASM)
 	require.NoError(t, err)
 	defer env.Close(context.Background())
 
-	_, err = reg.RegisterModule(context.Background(), "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	_, err = moduleStore.RegisterModule(context.Background(), "bench-ns", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
 	for i := 0; i < numActors; i++ {

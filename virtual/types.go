@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 
-	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 )
@@ -38,6 +37,19 @@ type Environment interface {
 		payload []byte,
 		createIfNotExist types.CreateIfNotExist,
 	) ([]byte, error)
+
+	// InvokeActorJSON is the same as InvokeActor, except it implements the functionality
+	// JSON marshaling the request payload and JSON unmarshaling the response payload.
+	InvokeActorJSON(
+		ctx context.Context,
+		namespace string,
+		actorID string,
+		moduleID string,
+		operation string,
+		payload any,
+		createIfNotExist types.CreateIfNotExist,
+		resp any,
+	) error
 
 	// InvokeActorStream is the same as InvokeActor, except it uses the streaming
 	// interface instead of returning a []byte directly. This is useful for actors
@@ -120,9 +132,9 @@ type Environment interface {
 
 // debug contains private methods that are only used for debugging / tests.
 type debug interface {
-	// numActivatedActors returns the number of activated actors in the environment. It is
+	// NumActivatedActors returns the number of activated actors in the environment. It is
 	// primarily used for tests.
-	numActivatedActors() int
+	NumActivatedActors() int
 
 	// heartbeat forces the environment to heartbeat the Registry immediately. It is primarily
 	// used for tests.
@@ -172,6 +184,11 @@ type Module interface {
 
 // Actor represents an activated actor in memory.
 type Actor interface {
+	// MemoryUsageBytes returns the estimated amount of memory the actor is using
+	// in terms of bytes. This method will be called after every actor invocation
+	// so its implementation should be efficient.
+	MemoryUsageBytes() int
+
 	// Close closes the in-memory actor.
 	Close(ctx context.Context) error
 }
@@ -187,7 +204,6 @@ type ActorBytes interface {
 		ctx context.Context,
 		operation string,
 		payload []byte,
-		transaction registry.ActorKVTransaction,
 	) ([]byte, error)
 }
 
@@ -202,14 +218,11 @@ type ActorStream interface {
 		ctx context.Context,
 		operation string,
 		payload []byte,
-		transaction registry.ActorKVTransaction,
 	) (io.ReadCloser, error)
 }
 
 // HostCapabilities defines the interface of capabilities exposed by the host to the Actor.
 type HostCapabilities interface {
-	KV
-
 	// InvokeActor invokes a function on the specified actor.
 	InvokeActor(context.Context, types.InvokeActorRequest) ([]byte, error)
 
@@ -225,17 +238,6 @@ type HostCapabilities interface {
 		operation string,
 		payload []byte,
 	) ([]byte, error)
-}
-
-// KV is the host KV interface exposed to each actor.
-type KV interface {
-	// BeginTransaction begins a new transaction. This transaction is different from the
-	// transaction that is provided to each call to Invoke() in that its lifecycle is not
-	// managed by NOLA automatically and it is the actor's responsibility to commit or
-	// cancel the transaction when it is ready.
-	BeginTransaction(ctx context.Context) (registry.ActorKVTransaction, error)
-	// Transact is the same as BeginTransaction, except with an easier to use interface.
-	Transact(context.Context, func(tr registry.ActorKVTransaction) (any, error)) (any, error)
 }
 
 type CreateActorResult struct {

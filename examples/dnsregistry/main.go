@@ -38,7 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	env, registry, err := virtual.NewDNSRegistryEnvironment(
+	env, _, err := virtual.NewDNSRegistryEnvironment(
 		context.Background(), *host, *port, virtual.EnvironmentOptions{Logger: log})
 	if err != nil {
 		log.Error("error creating virtual environment", slog.Any("error", err))
@@ -65,20 +65,26 @@ func main() {
 				types.CreateIfNotExist{})
 			cc()
 			if err != nil {
-				log.Error("error calling actor", slog.String("actor", actorID), slog.Any("error", err))
+				log.Error(
+					"error calling actor",
+					slog.String("actor_id", actorID), slog.Any("error", err))
 				continue
 			}
 
 			v, err := strconv.ParseInt(string(resp), 10, 64)
 			if err != nil {
-				log.Error("actor returned unparseable response", slog.String("actor", actorID), slog.String("response", string(resp)))
+				log.Error(
+					"actor returned unparseable response",
+					slog.String("actor_id", actorID), slog.String("response", string(resp)))
 				os.Exit(1)
 			}
-			log.Info("actor responded", slog.String("actor", actorID), slog.Int64("response", v))
+			log.Info(
+				"actor responded",
+				slog.String("actor_id", actorID), slog.Int64("response", v))
 		}
 	}()
 
-	server := virtual.NewServer(registry, env)
+	server := virtual.NewServer(registry.NewNoopModuleStore(), env)
 	if err := server.Start(*port); err != nil {
 		log.Error("error starting server", slog.Any("error", err))
 		os.Exit(1)
@@ -109,11 +115,14 @@ type testActor struct {
 	count int
 }
 
+func (ta *testActor) MemoryUsageBytes() int {
+	return 0
+}
+
 func (ta *testActor) Invoke(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-	transaction registry.ActorKVTransaction,
 ) ([]byte, error) {
 	switch operation {
 	case wapcutils.StartupOperationName:

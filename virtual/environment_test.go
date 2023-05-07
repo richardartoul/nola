@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -22,6 +22,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+// We have some more integration tests in other packages, for example the package
+// examples/leaderregistry has a few really good tests that are worth looking at
+// as well.
 
 var (
 	streamInterfaceWasCalledMutex sync.Mutex
@@ -114,7 +118,7 @@ func TestSimpleActor(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCreateIfNotExist tests that the CreateIfNotExist argument can be used to invoke an actor and
@@ -141,7 +145,7 @@ func TestCreateIfNotExist(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCreateIfNotExistWithInstantiatePayload is the same as TestCreateIfNotExist
@@ -174,7 +178,7 @@ func TestCreateIfNotExistWithInstantiatePayload(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestSimpleWorker is a basic sanity test that verifies the most basic flow for workers.
@@ -210,206 +214,7 @@ func TestSimpleWorker(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
-}
-
-// TestGenerationCountIncInvalidatesActivation ensures that the registry returning a higher
-// generation count will cause the environment to invalidate existing activations and recreate
-// them as needed.
-func TestGenerationCountIncInvalidatesActivation(t *testing.T) {
-	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-		ctx := context.Background()
-		for _, ns := range []string{"ns-1", "ns-2"} {
-			// Build some state.
-			for i := 0; i < 100; i++ {
-				result, err := env.InvokeActor(
-					ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-				require.NoError(t, err)
-				require.Equal(t, int64(i+1), getCount(t, result))
-			}
-
-			// Increment the generation which should cause the next invocation to recreate the actor
-			// activation from scratch and reset the internal counter back to 0.
-			require.NoError(t, reg.IncGeneration(ctx, ns, "a", "test-module"))
-
-			for i := 0; i < 100; i++ {
-				if i == 0 {
-					for {
-						// Wait for cache to expire.
-						result, err := env.InvokeActor(
-							ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-						require.NoError(t, err)
-						if getCount(t, result) == 1 {
-							break
-						}
-						time.Sleep(100 * time.Millisecond)
-					}
-					continue
-				}
-				result, err := env.InvokeActor(
-					ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-				require.NoError(t, err)
-				require.Equal(t, int64(i+1), getCount(t, result))
-			}
-		}
-	}
-
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
-}
-
-// TestKVHostFunctions tests whether the KV interfaces from the registry can be used properly as host functions
-// in the actor WASM module.
-func TestKVHostFunctions(t *testing.T) {
-	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-		count := 0
-		defer func() {
-			count++
-		}()
-
-		ctx := context.Background()
-		for _, ns := range []string{"ns-1", "ns-2"} {
-			if count == 0 {
-				for i := 0; i < 100; i++ {
-					_, err := env.InvokeActor(
-						ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-					require.NoError(t, err)
-
-					// Write the current count to a key.
-					key := []byte(fmt.Sprintf("key-%d", i))
-					_, err = env.InvokeActor(
-						ctx, ns, "a", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
-					require.NoError(t, err)
-
-					// Read the key back and make sure the value is == the count
-					payload, err := env.InvokeActor(
-						ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-					require.NoError(t, err)
-					val := getCount(t, payload)
-					require.Equal(t, int64(i+1), val)
-
-					if i > 0 {
-						key := []byte(fmt.Sprintf("key-%d", i-1))
-						payload, err := env.InvokeActor(
-							ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-						require.NoError(t, err)
-						val := getCount(t, payload)
-						require.Equal(t, int64(i), val)
-					}
-				}
-			}
-
-			// Ensure all previous KV are still readable.
-			for i := 0; i < 100; i++ {
-				key := []byte(fmt.Sprintf("key-%d", i))
-				payload, err := env.InvokeActor(
-					ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-				require.NoError(t, err)
-				val := getCount(t, payload)
-				require.Equal(t, int64(i+1), val)
-			}
-		}
-	}
-
-	// Run the test twice with two different environments, but the same registry
-	// to simulate a node restarting and being re-initialized with the same registry
-	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
-}
-
-// TestKVTransactions tests whether the KV interfaces from the registry can be used
-// properly within transactions, and that transactions are automatically rolled back
-// if the actor returns an error.
-func TestKVTransactions(t *testing.T) {
-	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-		ctx := context.Background()
-		for _, ns := range []string{"ns-1"} {
-			_, err := env.InvokeActor(
-				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			// Write the current count to a key.
-			key := []byte("key")
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			// Read the key back and make sure the value is == the count
-			payload, err := env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			val := getCount(t, payload)
-			require.Equal(t, int64(1), val)
-
-			// Increment the count and write to KV again, but ensure the actor
-			// returns an error so the updated counter will not be committed to
-			// KV storage. This tests that implicit KV transactions are rolled
-			// back if the actor returns an error.
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvPutCountError", key, types.CreateIfNotExist{})
-			require.True(t, strings.Contains(err.Error(), "some fake error"), err.Error())
-
-			// Count should still be 1.
-			payload, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			val = getCount(t, payload)
-			require.Equal(t, int64(1), val)
-		}
-	}
-
-	// Run the test twice with two different environments, but the same registry
-	// to simulate a node restarting and being re-initialized with the same registry
-	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
-}
-
-// TestKVHostFunctionsActorsSeparatedRegression is a regression test that ensures each
-// actor gets its own dedicated KV storage, even if another exists exists created from
-// the same module.
-func TestKVHostFunctionsActorsSeparatedRegression(t *testing.T) {
-	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-		ctx := context.Background()
-		for _, ns := range []string{"ns-1", "ns-2"} {
-			// Inc a twice, but b once.
-			_, err := env.InvokeActor(
-				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			_, err = env.InvokeActor(
-				ctx, ns, "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			key := []byte("key")
-
-			// Persist each actor's count.
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			_, err = env.InvokeActor(
-				ctx, ns, "b", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			// Make sure we can read back the independent counts.
-			payload, err := env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			val := getCount(t, payload)
-			require.Equal(t, int64(2), val)
-
-			payload, err = env.InvokeActor(
-				ctx, ns, "b", "test-module", "kvGet", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			val = getCount(t, payload)
-			require.Equal(t, int64(1), val)
-		}
-	}
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestInvokeActorHostFunction tests whether the invoke actor host function can be used
@@ -477,7 +282,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestScheduleSelfTimersAndGC tests whether actors can schedule invocations for themselves to run
@@ -521,11 +326,11 @@ func TestScheduleSelfTimersAndGC(t *testing.T) {
 				break
 			}
 
-			numActors := env.numActivatedActors()
+			numActors := env.NumActivatedActors()
 			require.Equal(t, 1, numActors)
 			// Wait for actor to be GC'd.
 			for {
-				numActors := env.numActivatedActors()
+				numActors := env.NumActivatedActors()
 				if numActors != 0 {
 					time.Sleep(10 * time.Millisecond)
 					continue
@@ -555,11 +360,11 @@ func TestScheduleSelfTimersAndGC(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, int64(0), getCount(t, result))
 
-			numActors = env.numActivatedActors()
+			numActors = env.NumActivatedActors()
 			require.Equal(t, 1, numActors)
 			// Wait for actor to be GC'd.
 			for {
-				numActors := env.numActivatedActors()
+				numActors := env.NumActivatedActors()
 				if numActors != 0 {
 					time.Sleep(10 * time.Millisecond)
 					continue
@@ -572,7 +377,7 @@ func TestScheduleSelfTimersAndGC(t *testing.T) {
 
 			// Make sure the timer does not reactivate the actor.
 			for time.Since(gcTime) < timerDelay {
-				numActors := env.numActivatedActors()
+				numActors := env.NumActivatedActors()
 				if numActors != 0 {
 					t.Fatal("actor was reactivated by timer!")
 				}
@@ -583,7 +388,7 @@ func TestScheduleSelfTimersAndGC(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, gcDuration)
+	runWithDifferentConfigs(t, testFn, nil, false, false, gcDuration)
 }
 
 // TestInvokeActorHostFunctionDeadlockRegression is a regression test to ensure that an actor can invoke
@@ -605,7 +410,7 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestHeartbeatAndSelfHealing tests the interaction between the service discovery / heartbeating system
@@ -614,25 +419,31 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 // and that the activation/routing system can accomodate all of this.
 func TestHeartbeatAndSelfHealing(t *testing.T) {
 	var (
-		reg = localregistry.NewLocalRegistry()
-		ctx = context.Background()
+		reg         = localregistry.NewLocalRegistry()
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
 	)
 	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
 	// needs its own port so it looks unique.
 	opts1 := defaultOptsWASM
 	opts1.Discovery.Port = 1
-	env1, err := NewEnvironment(ctx, "serverID1", reg, nil, opts1)
+	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
 	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
 	opts2 := defaultOptsWASM
 	opts2.Discovery.Port = 2
-	env2, err := NewEnvironment(ctx, "serverID2", reg, nil, opts2)
+	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
 	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
 	opts3 := defaultOptsWASM
 	opts3.Discovery.Port = 3
-	env3, err := NewEnvironment(ctx, "serverID3", reg, nil, opts3)
+	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
 	require.NoError(t, err)
+	defer env3.Close(context.Background())
 
-	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	_, err = moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
 	for i := 0; i < 100; i++ {
@@ -678,9 +489,9 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 
 	// Registry load-balancing should ensure that we ended up with 1 actor in each environment
 	// I.E "on each server".
-	require.Equal(t, 1, env1.numActivatedActors())
-	require.Equal(t, 1, env2.numActivatedActors())
-	require.Equal(t, 1, env3.numActivatedActors())
+	require.Equal(t, 1, env1.NumActivatedActors())
+	require.Equal(t, 1, env2.NumActivatedActors())
+	require.Equal(t, 1, env3.NumActivatedActors())
 
 	require.NoError(t, env1.Close(context.Background()))
 	require.NoError(t, env2.Close(context.Background()))
@@ -696,6 +507,16 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 				// Spin loop until there are no more errors as function calls will fail for
 				// a bit until heartbeat + activation cache expire.
 				_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+				if err != nil {
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+				if err != nil {
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
 				if err != nil {
 					time.Sleep(100 * time.Millisecond)
 					continue
@@ -717,10 +538,154 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 	}
 
 	// Ensure that all of our invocations above were actually served by environment3.
-	require.Equal(t, 3, env3.numActivatedActors())
+	require.Equal(t, 3, env3.NumActivatedActors())
 
 	// Finally, make sure environment 3 is closed.
 	require.NoError(t, env3.Close(context.Background()))
+}
+
+// TestHeartbeatAndRebalancingWithMemory tests that the interaction between the environment
+// heartbeating mechanism and the registry load balancing mechanism is able to effectively
+// rebalance actors across the available nodes based on memory usage.
+func TestHeartbeatAndRebalancingWithMemoryGoModule(t *testing.T) {
+	var (
+		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
+			RebalanceMemoryThreshold: 1 << 24,
+		})
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
+	)
+	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+	// needs its own port so it looks unique.
+	opts1 := defaultOptsGoByte
+	opts1.Discovery.Port = 1
+	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+	require.NoError(t, err)
+	defer env1.Close(context.Background())
+	env1.RegisterGoModule(
+		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
+
+	opts2 := defaultOptsGoByte
+	opts2.Discovery.Port = 2
+	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+	require.NoError(t, err)
+	defer env2.Close(context.Background())
+	env2.RegisterGoModule(
+		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
+
+	opts3 := defaultOptsGoByte
+	opts3.Discovery.Port = 3
+	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+	require.NoError(t, err)
+	defer env3.Close(context.Background())
+	env3.RegisterGoModule(
+		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
+
+	testHeartbeatAndRebalancingWithMemory(t, env1, env2, env3)
+}
+
+// TestHeartbeatAndRebalancingWithMemoryWASMModule is the same as
+// TestHeartbeatAndRebalancingWithMemoryGoModule, but for WASM modules.
+func TestHeartbeatAndRebalancingWithMemoryWASMModule(t *testing.T) {
+	var (
+		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
+			RebalanceMemoryThreshold: 1 << 24,
+		})
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
+	)
+	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+	// needs its own port so it looks unique.
+	opts1 := defaultOptsWASM
+	opts1.Discovery.Port = 1
+	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
+	opts2 := defaultOptsWASM
+	opts2.Discovery.Port = 2
+	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
+	opts3 := defaultOptsWASM
+	opts3.Discovery.Port = 3
+	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+	require.NoError(t, err)
+	defer env3.Close(context.Background())
+
+	testHeartbeatAndRebalancingWithMemory(t, env1, env2, env3)
+}
+
+func testHeartbeatAndRebalancingWithMemory(
+	t *testing.T,
+	env1, env2, env3 Environment,
+) {
+	ctx := context.Background()
+
+	// Activate all the actors and hearbeat between each invocation so the registry can effectively load balance
+	// based on actor count to start.
+	for i := 0; i < 100; i++ {
+		_, err := env1.InvokeActor(ctx, "ns-1", fmt.Sprintf("actor-%d", i), "test-module", "inc", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+	}
+
+	// Registry load-balancing should ensure that we ended up with an equal number of actors in each environment.
+	require.True(t, env1.NumActivatedActors() == 34 || env1.NumActivatedActors() == 33)
+	require.True(t, env2.NumActivatedActors() == 34 || env2.NumActivatedActors() == 33)
+	require.True(t, env3.NumActivatedActors() == 34 || env3.NumActivatedActors() == 33)
+
+	for {
+		time.Sleep(10 * time.Millisecond)
+
+		// Keep invoking all the actors to make sure they stay activated and don't get GC'd
+		// for being idle.
+		for i := 0; i < 100; i++ {
+			// Make one of the actors look like they have really high memory usage.
+			if i == 0 {
+				_, err := env1.InvokeActor(
+					ctx, "ns-1", "actor-0", "test-module", "setMemoryUsage",
+					[]byte(fmt.Sprintf("%d", 1<<26)), types.CreateIfNotExist{})
+				require.NoError(t, err)
+				continue
+			}
+
+			// Only actors with memoryUsage >0 have their memory usage tracked and are eligible to be drained
+			// so make sure each actor has at least 1 byte of perceived memory usage.
+			_, err := env1.InvokeActor(ctx, "ns-1", fmt.Sprintf("actor-%d", i), "test-module", "setMemoryUsage", []byte("1"), types.CreateIfNotExist{})
+			require.NoError(t, err)
+		}
+
+		var (
+			env1Actors = env1.NumActivatedActors()
+			env2Actors = env2.NumActivatedActors()
+			env3Actors = env3.NumActivatedActors()
+		)
+
+		// env1 should get drained down to 1 actor as all the low memory usage actors are drained
+		// away and only the high memory usage actor remains.
+		if env1.NumActivatedActors() != 1 {
+			continue
+		}
+
+		// Eventually env2/env3 should stabilize with roughly the same number of actors.
+		delta := int(math.Abs(float64(env2Actors) - float64(env3Actors)))
+		if delta > 1 {
+			continue
+		}
+
+		// Finally, all actors should be activated.
+		sum := env1Actors + env2Actors + env3Actors
+		if sum != 100 {
+			continue
+		}
+
+		// All balancing criteria have been met, we're done.
+		break
+	}
 }
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server
@@ -750,7 +715,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, true, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCustomHostFns tests the ability for users to provide custom host functions that
@@ -764,7 +729,7 @@ func TestCustomHostFns(t *testing.T) {
 		require.Equal(t, []byte("ok"), result)
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestGoModulesRegisterTwice ensures that writing modules in pure Go and registering
@@ -772,15 +737,18 @@ func TestCustomHostFns(t *testing.T) {
 // the registry.
 func TestGoModulesRegisterTwice(t *testing.T) {
 	// Create environment and register modules.
-	reg := localregistry.NewLocalRegistry()
-	env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
+	var (
+		reg         = localregistry.NewLocalRegistry()
+		moduleStore = newTestModuleStore()
+	)
+	env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsGoByte)
 	require.NoError(t, err)
-	require.NoError(t, env.Close(context.Background()))
+	noErrIgnoreDupeClose(t, env.Close(context.Background()))
 
 	// Recreate with same registry should not fail.
-	env, err = NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsGoByte)
+	env, err = NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsGoByte)
 	require.NoError(t, err)
-	require.NoError(t, env.Close(context.Background()))
+	noErrIgnoreDupeClose(t, env.Close(context.Background()))
 }
 
 // TestServerVersionIsHonored ensures client-server coordination around server versions by
@@ -789,17 +757,18 @@ func TestGoModulesRegisterTwice(t *testing.T) {
 // https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
 func TestServerVersionIsHonored(t *testing.T) {
 	var (
-		reg = localregistry.NewLocalRegistry()
-		ctx = context.Background()
+		reg         = localregistry.NewLocalRegistry()
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
 	)
 
 	opts := defaultOptsWASM
 	opts.ActivationCacheTTL = time.Second * 15
-	env, err := NewEnvironment(ctx, "serverID1", reg, nil, opts)
+	env, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts)
 	require.NoError(t, err)
-	defer env.Close(context.Background())
+	defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
 
-	_, err = reg.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	_, err = moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
 	_, err = env.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
@@ -814,15 +783,24 @@ func TestServerVersionIsHonored(t *testing.T) {
 	require.NoError(t, env.heartbeat())
 
 	_, err = env.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-	require.Equal(
+	require.True(
 		t,
-		errors.New("error invoking actor: InvokeLocal: server version(2) != server version from reference(1)").Error(),
-		err.Error())
+		strings.Contains(err.Error(), "server version(2) != server version from reference(1)"))
 }
+
+var (
+	// Mutex is needed because multiple actors will write to it during clean shutdown
+	// which will trigger the race detector in tests.
+	testCleanShutdownHappenedLock sync.Mutex
+	testCleanShutdownHappened     = false
+)
 
 func TestCleanShutdown(t *testing.T) {
 	// Run once to ensure the actor is activated.
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		testCleanShutdownHappenedLock.Lock()
+		testCleanShutdownHappened = false
+		testCleanShutdownHappenedLock.Unlock()
 		_, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 	}
@@ -832,12 +810,15 @@ func TestCleanShutdown(t *testing.T) {
 	// to see if the clean shutdown method was invoked properly or not.
 
 	testFnAfterClose := func(t *testing.T, reg registry.Registry, env Environment) {
-		res, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "getShutdownValue", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.Equal(t, "true", string(res))
+		testCleanShutdownHappenedLock.Lock()
+		require.True(t, testCleanShutdownHappened)
+		testCleanShutdownHappenedLock.Unlock()
 	}
 
-	runWithDifferentConfigs(t, testFn, testFnAfterClose, false, testGCActorsAfterDurationWithNoInvocations)
+	// skipWasm=true because we have no way to assert that the WASM was actually shutdown properly
+	// without a custom host function right now.
+	runWithDifferentConfigs(
+		t, testFn, testFnAfterClose, false, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 func getCount(t *testing.T, v []byte) int64 {
@@ -851,20 +832,28 @@ func runWithDifferentConfigs(
 	testFn func(t *testing.T, reg registry.Registry, env Environment),
 	testFnAfterClose func(t *testing.T, reg registry.Registry, env Environment),
 	skipDNS bool,
+	skipWASM bool,
 	gcDurationOverride time.Duration,
 ) {
 	t.Run("wasm-local", func(t *testing.T) {
+		if skipWASM {
+			t.Skip("Skipping WASM...")
+		}
+
 		opts := defaultOptsWASM
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
-		reg := localregistry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+		var (
+			reg         = localregistry.NewLocalRegistry()
+			moduleStore = newTestModuleStore()
+		)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsWASM)
 		require.NoError(t, err)
-		defer env.Close(context.Background())
+		defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
 
-		_, err = reg.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+		_, err = moduleStore.RegisterModule(context.Background(), "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 		require.NoError(t, err)
-		_, err = reg.RegisterModule(context.Background(), "ns-2", "test-module", utilWasmBytes, registry.ModuleOptions{})
+		_, err = moduleStore.RegisterModule(context.Background(), "ns-2", "test-module", utilWasmBytes, registry.ModuleOptions{})
 		require.NoError(t, err)
 
 		testFn(t, reg, env)
@@ -872,9 +861,9 @@ func runWithDifferentConfigs(
 		err = env.Close(context.Background())
 		require.NoError(t, err)
 		if testFnAfterClose != nil {
-			env, err = NewEnvironment(context.Background(), "serverID1", reg, nil, defaultOptsWASM)
+			env, err = NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsWASM)
 			require.NoError(t, err)
-			defer env.Close(context.Background())
+			defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
 
 			testFnAfterClose(t, reg, env)
 		}
@@ -884,10 +873,13 @@ func runWithDifferentConfigs(
 		opts := defaultOptsGoByte
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
-		reg := localregistry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, opts)
+		var (
+			reg         = localregistry.NewLocalRegistry()
+			moduleStore = newTestModuleStore()
+		)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, opts)
 		require.NoError(t, err)
-		defer env.Close(context.Background())
+		defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
 
 		env.RegisterGoModule(
 			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
@@ -899,9 +891,9 @@ func runWithDifferentConfigs(
 		err = env.Close(context.Background())
 		require.NoError(t, err)
 		if testFnAfterClose != nil {
-			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, opts)
+			env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, opts)
 			require.NoError(t, err)
-			defer env.Close(context.Background())
+			defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
 
 			env.RegisterGoModule(
 				types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
@@ -916,10 +908,13 @@ func runWithDifferentConfigs(
 		opts := defaultOptsGoStream
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
-		reg := localregistry.NewLocalRegistry()
-		env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, opts)
+		var (
+			reg         = localregistry.NewLocalRegistry()
+			moduleStore = newTestModuleStore()
+		)
+		env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, opts)
 		require.NoError(t, err)
-		defer env.Close(context.Background())
+		defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
 
 		env.RegisterGoModule(
 			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
@@ -931,9 +926,9 @@ func runWithDifferentConfigs(
 		err = env.Close(context.Background())
 		require.NoError(t, err)
 		if testFnAfterClose != nil {
-			env, err := NewEnvironment(context.Background(), "serverID1", reg, nil, opts)
+			env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, opts)
 			require.NoError(t, err)
-			defer env.Close(context.Background())
+			defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
 
 			env.RegisterGoModule(
 				types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
@@ -957,7 +952,7 @@ func runWithDifferentConfigs(
 
 			env, reg, err := NewTestDNSRegistryEnvironment(context.Background(), opts)
 			require.NoError(t, err)
-			defer env.Close(context.Background())
+			defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
 
 			env.RegisterGoModule(
 				types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testStreamModule{})
@@ -970,6 +965,10 @@ func runWithDifferentConfigs(
 }
 
 type testModule struct {
+}
+
+func newTestModuleStore() registry.ModuleStore {
+	return localregistry.NewLocalRegistry().(registry.ModuleStore)
 }
 
 func (tm testModule) Instantiate(
@@ -992,32 +991,35 @@ type testActor struct {
 	host HostCapabilities
 
 	count              int
+	numInvocations     int
 	startupWasCalled   bool
 	shutdownWasCalled  bool
+	memUsage           int
 	instantiatePayload []byte
+}
+
+func (ta *testActor) MemoryUsageBytes() int {
+	return ta.memUsage
 }
 
 func (ta *testActor) Invoke(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-	transaction registry.ActorKVTransaction,
 ) ([]byte, error) {
+	defer func() { ta.numInvocations++ }()
+
 	switch operation {
 	case wapcutils.StartupOperationName:
 		ta.startupWasCalled = true
 		return nil, nil
 	case wapcutils.ShutdownOperationName:
 		ta.shutdownWasCalled = true
-		if _, ok := transaction.(noopTransaction); !ok {
-			return nil, transaction.Put(ctx, []byte("shutdown"), []byte("true"))
-		}
+		testCleanShutdownHappenedLock.Lock()
+		testCleanShutdownHappened = true
+		testCleanShutdownHappenedLock.Unlock()
 		return nil, nil
 	case "getShutdownValue":
-		if _, ok := transaction.(noopTransaction); !ok {
-			result, _, err := transaction.Get(ctx, []byte("shutdown"))
-			return result, err
-		}
 		return []byte(strconv.FormatBool(ta.shutdownWasCalled)), nil
 	case "getInstantiatePayload":
 		return ta.instantiatePayload, nil
@@ -1031,22 +1033,22 @@ func (ta *testActor) Invoke(
 			return []byte("true"), nil
 		}
 		return []byte("false"), nil
-	case "kvPutCount":
-		value := []byte(fmt.Sprintf("%d", ta.count))
-		return nil, transaction.Put(ctx, payload, value)
-	case "kvPutCountError":
-		value := []byte(fmt.Sprintf("%d", ta.count))
-		err := transaction.Put(ctx, payload, value)
-		if err == nil {
-			return nil, errors.New("some fake error")
-		}
-		return nil, err
-	case "kvGet":
-		v, _, err := transaction.Get(ctx, payload)
-		if err != nil {
-			return nil, err
-		}
-		return v, nil
+	// case "kvPutCount":
+	// 	value := []byte(fmt.Sprintf("%d", ta.count))
+	// 	return nil, transaction.Put(ctx, payload, value)
+	// case "kvPutCountError":
+	// 	value := []byte(fmt.Sprintf("%d", ta.count))
+	// 	err := transaction.Put(ctx, payload, value)
+	// 	if err == nil {
+	// 		return nil, errors.New("some fake error")
+	// 	}
+	// 	return nil, err
+	// case "kvGet":
+	// 	v, _, err := transaction.Get(ctx, payload)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	return v, nil
 	case "invokeActor":
 		var req types.InvokeActorRequest
 		if err := json.Unmarshal(payload, &req); err != nil {
@@ -1062,6 +1064,13 @@ func (ta *testActor) Invoke(
 		return nil, err
 	case "invokeCustomHostFn":
 		return ta.host.CustomFn(ctx, string(payload), payload)
+	case "setMemoryUsage":
+		memUsage, err := strconv.ParseInt(string(payload), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing memUsage in payload: %w", err)
+		}
+		ta.memUsage = int(memUsage)
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("testActor: unhandled operation: %s", operation)
 	}
@@ -1101,13 +1110,16 @@ type testStreamActor struct {
 	a ActorBytes
 }
 
+func (ta *testStreamActor) MemoryUsageBytes() int {
+	return ta.a.MemoryUsageBytes()
+}
+
 func (ta *testStreamActor) InvokeStream(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-	transaction registry.ActorKVTransaction,
 ) (io.ReadCloser, error) {
-	resp, err := ta.a.Invoke(ctx, operation, payload, transaction)
+	resp, err := ta.a.Invoke(ctx, operation, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -1116,4 +1128,14 @@ func (ta *testStreamActor) InvokeStream(
 
 func (ta *testStreamActor) Close(ctx context.Context) error {
 	return nil
+}
+
+// noErrIgnoreDupeClose asserts that the error is nil or an "environment is
+// closed error".
+func noErrIgnoreDupeClose(t *testing.T, err error) {
+	if err != nil && strings.Contains(err.Error(), "environment is closed") {
+		return
+	}
+
+	require.NoError(t, err)
 }

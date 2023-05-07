@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/richardartoul/nola/virtual"
+	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
 
@@ -34,11 +35,12 @@ func TestFileCacheBenchmark(t *testing.T) {
 		getRangeSize  = 1 << 20
 		fetcher       = newTestFetcher(fileSize, false)
 		cache         = newTestCache()
+		reg           = localregistry.NewLocalRegistry()
+		moduleStore   = registry.NewNoopModuleStore()
 	)
-	registry := localregistry.NewLocalRegistry()
 	env, err := virtual.NewEnvironment(
 		context.Background(),
-		"test-server-id", registry,
+		"test-server-id", reg, moduleStore,
 		virtual.NewHTTPClient(), virtual.EnvironmentOptions{
 			Discovery: virtual.DiscoveryOptions{
 				DiscoveryType: virtual.DiscoveryTypeLocalHost,
@@ -56,7 +58,7 @@ func TestFileCacheBenchmark(t *testing.T) {
 		NewFileCacheModule(chunkSize, fetchSize, fetcher, cache))
 	require.NoError(t, err)
 
-	server := virtual.NewServer(registry, env)
+	server := virtual.NewServer(moduleStore, env)
 	go func() {
 		if err := server.Start(port); err != nil {
 			panic(err)

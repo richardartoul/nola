@@ -15,9 +15,9 @@ import (
 	"github.com/richardartoul/nola/virtual/types"
 )
 
-type server struct {
+type Server struct {
 	// Dependencies.
-	registry    registry.Registry
+	moduleStore registry.ModuleStore
 	environment Environment
 
 	server *http.Server
@@ -25,17 +25,17 @@ type server struct {
 
 // NewServer creates a new server for the actor virtual environment.
 func NewServer(
-	registry registry.Registry,
+	moduleStore registry.ModuleStore,
 	environment Environment,
-) *server {
-	return &server{
-		registry:    registry,
+) *Server {
+	return &Server{
+		moduleStore: moduleStore,
 		environment: environment,
 	}
 }
 
 // Start starts the server.
-func (s *server) Start(port int) error {
+func (s *Server) Start(port int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/register-module", s.registerModule)
 	mux.HandleFunc("/api/v1/invoke-actor", s.invoke)
@@ -54,7 +54,7 @@ func (s *server) Start(port int) error {
 	return nil
 }
 
-func (s *server) Stop(ctx context.Context) error {
+func (s *Server) Stop(ctx context.Context) error {
 	log.Print("shutting down http server")
 	if err := s.server.Shutdown(ctx); err != nil {
 		return fmt.Errorf("failed to shut down http server: %w", err)
@@ -73,7 +73,7 @@ func (s *server) Stop(ctx context.Context) error {
 // This one is a bit weird because its basically a file upload with some JSON
 // so we just shove the JSON into the headers cause I'm lazy to do anything
 // more clever.
-func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
+func (s *Server) registerModule(w http.ResponseWriter, r *http.Request) {
 	var (
 		namespace = r.Header.Get("namespace")
 		moduleID  = r.Header.Get("module_id")
@@ -81,23 +81,23 @@ func (s *server) registerModule(w http.ResponseWriter, r *http.Request) {
 
 	moduleBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	ctx, cc := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cc()
-	result, err := s.registry.RegisterModule(ctx, namespace, moduleID, moduleBytes, registry.ModuleOptions{})
+	result, err := s.moduleStore.RegisterModule(ctx, namespace, moduleID, moduleBytes, registry.ModuleOptions{})
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	marshaled, err := json.Marshal(result)
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -115,7 +115,7 @@ type invokeActorRequest struct {
 	PayloadJSON interface{} `json:"payload_json"`
 }
 
-func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
+func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {
 		// Error already written to w.
 		return
@@ -123,14 +123,14 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	var req invokeActorRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -138,7 +138,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	if len(req.Payload) == 0 && req.PayloadJSON != nil {
 		marshaled, err := json.Marshal(req.PayloadJSON)
 		if err != nil {
-			w.WriteHeader(500)
+			writeStatusCodeForError(w, err)
 			w.Write([]byte(err.Error()))
 			return
 		}
@@ -151,7 +151,7 @@ func (s *server) invoke(w http.ResponseWriter, r *http.Request) {
 	result, err := s.environment.InvokeActorStream(
 		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -180,7 +180,7 @@ type invokeActorDirectRequest struct {
 	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
 }
 
-func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
+func (s *Server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {
 		// Error already written to w.
 		return
@@ -188,14 +188,14 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	var req invokeActorDirectRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -206,7 +206,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 
 	ref, err := types.NewVirtualActorReference(req.Namespace, req.ModuleID, req.ActorID, uint64(req.Generation))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -215,7 +215,7 @@ func (s *server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref,
 		req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -241,7 +241,7 @@ type invokeWorkerRequest struct {
 	CreateIfNotExist types.CreateIfNotExist `json:"create_if_not_exist"`
 }
 
-func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
+func (s *Server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	if err := ensureHijackable(w); err != nil {
 		// Error already written to w.
 		return
@@ -249,14 +249,14 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 
 	jsonBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, 1<<24))
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
 	var req invokeWorkerRequest
 	if err := json.Unmarshal(jsonBytes, &req); err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -268,7 +268,7 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 	result, err := s.environment.InvokeWorkerStream(
 		ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
-		w.WriteHeader(500)
+		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
 		return
 	}
@@ -289,7 +289,6 @@ func (s *server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 // after submitting an HTTP 200 status code, but then encounter an error reading from the
 // stream. In that scenario, we want to be very careful to ensure that the caller observes
 // an error (by closing the TCP connection) instead of a truncated response.
-
 func ensureHijackable(w http.ResponseWriter) error {
 	_, ok := w.(http.Hijacker)
 	if !ok {
@@ -306,4 +305,13 @@ func terminateConnection(w http.ResponseWriter) {
 		panic(fmt.Sprintf("[invariant violated] Hijack() returned error: %v", err))
 	}
 	conn.Close()
+}
+
+func writeStatusCodeForError(w http.ResponseWriter, err error) {
+	var httpErr HTTPError
+	if errors.As(err, &httpErr) {
+		w.WriteHeader(httpErr.HTTPStatusCode())
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }

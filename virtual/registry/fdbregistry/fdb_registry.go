@@ -8,5 +8,10 @@ func NewFoundationDBRegistry(clusterFile string) (registry.Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return registry.NewKVRegistry(fdbKV), nil
+	return registry.NewKVRegistry(fdbKV, registry.KVRegistryOptions{
+		// FDB may struggle to make progress on certain workloads if high
+		// conflict operations are enabled because they'll cause excessive
+		// transaction retries / failures.
+		DisableHighConflictOperations: true,
+	}), nil
 }
