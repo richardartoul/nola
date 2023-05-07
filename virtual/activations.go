@@ -39,7 +39,7 @@ type activations struct {
 	_actorResourceTracker *actorResourceTracker
 	_blacklist            *ristretto.Cache
 	moduleFetchDeduper    singleflight.Group
-	serverState           struct {
+	_serverState          struct {
 		sync.RWMutex
 		serverID      string
 		serverVersion int64
@@ -126,7 +126,8 @@ func (a *activations) invoke(
 	if ok {
 		err := fmt.Errorf(
 			"actor %s is blacklisted on this server", reference.ActorID())
-		return nil, NewBlacklistedActivationError(err, a.serverState.serverID)
+		serverID, _ := a.getServerState()
+		return nil, NewBlacklistedActivationError(err, serverID)
 	}
 
 	// First check if the actor is already activated.
@@ -421,19 +422,19 @@ func (a *activations) setServerState(
 	serverID string,
 	serverVersion int64,
 ) {
-	a.serverState.Lock()
-	defer a.serverState.Unlock()
-	a.serverState.serverID = serverID
-	a.serverState.serverVersion = serverVersion
+	a._serverState.Lock()
+	defer a._serverState.Unlock()
+	a._serverState.serverID = serverID
+	a._serverState.serverVersion = serverVersion
 }
 
 func (a *activations) getServerState() (
 	serverID string,
 	serverVersion int64,
 ) {
-	a.serverState.RLock()
-	defer a.serverState.RUnlock()
-	return a.serverState.serverID, a.serverState.serverVersion
+	a._serverState.RLock()
+	defer a._serverState.RUnlock()
+	return a._serverState.serverID, a._serverState.serverVersion
 }
 
 // shedMemUsage instructs the activation cache to try and shed numBytes worth of memory
