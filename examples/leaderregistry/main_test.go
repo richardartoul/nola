@@ -189,6 +189,83 @@ func TestSurviveLeaderFailure(t *testing.T) {
 	}
 }
 
+// TestHandleLeaderTransitionGracefully tests that the implementation handles leader failures gracefully by ensuring
+// we don't relocate any actors in the general case of a leader transition.
+func TestHandleLeaderTransitionGracefully(t *testing.T) {
+	lp := &leaderProvider{}
+	lp.setLeader(registry.Address{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: baseRegistryPort,
+	})
+
+	var (
+		// Make one of the servers run the registry only, but no virtual environment
+		// so that when we "kill" the leader we don't lose any actors.
+		// TODO: We should add this as a setting to the leaderregistry to make it so
+		//       the leader never assigns itself any actors and if it has any once
+		//       it becomes the leader, it will drain them.
+		reg1                   = newRegistry(t, lp, 0)
+		server2, _, cleanupFn2 = newServer(t, lp, 1)
+		server3, _, cleanupFn3 = newServer(t, lp, 2)
+		server4, _, cleanupFn4 = newServer(t, lp, 3)
+	)
+	defer reg1.Close(context.Background())
+	defer cleanupFn2()
+	defer cleanupFn3()
+	defer cleanupFn4()
+
+	for i := 0; i < numActors; i++ {
+		_, err := server2.InvokeActor(
+			context.Background(), namespace, actorID(i), module, "keep-alive", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+	}
+
+	require.True(t, server2.NumActivatedActors() == numActors/3 || server2.NumActivatedActors() == numActors/3+1)
+	require.True(t, server3.NumActivatedActors() == numActors/3 || server3.NumActivatedActors() == numActors/3+1)
+	require.True(t, server4.NumActivatedActors() == numActors/3 || server4.NumActivatedActors() == numActors/3+1)
+
+	// Kill the old leader and make a different node the new leader.
+	require.NoError(t, reg1.Close(context.Background()))
+	lp.setLeader(registry.Address{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: baseRegistryPort + 1,
+	})
+
+	start := time.Now()
+	for i := 0; ; i++ {
+		time.Sleep(1 * time.Millisecond)
+
+		for j := 0; j < numActors; j++ {
+			_, err := server2.InvokeActor(
+				context.Background(), namespace, actorID(j), module, "keep-alive", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+		}
+
+		// A bit hacky, but if the number of actors on each server remains exactly the same for long enough then
+		// we assume no actors were rerouted since we don't have a better way to assert that currently.
+		require.True(
+			t,
+			server2.NumActivatedActors() == numActors/3 || server2.NumActivatedActors() == numActors/3+1,
+			server2.NumActivatedActors())
+		require.True(
+			t,
+			server3.NumActivatedActors() == numActors/3 || server3.NumActivatedActors() == numActors/3+1,
+			server3.NumActivatedActors())
+		require.True(
+			t,
+			server4.NumActivatedActors() == numActors/3 || server4.NumActivatedActors() == numActors/3+1,
+			server4.NumActivatedActors())
+
+		if time.Since(start) > time.Minute {
+			// It's impossible for this test to "prove" that we can keep running forever, but if we can keep running
+			// for 1 minute we'll assume everything is implemented correctly to handle leader failures. This is a
+			// bit risky because technically we could have done something dumb like cache activations for 62s, but
+			// its good enough for now.
+			break
+		}
+	}
+}
+
 func newServer(
 	t *testing.T,
 	lp leaderregistry.LeaderProvider,
@@ -214,6 +291,11 @@ func newServer(
 			ForceRemoteProcedureCalls: true,
 			// Speedup actor GC so the test finishes faster.
 			GCActorsAfterDurationWithNoInvocations: 5 * time.Second,
+			// Test assumes the activation cache does not last very long. If the default activation cache
+			// duration was increased too much the tests might end up just testing the caching behavior
+			// instead of ensuring everything works even when the cache TTL expires so we hard-code it
+			// to 5s here just to be safe.
+			ActivationCacheTTL: 5 * time.Second,
 		})
 	require.NoError(t, err)
 	require.NoError(t, env.RegisterGoModule(types.NewNamespacedIDNoType(namespace, module), &testModule{}))

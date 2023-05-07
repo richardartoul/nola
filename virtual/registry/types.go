@@ -158,7 +158,8 @@ type EnsureActivationRequest struct {
 	// the ID of the server that the actor was blacklisted on so the registry can keep
 	// track of that information and ensure the actor is activated elsewhere / balanced
 	// properly.
-	BlacklistedServerID string `json:"blacklisted_server_id"`
+	BlacklistedServerID      string `json:"blacklisted_server_id"`
+	CachedActivationServerID string `json:"cached_activation_server_id"`
 }
 
 // EnsureActivationResult contains the result of invoking the EnsureActivation method.

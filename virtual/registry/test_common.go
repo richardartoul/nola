@@ -133,7 +133,6 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, "ns1", activations.References[0].ActorID().Namespace)
 	require.Equal(t, "a", activations.References[0].ActorID().ID)
 	require.True(t, activations.VersionStamp > prevVS)
-	prevVS = activations.VersionStamp
 
 	// Next 10 activations should all go to server2 for balancing purposes.
 	for i := 0; i < 10; i++ {

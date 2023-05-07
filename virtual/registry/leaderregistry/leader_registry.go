@@ -176,6 +176,11 @@ func (l *leaderRegistry) Heartbeat(
 	serverID string,
 	heartbeatState registry.HeartbeatState,
 ) (registry.HeartbeatResult, error) {
+	// TODO: Right now we only route the heartbeat to the leader registry, however,
+	//       it would be better if we could route the heartbeats to the leader and
+	//       a few replicas (provided by the LeaderProvider) so that when the leader
+	//       fails, the new node that takes over at least already knows how many
+	//       servers there are to work with.
 	req := heartbeatRequest{
 		ServerID:       serverID,
 		HeartbeatState: heartbeatState,
