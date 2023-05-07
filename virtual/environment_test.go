@@ -788,12 +788,19 @@ func TestServerVersionIsHonored(t *testing.T) {
 		strings.Contains(err.Error(), "server version(2) != server version from reference(1)"))
 }
 
-var testCleanShutdownHappened = false
+var (
+	// Mutex is needed because multiple actors will write to it during clean shutdown
+	// which will trigger the race detector in tests.
+	testCleanShutdownHappenedLock sync.Mutex
+	testCleanShutdownHappened     = false
+)
 
 func TestCleanShutdown(t *testing.T) {
 	// Run once to ensure the actor is activated.
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		testCleanShutdownHappenedLock.Lock()
 		testCleanShutdownHappened = false
+		testCleanShutdownHappenedLock.Unlock()
 		_, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 	}
@@ -803,7 +810,9 @@ func TestCleanShutdown(t *testing.T) {
 	// to see if the clean shutdown method was invoked properly or not.
 
 	testFnAfterClose := func(t *testing.T, reg registry.Registry, env Environment) {
+		testCleanShutdownHappenedLock.Lock()
 		require.True(t, testCleanShutdownHappened)
+		testCleanShutdownHappenedLock.Unlock()
 	}
 
 	// skipWasm=true because we have no way to assert that the WASM was actually shutdown properly
