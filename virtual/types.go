@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 
-	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 )
@@ -205,7 +204,6 @@ type ActorBytes interface {
 		ctx context.Context,
 		operation string,
 		payload []byte,
-		transaction registry.ActorKVTransaction,
 	) ([]byte, error)
 }
 
@@ -220,14 +218,11 @@ type ActorStream interface {
 		ctx context.Context,
 		operation string,
 		payload []byte,
-		transaction registry.ActorKVTransaction,
 	) (io.ReadCloser, error)
 }
 
 // HostCapabilities defines the interface of capabilities exposed by the host to the Actor.
 type HostCapabilities interface {
-	KV
-
 	// InvokeActor invokes a function on the specified actor.
 	InvokeActor(context.Context, types.InvokeActorRequest) ([]byte, error)
 
@@ -243,17 +238,6 @@ type HostCapabilities interface {
 		operation string,
 		payload []byte,
 	) ([]byte, error)
-}
-
-// KV is the host KV interface exposed to each actor.
-type KV interface {
-	// BeginTransaction begins a new transaction. This transaction is different from the
-	// transaction that is provided to each call to Invoke() in that its lifecycle is not
-	// managed by NOLA automatically and it is the actor's responsibility to commit or
-	// cancel the transaction when it is ready.
-	BeginTransaction(ctx context.Context) (registry.ActorKVTransaction, error)
-	// Transact is the same as BeginTransaction, except with an easier to use interface.
-	Transact(context.Context, func(tr registry.ActorKVTransaction) (any, error)) (any, error)
 }
 
 type CreateActorResult struct {

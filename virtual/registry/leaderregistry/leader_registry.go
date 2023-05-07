@@ -160,17 +160,6 @@ func (l *leaderRegistry) GetVersionStamp(
 	return dnsregistry.DNSVersionStamp, nil
 }
 
-func (l *leaderRegistry) BeginTransaction(
-	ctx context.Context,
-	namespace string,
-	actorID string,
-	moduleID string,
-	serverID string,
-	serverVersion int64,
-) (_ registry.ActorKVTransaction, err error) {
-	return nil, errors.New("BeginTransaction not implemented")
-}
-
 func (l *leaderRegistry) Heartbeat(
 	ctx context.Context,
 	serverID string,
@@ -257,7 +246,6 @@ func (a *leaderActor) Invoke(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-	transaction registry.ActorKVTransaction,
 ) (_ []byte, err error) {
 	defer func() {
 		if err != nil {
@@ -274,8 +262,6 @@ func (a *leaderActor) Invoke(
 		return a.handleEnsureActivation(ctx, payload)
 	case "getVersionStamp":
 		return nil, errors.New("getVersionStamp not implemented")
-	case "beginTransaction":
-		return nil, errors.New("beginTransaction not implemented")
 	case "heartbeat":
 		return a.handleHeartbeat(ctx, payload)
 	case "unsafeWipeAll":

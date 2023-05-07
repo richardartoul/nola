@@ -123,7 +123,6 @@ func (ta *testActor) Invoke(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-	transaction registry.ActorKVTransaction,
 ) ([]byte, error) {
 	switch operation {
 	case wapcutils.StartupOperationName:

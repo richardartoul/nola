@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -717,47 +716,11 @@ func (a *activatedActor) invoke(
 		a._gcTimer.Reset(a._gcAfter)
 	}
 
-	// Workers can't have KV storage because they're not global singletons like actors
-	// are. They're also not registered with the Registry explicitly, so we can skip
-	// this step in that case.
-	if a.reference().ActorID().IDType != types.IDTypeWorker {
-		result, err := a._host.Transact(ctx, func(tr registry.ActorKVTransaction) (any, error) {
-			streamActor, ok := a._a.(ActorStream)
-			if ok {
-				// This actor has support for the streaming interface so we should use that
-				// directly since its more efficient.
-				return streamActor.InvokeStream(ctx, operation, payload, tr)
-			}
-
-			// The actor doesn't support streaming responses, we'll convert the returned []byte
-			// to a stream ourselves.
-			return a._a.(ActorBytes).Invoke(ctx, operation, payload, tr)
-		})
-		if err != nil {
-			return 0, nil, err
-		}
-
-		currMemUsage := a._a.MemoryUsageBytes()
-		if result == nil {
-			// Actor returned nil stream, convert it to an empty one.
-			return currMemUsage, ioutil.NopCloser(bytes.NewReader(nil)), nil
-		}
-
-		stream, ok := result.(io.ReadCloser)
-		if ok {
-			return currMemUsage, stream, nil
-		}
-		return currMemUsage, io.NopCloser(bytes.NewBuffer(result.([]byte))), nil
-	}
-
-	// Use a noopTransaction because its a worker not an actor and workers don't get
-	// access to KV storage / transactions.
-	var noopTxn registry.ActorKVTransaction = noopTransaction{}
 	streamActor, ok := a._a.(ActorStream)
 	if ok {
 		// This module has support for the streaming interface so we should use that
 		// directly since its more efficient.
-		stream, err := streamActor.InvokeStream(ctx, operation, payload, noopTxn)
+		stream, err := streamActor.InvokeStream(ctx, operation, payload)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -766,7 +729,7 @@ func (a *activatedActor) invoke(
 
 	// The actor doesn't support streaming responses, we'll convert the returned []byte
 	// to a stream ourselves.
-	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload, noopTxn)
+	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload)
 	if err != nil {
 		return 0, nil, err
 	}

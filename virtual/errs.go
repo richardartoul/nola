@@ -34,6 +34,9 @@ type BlacklistedActivationErr struct {
 
 // NewBlacklistedActivationError creates a new BlacklistedActivationErr.
 func NewBlacklistedActivationError(err error, serverID string) error {
+	if serverID == "" {
+		panic("[invariant violated] serverID cannot be empty")
+	}
 	return BlacklistedActivationErr{err: err, serverID: serverID}
 }
 

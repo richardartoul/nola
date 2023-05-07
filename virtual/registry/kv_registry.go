@@ -372,55 +372,6 @@ func (k *kvRegistry) GetVersionStamp(
 	return v.(int64), nil
 }
 
-func (k *kvRegistry) BeginTransaction(
-	ctx context.Context,
-	namespace string,
-	actorID string,
-	moduleID string,
-	serverID string,
-	serverVersion int64,
-) (_ ActorKVTransaction, err error) {
-	var kvTr kv.Transaction
-	kvTr, err = k.kv.BeginTransaction(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("kvRegistry: beginTransaction: error beginning transaction: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			kvTr.Cancel(ctx)
-		}
-	}()
-
-	actorKey := getActorKey(namespace, actorID, moduleID)
-	ra, ok, err := k.getActor(ctx, kvTr, actorKey)
-	if err != nil {
-		return nil, fmt.Errorf("kvRegistry: beginTransaction: error getting actor key: %w", err)
-	}
-	if !ok {
-		return nil, fmt.Errorf("kvRegistry: beginTransaction: cannot perform KV Get for actor: %s(%s) that does not exist", actorID, moduleID)
-	}
-
-	// We treat the tuple of <ServerID, ServerVersion> as a fencing token for all
-	// actor KV storage operations. This guarantees that actor KV storage behaves in
-	// a linearizable manner because an actor can only ever be activated on one server
-	// in the registry at a given time, therefore linearizability is maintained as long
-	// as we check that the server performing the KV storage transaction is also the
-	// server responsible for the actor's current activation.
-	if ra.Activation.ServerID != serverID {
-		return nil, fmt.Errorf(
-			"kvRegistry: beginTransaction: cannot begin transaction because server IDs do not match: %s != %s",
-			ra.Activation.ServerID, serverID)
-	}
-	if ra.Activation.ServerVersion != serverVersion {
-		return nil, fmt.Errorf(
-			"kvRegistry: beginTransaction: cannot begin transaction because server versions do not match: %d != %d",
-			ra.Activation.ServerVersion, serverVersion)
-	}
-
-	tr := newKVTransaction(ctx, namespace, actorID, moduleID, kvTr)
-	return tr, nil
-}
-
 func (k *kvRegistry) Heartbeat(
 	ctx context.Context,
 	serverID string,
@@ -561,10 +512,6 @@ func getActorKey(namespace, actorID, moduleID string) []byte {
 	return tuple.Tuple{namespace, "actors", moduleID, actorID, "state"}.Pack()
 }
 
-func getActoKVKey(namespace, actorID string, moduleID string, key []byte) []byte {
-	return tuple.Tuple{namespace, "actors", moduleID, actorID, "kv", key}.Pack()
-}
-
 func getServerKey(serverID string) []byte {
 	return tuple.Tuple{"servers", serverID}.Pack()
 }
@@ -626,53 +573,6 @@ func versionSince(curr, prev int64) time.Duration {
 			prev, curr))
 	}
 	return time.Duration(since) * time.Microsecond
-}
-
-type kvTransaction struct {
-	namespace string
-	actorID   string
-	moduleID  string
-	tr        kv.Transaction
-}
-
-func newKVTransaction(
-	ctx context.Context,
-	namespace string,
-	actorID string,
-	moduleID string,
-	tr kv.Transaction,
-) *kvTransaction {
-	return &kvTransaction{
-		namespace: namespace,
-		actorID:   actorID,
-		moduleID:  moduleID,
-		tr:        tr,
-	}
-}
-
-func (tr *kvTransaction) Get(
-	ctx context.Context,
-	key []byte,
-) ([]byte, bool, error) {
-	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, tr.moduleID, key)
-	return tr.tr.Get(ctx, actorKVKey)
-}
-
-func (tr *kvTransaction) Put(
-	ctx context.Context,
-	key []byte,
-	value []byte,
-) error {
-	actorKVKey := getActoKVKey(tr.namespace, tr.actorID, tr.moduleID, key)
-	return tr.tr.Put(ctx, actorKVKey, value)
-}
-
-func (tr *kvTransaction) Commit(ctx context.Context) error {
-	return tr.tr.Commit(ctx)
-}
-
-func (tr *kvTransaction) Cancel(ctx context.Context) error {
-	return tr.tr.Cancel(ctx)
 }
 
 func getLiveServers(

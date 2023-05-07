@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/richardartoul/nola/virtual"
-	"github.com/richardartoul/nola/virtual/registry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
 
@@ -151,7 +150,6 @@ func (f *FileCacheActor) InvokeStream(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-	transaction registry.ActorKVTransaction,
 ) (io.ReadCloser, error) {
 	switch operation {
 	case wapcutils.StartupOperationName, wapcutils.ShutdownOperationName:

@@ -3,7 +3,6 @@ package registry
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,10 +16,6 @@ import (
 func TestAllCommon(t *testing.T, registryCtor func() Registry) {
 	t.Run("service discovery and ensure activation", func(t *testing.T) {
 		testRegistryServiceDiscoveryAndEnsureActivation(t, registryCtor())
-	})
-
-	t.Run("kv simple", func(t *testing.T) {
-		testKVSimple(t, registryCtor())
 	})
 }
 
@@ -204,123 +199,5 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
 		require.Equal(t, "server2", activations.References[0].ServerID())
-	}
-}
-
-func testKVSimple(t *testing.T, registry Registry) {
-	ctx := context.Background()
-	defer registry.Close(ctx)
-
-	for nsIdx, ns := range []string{"ns1", "ns2"} {
-		_, err := registry.BeginTransaction(ctx, ns, "a", "test-module1", "server1", 0)
-		if err != nil && strings.Contains(err.Error(), "not implemented") {
-			t.Skip("skipping KV test for registry that does not implement KV")
-		}
-
-		// Cant start transaction for actor that doesn't exist (no call to EnsureActivation yet).
-		require.Error(t, err)
-
-		for actorIdx, actor := range []string{"1", "2", "3", "4", "5"} {
-			func() {
-				tr, err := registry.BeginTransaction(ctx, ns, "a", "test-module1", "server1", 0)
-				// Cant start transaction for actor that doesn't exist (no call to EnsureActivation yet).
-				require.Error(t, err)
-
-				if nsIdx == 0 && actorIdx == 0 {
-					// Server heartbeats span namespaces so this will only be true the
-					// first time.
-
-					// Cant ensure activation when no available servers.
-					_, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-						Namespace: ns,
-						ActorID:   actor,
-						ModuleID:  "test-module1",
-					})
-					require.Error(t, err)
-
-					// Heartbeat server so we can activate.
-					_, err = registry.Heartbeat(ctx, "server1", HeartbeatState{
-						NumActivatedActors: 0,
-						Address:            "server1_address",
-					})
-					require.NoError(t, err)
-				}
-
-				// Same actor ID, but different modules, should end up with separate KV storage.
-				_, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-					Namespace: ns,
-					ActorID:   actor,
-					ModuleID:  "test-module1",
-				})
-				require.NoError(t, err)
-				_, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-					Namespace: ns,
-					ActorID:   actor,
-					ModuleID:  "test-module2",
-				})
-				require.NoError(t, err)
-
-				for _, module := range []string{"test-module1", "test-module2"} {
-					func() {
-						var (
-							rightServer = "server1"
-							wrongServer = "server2"
-						)
-						if module == "module2" {
-							rightServer, wrongServer = wrongServer, rightServer
-						}
-						tr, err = registry.BeginTransaction(ctx, ns, actor, module, wrongServer, 0)
-						// Cant start transaction for actor from wrong server.
-						require.Error(t, err)
-
-						tr, err = registry.BeginTransaction(ctx, ns, actor, module, rightServer, 0)
-						// Cant start transaction for actor with stale server version.
-						require.Error(t, err)
-
-						// Finally now that we've created the actor, created a live server, ensured the
-						// actor is activated on the live server, and initiate the transaction from the
-						// server the actor should be activated on, we can begin a transaction.
-						tr, err = registry.BeginTransaction(ctx, ns, actor, module, rightServer, 1)
-						require.NoError(t, err)
-						defer func() {
-							require.NoError(t, tr.Commit(ctx))
-						}()
-
-						for i := 0; i < 10; i++ {
-							var (
-								key   = []byte(fmt.Sprintf("key-%d", i))
-								value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
-							)
-							// PUT/GET should work now.
-							_, ok, err := tr.Get(ctx, key)
-							require.NoError(t, err)
-							// key1 should not exist yet.
-							require.False(t, ok)
-
-							// Store key1 now. Subsequent GET should work.
-							err = tr.Put(ctx, key, value)
-							require.NoError(t, err)
-
-							val, ok, err := tr.Get(ctx, key)
-							require.NoError(t, err)
-							require.True(t, ok)
-							require.Equal(t, value, val)
-						}
-
-						// Make sure we can re-read all the keys.
-						for i := 0; i < 10; i++ {
-							var (
-								key   = []byte(fmt.Sprintf("key-%d", i))
-								value = []byte(fmt.Sprintf("%s::%s::%d", ns, actor, i))
-							)
-							val, ok, err := tr.Get(ctx, key)
-							require.NoError(t, err)
-							require.True(t, ok)
-							require.Equal(t, value, val)
-						}
-					}()
-				}
-			}()
-		}
 	}
 }

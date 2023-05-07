@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -119,7 +118,7 @@ func TestSimpleActor(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCreateIfNotExist tests that the CreateIfNotExist argument can be used to invoke an actor and
@@ -146,7 +145,7 @@ func TestCreateIfNotExist(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCreateIfNotExistWithInstantiatePayload is the same as TestCreateIfNotExist
@@ -179,7 +178,7 @@ func TestCreateIfNotExistWithInstantiatePayload(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestSimpleWorker is a basic sanity test that verifies the most basic flow for workers.
@@ -215,162 +214,7 @@ func TestSimpleWorker(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
-}
-
-// TestKVHostFunctions tests whether the KV interfaces from the registry can be used properly as host functions
-// in the actor WASM module.
-func TestKVHostFunctions(t *testing.T) {
-	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-		count := 0
-		defer func() {
-			count++
-		}()
-
-		ctx := context.Background()
-		for _, ns := range []string{"ns-1", "ns-2"} {
-			if count == 0 {
-				for i := 0; i < 100; i++ {
-					_, err := env.InvokeActor(
-						ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-					require.NoError(t, err)
-
-					// Write the current count to a key.
-					key := []byte(fmt.Sprintf("key-%d", i))
-					_, err = env.InvokeActor(
-						ctx, ns, "a", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
-					require.NoError(t, err)
-
-					// Read the key back and make sure the value is == the count
-					payload, err := env.InvokeActor(
-						ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-					require.NoError(t, err)
-					val := getCount(t, payload)
-					require.Equal(t, int64(i+1), val)
-
-					if i > 0 {
-						key := []byte(fmt.Sprintf("key-%d", i-1))
-						payload, err := env.InvokeActor(
-							ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-						require.NoError(t, err)
-						val := getCount(t, payload)
-						require.Equal(t, int64(i), val)
-					}
-				}
-			}
-
-			// Ensure all previous KV are still readable.
-			for i := 0; i < 100; i++ {
-				key := []byte(fmt.Sprintf("key-%d", i))
-				payload, err := env.InvokeActor(
-					ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-				require.NoError(t, err)
-				val := getCount(t, payload)
-				require.Equal(t, int64(i+1), val)
-			}
-		}
-	}
-
-	// Run the test twice with two different environments, but the same registry
-	// to simulate a node restarting and being re-initialized with the same registry
-	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
-}
-
-// TestKVTransactions tests whether the KV interfaces from the registry can be used
-// properly within transactions, and that transactions are automatically rolled back
-// if the actor returns an error.
-func TestKVTransactions(t *testing.T) {
-	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-		ctx := context.Background()
-		for _, ns := range []string{"ns-1"} {
-			_, err := env.InvokeActor(
-				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			// Write the current count to a key.
-			key := []byte("key")
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			// Read the key back and make sure the value is == the count
-			payload, err := env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			val := getCount(t, payload)
-			require.Equal(t, int64(1), val)
-
-			// Increment the count and write to KV again, but ensure the actor
-			// returns an error so the updated counter will not be committed to
-			// KV storage. This tests that implicit KV transactions are rolled
-			// back if the actor returns an error.
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvPutCountError", key, types.CreateIfNotExist{})
-			require.True(t, strings.Contains(err.Error(), "some fake error"), err.Error())
-
-			// Count should still be 1.
-			payload, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			val = getCount(t, payload)
-			require.Equal(t, int64(1), val)
-		}
-	}
-
-	// Run the test twice with two different environments, but the same registry
-	// to simulate a node restarting and being re-initialized with the same registry
-	// to ensure the KV operations are durable if the KV itself is.
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
-}
-
-// TestKVHostFunctionsActorsSeparatedRegression is a regression test that ensures each
-// actor gets its own dedicated KV storage, even if another exists exists created from
-// the same module.
-func TestKVHostFunctionsActorsSeparatedRegression(t *testing.T) {
-	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
-		ctx := context.Background()
-		for _, ns := range []string{"ns-1", "ns-2"} {
-			// Inc a twice, but b once.
-			_, err := env.InvokeActor(
-				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			_, err = env.InvokeActor(
-				ctx, ns, "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			key := []byte("key")
-
-			// Persist each actor's count.
-			_, err = env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			_, err = env.InvokeActor(
-				ctx, ns, "b", "test-module", "kvPutCount", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-
-			// Make sure we can read back the independent counts.
-			payload, err := env.InvokeActor(
-				ctx, ns, "a", "test-module", "kvGet", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			val := getCount(t, payload)
-			require.Equal(t, int64(2), val)
-
-			payload, err = env.InvokeActor(
-				ctx, ns, "b", "test-module", "kvGet", key, types.CreateIfNotExist{})
-			require.NoError(t, err)
-			val = getCount(t, payload)
-			require.Equal(t, int64(1), val)
-		}
-	}
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestInvokeActorHostFunction tests whether the invoke actor host function can be used
@@ -438,7 +282,7 @@ func TestInvokeActorHostFunction(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestScheduleSelfTimersAndGC tests whether actors can schedule invocations for themselves to run
@@ -544,7 +388,7 @@ func TestScheduleSelfTimersAndGC(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, gcDuration)
+	runWithDifferentConfigs(t, testFn, nil, false, false, gcDuration)
 }
 
 // TestInvokeActorHostFunctionDeadlockRegression is a regression test to ensure that an actor can invoke
@@ -566,7 +410,7 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestHeartbeatAndSelfHealing tests the interaction between the service discovery / heartbeating system
@@ -871,7 +715,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 		}
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, true, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, true, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestCustomHostFns tests the ability for users to provide custom host functions that
@@ -885,7 +729,7 @@ func TestCustomHostFns(t *testing.T) {
 		require.Equal(t, []byte("ok"), result)
 	}
 
-	runWithDifferentConfigs(t, testFn, nil, false, testGCActorsAfterDurationWithNoInvocations)
+	runWithDifferentConfigs(t, testFn, nil, false, false, testGCActorsAfterDurationWithNoInvocations)
 }
 
 // TestGoModulesRegisterTwice ensures that writing modules in pure Go and registering
@@ -944,9 +788,12 @@ func TestServerVersionIsHonored(t *testing.T) {
 		strings.Contains(err.Error(), "server version(2) != server version from reference(1)"))
 }
 
+var testCleanShutdownHappened = false
+
 func TestCleanShutdown(t *testing.T) {
 	// Run once to ensure the actor is activated.
 	testFn := func(t *testing.T, reg registry.Registry, env Environment) {
+		testCleanShutdownHappened = false
 		_, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 	}
@@ -956,12 +803,13 @@ func TestCleanShutdown(t *testing.T) {
 	// to see if the clean shutdown method was invoked properly or not.
 
 	testFnAfterClose := func(t *testing.T, reg registry.Registry, env Environment) {
-		res, err := env.InvokeActor(context.Background(), "ns-1", "a", "test-module", "getShutdownValue", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.Equal(t, "true", string(res))
+		require.True(t, testCleanShutdownHappened)
 	}
 
-	runWithDifferentConfigs(t, testFn, testFnAfterClose, false, testGCActorsAfterDurationWithNoInvocations)
+	// skipWasm=true because we have no way to assert that the WASM was actually shutdown properly
+	// without a custom host function right now.
+	runWithDifferentConfigs(
+		t, testFn, testFnAfterClose, false, true, testGCActorsAfterDurationWithNoInvocations)
 }
 
 func getCount(t *testing.T, v []byte) int64 {
@@ -975,9 +823,14 @@ func runWithDifferentConfigs(
 	testFn func(t *testing.T, reg registry.Registry, env Environment),
 	testFnAfterClose func(t *testing.T, reg registry.Registry, env Environment),
 	skipDNS bool,
+	skipWASM bool,
 	gcDurationOverride time.Duration,
 ) {
 	t.Run("wasm-local", func(t *testing.T) {
+		if skipWASM {
+			t.Skip("Skipping WASM...")
+		}
+
 		opts := defaultOptsWASM
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
@@ -1144,7 +997,6 @@ func (ta *testActor) Invoke(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-	transaction registry.ActorKVTransaction,
 ) ([]byte, error) {
 	defer func() { ta.numInvocations++ }()
 
@@ -1154,15 +1006,9 @@ func (ta *testActor) Invoke(
 		return nil, nil
 	case wapcutils.ShutdownOperationName:
 		ta.shutdownWasCalled = true
-		if _, ok := transaction.(noopTransaction); !ok {
-			return nil, transaction.Put(ctx, []byte("shutdown"), []byte("true"))
-		}
+		testCleanShutdownHappened = true
 		return nil, nil
 	case "getShutdownValue":
-		if _, ok := transaction.(noopTransaction); !ok {
-			result, _, err := transaction.Get(ctx, []byte("shutdown"))
-			return result, err
-		}
 		return []byte(strconv.FormatBool(ta.shutdownWasCalled)), nil
 	case "getInstantiatePayload":
 		return ta.instantiatePayload, nil
@@ -1176,22 +1022,22 @@ func (ta *testActor) Invoke(
 			return []byte("true"), nil
 		}
 		return []byte("false"), nil
-	case "kvPutCount":
-		value := []byte(fmt.Sprintf("%d", ta.count))
-		return nil, transaction.Put(ctx, payload, value)
-	case "kvPutCountError":
-		value := []byte(fmt.Sprintf("%d", ta.count))
-		err := transaction.Put(ctx, payload, value)
-		if err == nil {
-			return nil, errors.New("some fake error")
-		}
-		return nil, err
-	case "kvGet":
-		v, _, err := transaction.Get(ctx, payload)
-		if err != nil {
-			return nil, err
-		}
-		return v, nil
+	// case "kvPutCount":
+	// 	value := []byte(fmt.Sprintf("%d", ta.count))
+	// 	return nil, transaction.Put(ctx, payload, value)
+	// case "kvPutCountError":
+	// 	value := []byte(fmt.Sprintf("%d", ta.count))
+	// 	err := transaction.Put(ctx, payload, value)
+	// 	if err == nil {
+	// 		return nil, errors.New("some fake error")
+	// 	}
+	// 	return nil, err
+	// case "kvGet":
+	// 	v, _, err := transaction.Get(ctx, payload)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	return v, nil
 	case "invokeActor":
 		var req types.InvokeActorRequest
 		if err := json.Unmarshal(payload, &req); err != nil {
@@ -1261,9 +1107,8 @@ func (ta *testStreamActor) InvokeStream(
 	ctx context.Context,
 	operation string,
 	payload []byte,
-	transaction registry.ActorKVTransaction,
 ) (io.ReadCloser, error) {
-	resp, err := ta.a.Invoke(ctx, operation, payload, transaction)
+	resp, err := ta.a.Invoke(ctx, operation, payload)
 	if err != nil {
 		return nil, err
 	}

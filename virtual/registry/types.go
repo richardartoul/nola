@@ -9,8 +9,14 @@ import (
 
 // Registry is the interface that is implemented by the virtual actor registry.
 type Registry interface {
-	ActorStorage
-	ServiceDiscovery
+	// Heartbeat updates the "lastHeartbeatedAt" value for the provided server ID. Server's
+	// must heartbeat regularly to be considered alive and eligible for hosting actor
+	// activations.
+	Heartbeat(
+		ctx context.Context,
+		serverID string,
+		state HeartbeatState,
+	) (HeartbeatResult, error)
 
 	// EnsureActivation checks the registry to see if the provided actor is already
 	// activated, and if so it returns an ActorReference that points to its activated
@@ -37,46 +43,6 @@ type Registry interface {
 	// UnsafeWipeAll wipes the entire registry. Only used for tests. Do not call it anywhere
 	// in production code.
 	UnsafeWipeAll() error
-}
-
-// ActorStorage contains the methods for interacting with per-actor durable storage.
-type ActorStorage interface {
-	// BeginTransaction eagerly begins a transaction that allows the Actor to read/write
-	// its KV storage in a transactional manner.
-	BeginTransaction(
-		ctx context.Context,
-		namespace string,
-		actorID string,
-		moduleID string,
-		serverID string,
-		serverVersion int64,
-	) (ActorKVTransaction, error)
-}
-
-// ActorKVTransaction is the interface exposed by the Registry to Actors so they can perform
-// transactions against the actor-local KV storage.
-type ActorKVTransaction interface {
-	// Put stores the value at the provided key in the actor's KV storage.
-	Put(ctx context.Context, key []byte, value []byte) error
-	// Get is the inverse of Put.
-	Get(ctx context.Context, key []byte) ([]byte, bool, error)
-	// Commit commits the transaction, persisting all Put/Get operations.
-	Commit(ctx context.Context) error
-	// Cancel cancels the transaction, rolling back all Put/Get operations.
-	Cancel(ctx context.Context) error
-}
-
-// ServiceDiscovery contains the methods for interacting with the Registry's service
-// discovery mechanism.
-type ServiceDiscovery interface {
-	// Heartbeat updates the "lastHeartbeatedAt" value for the provided server ID. Server's
-	// must heartbeat regularly to be considered alive and eligible for hosting actor
-	// activations.
-	Heartbeat(
-		ctx context.Context,
-		serverID string,
-		state HeartbeatState,
-	) (HeartbeatResult, error)
 }
 
 // CreateActorResult is the result of a call to CreateActor().

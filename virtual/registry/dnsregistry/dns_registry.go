@@ -2,7 +2,6 @@ package dnsregistry
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"hash/crc32"
 	"net"
@@ -152,17 +151,6 @@ func (d *dnsRegistry) GetVersionStamp(
 ) (int64, error) {
 	// Must always return 1 because <= 0 is not a legal versionstamp in the system.
 	return DNSVersionStamp, nil
-}
-
-func (d *dnsRegistry) BeginTransaction(
-	ctx context.Context,
-	namespace string,
-	actorID string,
-	moduleID string,
-	serverID string,
-	serverVersion int64,
-) (_ registry.ActorKVTransaction, err error) {
-	return nil, errors.New("DNSRegistry: BeginTransaction: not implemented")
 }
 
 func (d *dnsRegistry) Heartbeat(
