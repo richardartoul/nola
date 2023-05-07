@@ -87,7 +87,7 @@ func (a *activationsCache) ensureActivation(
 	if a.c == nil {
 		// Cache disabled, load directly.
 		return a.ensureActivationAndUpdateCache(
-			ctx, namespace, moduleID, actorID, blacklistedServerID)
+			ctx, namespace, moduleID, actorID, nil, blacklistedServerID)
 	}
 
 	var (
@@ -103,8 +103,12 @@ func (a *activationsCache) ensureActivation(
 		// the same blacklistedServerID we have currently. We must ignore this entry because it could be
 		// stale and end up routing us back to the blacklisted server ID.
 		(blacklistedServerID != "" && aceI.(activationCacheEntry).blacklistedServerID != blacklistedServerID) {
+		var cachedReferences []types.ActorReference
+		if ok {
+			cachedReferences = aceI.(activationCacheEntry).references
+		}
 		return a.ensureActivationAndUpdateCache(
-			ctx, namespace, moduleID, actorID, blacklistedServerID)
+			ctx, namespace, moduleID, actorID, cachedReferences, blacklistedServerID)
 	}
 
 	// Cache hit, return result from cache but check if we should proactively refresh
@@ -119,7 +123,7 @@ func (a *activationsCache) ensureActivation(
 		go func() {
 			defer cc()
 			_, err := a.ensureActivationAndUpdateCache(
-				ctx, namespace, moduleID, actorID, blacklistedServerID)
+				ctx, namespace, moduleID, actorID, ace.references, blacklistedServerID)
 			if err != nil {
 				a.logger.Error(
 					"error refreshing activation cache in background",
@@ -147,8 +151,9 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 	ctx context.Context,
 	namespace,
 	moduleID,
-	actorID,
+	actorID string,
 
+	cachedReferences []types.ActorReference,
 	blacklistedServerID string,
 ) ([]types.ActorReference, error) {
 	// TODO: Check semaphore capacity here.
@@ -162,12 +167,18 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 	// refresh has already started, but *before* it has completed.
 	dedupeKey := fmt.Sprintf("%s::%s", cacheKey, blacklistedServerID)
 	referencesI, err, _ := a.deduper.Do(dedupeKey, func() (any, error) {
+		var cachedServerIDs []string
+		for _, ref := range cachedReferences {
+			cachedServerIDs = append(cachedServerIDs, ref.ServerID())
+		}
+
 		references, err := a.registry.EnsureActivation(ctx, registry.EnsureActivationRequest{
 			Namespace: namespace,
 			ModuleID:  moduleID,
 			ActorID:   actorID,
 
-			BlacklistedServerID: blacklistedServerID,
+			BlacklistedServerID:       blacklistedServerID,
+			CachedActivationServerIDs: cachedServerIDs,
 		})
 		if err != nil {
 			return nil, fmt.Errorf(

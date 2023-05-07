@@ -38,13 +38,19 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Error(t, err)
 	require.False(t, IsActorDoesNotExistErr(err))
 
-	heartbeatResult, err := registry.Heartbeat(ctx, "server1", HeartbeatState{
-		NumActivatedActors: 10,
-		Address:            "server1_address",
-	})
-	require.NoError(t, err)
-	require.True(t, heartbeatResult.VersionStamp > 0)
-	require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
+	var heartbeatResult HeartbeatResult
+	for i := 0; i < 5; i++ {
+		// Heartbeat 5 times because some registry implementations (like the
+		// LeaderRegistry) require multiple successful heartbeats from at least
+		// 1 server before any actors can be placed.
+		heartbeatResult, err = registry.Heartbeat(ctx, "server1", HeartbeatState{
+			NumActivatedActors: 10,
+			Address:            "server1_address",
+		})
+		require.NoError(t, err)
+		require.True(t, heartbeatResult.VersionStamp > 0)
+		require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
+	}
 
 	// Should succeed now that we have a server to activate on.
 	activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{

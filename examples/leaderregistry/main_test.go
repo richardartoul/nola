@@ -53,6 +53,10 @@ func TestMemoryBalancing(t *testing.T) {
 	defer cleaupFn2()
 	defer cleaupFn3()
 
+	// Sleep for a few seconds to let the server heartbeat a few times otherwise actor
+	// invocations will fail due to MinSuccessiveHeartbeatsBeforeAllowActivations.
+	time.Sleep(5 * time.Second)
+
 	for i := 0; i < numActors; i++ {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(i), module, "keep-alive", nil, types.CreateIfNotExist{})
@@ -142,6 +146,10 @@ func TestSurviveLeaderFailure(t *testing.T) {
 	defer cleanupFn2()
 	defer cleanupFn3()
 
+	// Sleep for a few seconds to let the server heartbeat a few times otherwise actor
+	// invocations will fail due to MinSuccessiveHeartbeatsBeforeAllowActivations.
+	time.Sleep(5 * time.Second)
+
 	for i := 0; i < numActors; i++ {
 		_, err := server2.InvokeActor(
 			context.Background(), namespace, actorID(i), module, "keep-alive", nil, types.CreateIfNotExist{})
@@ -213,6 +221,10 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 	defer cleanupFn2()
 	defer cleanupFn3()
 	defer cleanupFn4()
+
+	// Sleep for a few seconds to let the server heartbeat a few times otherwise actor
+	// invocations will fail due to MinSuccessiveHeartbeatsBeforeAllowActivations.
+	time.Sleep(5 * time.Second)
 
 	for i := 0; i < numActors; i++ {
 		_, err := server2.InvokeActor(

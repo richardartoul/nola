@@ -234,7 +234,13 @@ type leaderActor struct {
 
 func newLeaderActor() virtual.ActorBytes {
 	return &leaderActor{
-		registry: localregistry.NewLocalRegistry(),
+		registry: localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
+			// Require at least one server to heartbeat three times before allowing any
+			// EnsureActivation() calls to succeed so that new registries get a
+			// complete view of the cluster before making any placement decisions
+			// following a leader transition.
+			MinSuccessiveHeartbeatsBeforeAllowActivations: 4,
+		}),
 	}
 }
 

@@ -59,9 +59,21 @@ type KVRegistryOptions struct {
 	// minimum and maximum servers before the registry will begin making balancing
 	// decisions based on memory usage.
 	RebalanceMemoryThreshold int
+
 	// DisableMemoryRebalancing will disable rebalancing actors based on memory
 	// usage if set.
 	DisableMemoryRebalancing bool
+
+	// MinSuccessiveHeartbeatsBeforeAllowActivations is the minimum number of
+	// successive heartbeats the registry must receive from any serverID before
+	// it will allow EnsureActivation() calls to succeed for any actor. This is
+	// used to prevent a newly instantiated registry from making actor placement
+	// decisions before every server has had the opportunity to heartbeat at least
+	// once. Without this setting, newly intantiated registries may temporarily
+	// assign all new actor activations to a small number of servers in the brief
+	// window before its received a heartbeat (and thus is aware of the existence)
+	// from all the servers in the cluster.
+	MinSuccessiveHeartbeatsBeforeAllowActivations int
 
 	// Logger is a logging instance used for logging messages.
 	// If no logger is provided, the default logger from the slog
@@ -293,11 +305,29 @@ func (k *kvRegistry) EnsureActivation(
 				return nil, fmt.Errorf("0 live servers available for new activation")
 			}
 
-			// TODO: Technically this could pick the blacklisted server again so we should probably
-			//       put some logic in here to avoid that, but leave it for now since its unclear to
-			//       me right now if that would be a real issue in practice.
+			maxNumHeartbeats := 0
+			for _, s := range liveServers {
+				if s.NumHeartbeats > maxNumHeartbeats {
+					maxNumHeartbeats = s.NumHeartbeats
+				}
+			}
+			if maxNumHeartbeats < k.opts.MinSuccessiveHeartbeatsBeforeAllowActivations {
+				return nil, fmt.Errorf(
+					"maxNumHeartbeats: %d < MinSuccessiveHeartbeatsBeforeAllowActivations(%d)",
+					maxNumHeartbeats, k.opts.MinSuccessiveHeartbeatsBeforeAllowActivations)
+			}
+
+			// TODO: Update this code once we support configurable replication.
+			var cachedServerID string
+			if len(req.CachedActivationServerIDs) > 0 {
+				cachedServerID = req.CachedActivationServerIDs[0]
+			}
+
+			// TODO: Technically req.BlacklistedServerID could pick the blacklisted server again so
+			// we should probably put some logic in here to avoid that, but leave it for now since
+			// its unclear to me right now if that would be a real issue in practice.
 			selected := pickServerForActivation(
-				liveServers, k.opts, req.BlacklistedServerID, req.CachedActivationServerID, !activationExists)
+				liveServers, k.opts, req.BlacklistedServerID, cachedServerID, !activationExists)
 			serverID = selected.ServerID
 			serverAddress = selected.HeartbeatState.Address
 			serverVersion = selected.ServerVersion
@@ -411,6 +441,7 @@ func (k *kvRegistry) Heartbeat(
 		serverVersion = state.ServerVersion
 		state.LastHeartbeatedAt = vs
 		state.HeartbeatState = heartbeatState
+		state.NumHeartbeats++
 
 		marshaled, err := json.Marshal(&state)
 		if err != nil {
@@ -537,6 +568,7 @@ type serverState struct {
 	ServerVersion     int64
 	HeartbeatState    HeartbeatState
 	LastHeartbeatedAt int64
+	NumHeartbeats     int
 }
 
 func newServerState(
@@ -550,6 +582,7 @@ func newServerState(
 		ServerVersion:     serverVersion,
 		HeartbeatState:    heartbeatState,
 		LastHeartbeatedAt: lastHeartbeatedAt,
+		NumHeartbeats:     0,
 	}
 }
 
