@@ -120,9 +120,7 @@ func (a *activationsCache) ensureActivation(
 	// the cache also.
 
 	ace := aceI.(activationCacheEntry)
-	// TODO: The fact that we do this async is a bit lame because it means you'll get an error
-	// for basically every actor when a server dies the first time. We could do it pre-emptively,
-	// but we need a circuit breaker to guard against that resulting in high latency.
+	// TODO: Jitter here.
 	if time.Since(ace.cachedAt) > a.idealCacheStaleness {
 		ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
 		go func() {

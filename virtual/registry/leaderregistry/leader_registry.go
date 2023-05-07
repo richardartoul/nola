@@ -169,7 +169,8 @@ func (l *leaderRegistry) Heartbeat(
 	//       it would be better if we could route the heartbeats to the leader and
 	//       a few replicas (provided by the LeaderProvider) so that when the leader
 	//       fails, the new node that takes over at least already knows how many
-	//       servers there are to work with.
+	//       servers there are to work with. However, for now we work around this
+	//       issue with the MinSuccessiveHeartbeatsBeforeAllowActivations setting.
 	req := heartbeatRequest{
 		ServerID:       serverID,
 		HeartbeatState: heartbeatState,

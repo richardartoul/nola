@@ -96,7 +96,6 @@ func NewKVRegistry(kv kv.Store, opts KVRegistryOptions) Registry {
 	})
 }
 
-// TODO: Add compression?
 func (k *kvRegistry) RegisterModule(
 	ctx context.Context,
 	namespace,
@@ -324,9 +323,6 @@ func (k *kvRegistry) EnsureActivation(
 				cachedServerID = req.CachedActivationServerIDs[0]
 			}
 
-			// TODO: Technically req.BlacklistedServerID could pick the blacklisted server again so
-			// we should probably put some logic in here to avoid that, but leave it for now since
-			// its unclear to me right now if that would be a real issue in practice.
 			selected := pickServerForActivation(
 				liveServers, k.opts, req.BlacklistedServerID, cachedServerID, !activationExists)
 			serverID = selected.ServerID
@@ -656,12 +652,9 @@ func pickServerForActivation(
 	// this registry has seen this actor before then we "trust" the cache activation and activate
 	// the actor on the server the caller says it was activated on last time it asked. This helps
 	// reduce churn dramatically during leader transitions by ensuring actors remain mostly sticky
-	// despite the new leader having very little state to go off of.
-	//
-	// TODO: This doesn't work right now because generally when this first happens the registry has
-	// an incomplete view of the number of active servers since they heartbeat infrequently. I think
-	// the registry just has to trust it completely if its less than X seconds old and the registry
-	// has never seen it before.
+	// despite the new leader having very little state to go off of. Note that for this feature to
+	// work properly the MinSuccessiveHeartbeatsBeforeAllowActivations option must be set to some
+	// reasonable value (3 or 4 at least).
 	if cachedServerID != "" && cachedServerID != blacklistedServerID {
 		for _, s := range available {
 			if s.ServerID == cachedServerID {
