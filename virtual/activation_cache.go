@@ -69,7 +69,7 @@ func newActivationsCache(
 	}
 
 	return &activationsCache{
-		ensureSem:           semaphore.NewWeighted(maxNumActivationsToCache),
+		ensureSem:           semaphore.NewWeighted(int64(defaultMaxConcurrentEnsureActivationCalls)),
 		c:                   c,
 		registry:            registry,
 		idealCacheStaleness: idealCacheStaleness,
@@ -194,6 +194,17 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 		// of this semaphore is really just to avoid DDOSing the registry.
 		a.ensureSem.Release(1)
 		if err != nil {
+			existingAceI, ok := a.c.Get(cacheKey)
+			if ok {
+				// This is a bit weird, but the idea is that if the registry is down, we don't
+				// want to spam it with a new refresh attempt everytime the previous one completed
+				// and failed. To avoid that spam we update the cachedAt value within the
+				// singleflight function so we'll wait at least idealCacheStaleness between each
+				// attempt to refresh the cache.
+				existingAce := existingAceI.(activationCacheEntry)
+				existingAce.cachedAt = time.Now()
+				a.c.Set(cacheKey, existingAce, 1)
+			}
 			return nil, fmt.Errorf(
 				"error ensuring activation of actor: %s in registry: %w",
 				actorID, err)
