@@ -118,16 +118,8 @@ func (a *activations) invoke(
 	invokePayload []byte,
 	isTimer bool,
 ) (io.ReadCloser, error) {
-	bufIface, cacheKey := actorCacheKeyUnsafePooled(
-		reference.Namespace(), reference.ModuleID().ID, reference.ActorID().ID)
-	_, ok := a._blacklist.Get(cacheKey)
-	// Immediately return to the pool cause we're done with it now regardless.
-	bufPool.Put(bufIface)
-	if ok {
-		err := fmt.Errorf(
-			"actor %s is blacklisted on this server", reference.ActorID())
-		serverID, _ := a.getServerState()
-		return nil, NewBlacklistedActivationError(err, serverID)
+	if err := a.isBlacklisted(reference); err != nil {
+		return nil, err
 	}
 
 	// First check if the actor is already activated.
@@ -610,6 +602,24 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 		return fmt.Errorf(
 			"[invariant violated] measured actor memory usage was: %d not 0 after shutdown",
 			a._actorResourceTracker.memUsageBytes())
+	}
+
+	return nil
+}
+
+func (a *activations) isBlacklisted(
+	reference types.ActorReferenceVirtual,
+) error {
+	bufIface, cacheKey := actorCacheKeyUnsafePooled(
+		reference.Namespace(), reference.ModuleID().ID, reference.ActorID().ID)
+	_, ok := a._blacklist.Get(cacheKey)
+	// Immediately return to the pool cause we're done with it now regardless.
+	bufPool.Put(bufIface)
+	if ok {
+		err := fmt.Errorf(
+			"actor %s is blacklisted on this server", reference.ActorID())
+		serverID, _ := a.getServerState()
+		return NewBlacklistedActivationError(err, serverID)
 	}
 
 	return nil
