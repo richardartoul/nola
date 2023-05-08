@@ -302,6 +302,10 @@ func copyResultIntoStreamAndCloseResult(
 	// error to the user.
 	var buf [1]byte
 	n, err := result.Read(buf[:])
+	if err == io.EOF {
+		// Special case handle for valid (but empty) streams.
+		return
+	}
 	if err != nil {
 		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
