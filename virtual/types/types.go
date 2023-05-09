@@ -1,5 +1,7 @@
 package types
 
+import "encoding/json"
+
 // ReferenceType is an enum type that indicates what the underlying type of Reference is,
 // see the different ReferenceType's below.
 type ReferenceType string
@@ -16,6 +18,8 @@ const (
 // ActorReference abstracts over different forms of ReferenceType. It provides all the
 // necessary information for communicating with an actor. Some of the fields are "logical"
 type ActorReference interface {
+	json.Marshaler
+
 	ActorReferenceVirtual
 	ActorReferencePhysical
 }

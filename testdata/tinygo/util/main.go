@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/richardartoul/nola/wapcutils"
 	wapc "github.com/wapc/wapc-guest-tinygo"
@@ -28,6 +29,7 @@ func main() {
 		"invokeActor":                   invokeActor,
 		"scheduleSelfTimer":             scheduleSelfTimer,
 		"invokeCustomHostFn":            invokeCustomHostFn,
+		"setMemoryUsage":                setMemoryUsage,
 	})
 }
 
@@ -171,4 +173,19 @@ func getShutdownValue(payload []byte) ([]byte, error) {
 	}
 
 	return res[1:], err
+}
+
+// Prevent the GC from cleaning up the allocation so we can artificially inflate memory usage
+// via the setMemoryUsage function.
+var memUsageHolder []byte
+
+func setMemoryUsage(payload []byte) ([]byte, error) {
+	memUsage, err := strconv.ParseInt(string(payload), 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing memUsage in payload: %w", err)
+	}
+
+	memUsageHolder = make([]byte, memUsage)
+
+	return nil, nil
 }

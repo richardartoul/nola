@@ -69,7 +69,7 @@ func testFileCacheActorConcurrency(t *testing.T, injectFaults bool) {
 				if err != nil {
 					panic(err)
 				}
-				reader, err := fileCache.InvokeStream(context.Background(), "getRange", marshaled, nil)
+				reader, err := fileCache.InvokeStream(context.Background(), "getRange", marshaled)
 				if err != nil {
 					panic(err)
 				}

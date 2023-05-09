@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+)
 
-	"github.com/richardartoul/nola/virtual/types"
+var (
+	// Make sure validator implements ModuleStore as well.
+	_ ModuleStore = &validator{}
 )
 
 // validator wraps a Registry and ensures that all the arguments to it are
@@ -18,7 +21,11 @@ type validator struct {
 	r Registry
 }
 
-func newValidatedRegistry(r Registry) Registry {
+// NewValidatedRegistry wraps the provided Registry r such that it validates
+// inputs before delegating calls. This makes it easier to write new registry
+// implementations without making all of them re-implement the validation
+// logic.
+func NewValidatedRegistry(r Registry) Registry {
 	return &validator{
 		r: r,
 	}
@@ -31,13 +38,18 @@ func (v *validator) RegisterModule(
 	moduleBytes []byte,
 	opts ModuleOptions,
 ) (RegisterModuleResult, error) {
+	moduleStore, ok := v.r.(ModuleStore)
+	if !ok {
+		return RegisterModuleResult{}, errors.New("registry does not implement RegisterModule")
+	}
+
 	if err := validateString("namespace", namespace); err != nil {
 		return RegisterModuleResult{}, err
 	}
 	if err := validateString("moduleID", moduleID); err != nil {
 		return RegisterModuleResult{}, err
 	}
-	if len(moduleBytes) == 0 && !opts.AllowEmptyModuleBytes {
+	if len(moduleBytes) == 0 {
 		return RegisterModuleResult{}, errors.New("moduleBytes must not be empty")
 	}
 	if len(moduleBytes) > 1<<22 {
@@ -48,8 +60,7 @@ func (v *validator) RegisterModule(
 	}
 
 	// TODO: We could try compiling the WASM bytes here to make sure they're a valid program.
-
-	return v.r.RegisterModule(ctx, namespace, moduleID, moduleBytes, opts)
+	return moduleStore.RegisterModule(ctx, namespace, moduleID, moduleBytes, opts)
 }
 
 func (v *validator) GetModule(
@@ -57,72 +68,37 @@ func (v *validator) GetModule(
 	namespace,
 	moduleID string,
 ) ([]byte, ModuleOptions, error) {
+	moduleStore, ok := v.r.(ModuleStore)
+	if !ok {
+		return nil, ModuleOptions{}, errors.New("registry does not implement GetModule")
+	}
+
 	if err := validateString("namespace", namespace); err != nil {
 		return nil, ModuleOptions{}, err
 	}
 	if err := validateString("moduleID", moduleID); err != nil {
 		return nil, ModuleOptions{}, err
 	}
-	return v.r.GetModule(ctx, namespace, moduleID)
-}
-
-func (v *validator) IncGeneration(
-	ctx context.Context,
-	namespace,
-	actorID string,
-	moduuleID string,
-) error {
-	if err := validateString("namespace", namespace); err != nil {
-		return err
-	}
-	if err := validateString("actorID", actorID); err != nil {
-		return err
-	}
-	return v.r.IncGeneration(ctx, namespace, actorID, moduuleID)
+	return moduleStore.GetModule(ctx, namespace, moduleID)
 }
 
 func (v *validator) EnsureActivation(
 	ctx context.Context,
-	namespace,
-	actorID string,
-	moduleID string,
-) ([]types.ActorReference, error) {
-	if err := validateString("namespace", namespace); err != nil {
-		return nil, err
+	req EnsureActivationRequest,
+) (EnsureActivationResult, error) {
+	if err := validateString("namespace", req.Namespace); err != nil {
+		return EnsureActivationResult{}, err
 	}
-	if err := validateString("actorID", actorID); err != nil {
-		return nil, err
+	if err := validateString("actorID", req.ActorID); err != nil {
+		return EnsureActivationResult{}, err
 	}
-	return v.r.EnsureActivation(ctx, namespace, actorID, moduleID)
+	return v.r.EnsureActivation(ctx, req)
 }
 
 func (v *validator) GetVersionStamp(
 	ctx context.Context,
 ) (int64, error) {
 	return v.r.GetVersionStamp(ctx)
-}
-
-func (v *validator) BeginTransaction(
-	ctx context.Context,
-	namespace string,
-	actorID string,
-	moduleID string,
-	serverID string,
-	serverVersion int64,
-) (ActorKVTransaction, error) {
-	if err := validateString("namespace", namespace); err != nil {
-		return nil, err
-	}
-	if err := validateString("actorID", namespace); err != nil {
-		return nil, err
-	}
-
-	tr, err := v.r.BeginTransaction(ctx, namespace, actorID, moduleID, serverID, serverVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	return &kvValidator{tr}, nil
 }
 
 func (v *validator) Heartbeat(
@@ -160,38 +136,4 @@ func validateString(name, x string) error {
 	}
 
 	return nil
-}
-
-type kvValidator struct {
-	tr ActorKVTransaction
-}
-
-func (k *kvValidator) Put(ctx context.Context, key []byte, value []byte) error {
-	if len(key) == 0 {
-		return errors.New("key cannot be empty")
-	}
-	if len(key) > 1<<10 {
-		return fmt.Errorf("key cannot be > 1<<10, but was: %d", len(key))
-	}
-
-	return k.tr.Put(ctx, key, value)
-}
-
-func (k *kvValidator) Get(ctx context.Context, key []byte) ([]byte, bool, error) {
-	if len(key) == 0 {
-		return nil, false, errors.New("key cannot be empty")
-	}
-	if len(key) > 1<<10 {
-		return nil, false, fmt.Errorf("key cannot be > 1<<10, but was: %d", len(key))
-	}
-
-	return k.tr.Get(ctx, key)
-}
-
-func (k *kvValidator) Commit(ctx context.Context) error {
-	return k.tr.Commit(ctx)
-}
-
-func (k *kvValidator) Cancel(ctx context.Context) error {
-	return k.tr.Cancel(ctx)
 }

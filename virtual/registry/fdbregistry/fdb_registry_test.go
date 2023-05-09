@@ -14,8 +14,6 @@ import (
 )
 
 func TestFDBRegistry(t *testing.T) {
-	t.Skip("TODO: Only skip locally, but run in CI")
-
 	registry.TestAllCommon(t, func() registry.Registry {
 		registry, err := NewFoundationDBRegistry("")
 		require.NoError(t, err)

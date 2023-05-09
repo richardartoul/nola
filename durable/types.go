@@ -16,6 +16,7 @@ type Module interface {
 type Object interface {
 	Invoke(ctx context.Context, operation string, payload []byte) ([]byte, error)
 	Close(ctx context.Context) error
+	MemoryUsageBytes() int
 	Snapshot(ctx context.Context, w io.Writer) error
 	SnapshotIncremental(
 		ctx context.Context,

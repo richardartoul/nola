@@ -63,7 +63,15 @@ func (h *httpClient) InvokeActorRemote(
 		if err == nil {
 			errMsg = string(body)
 		}
-		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error status code: %d, msg: %s", resp.StatusCode, errMsg)
+		err = fmt.Errorf("HTTPClient: InvokeDirect: error status code: %d, msg: %s", resp.StatusCode, errMsg)
+
+		// This ensures that errors that implement HTTPError *and* have a mapping
+		// in statusCodeToErrorWrapper will be converted back to the proper in memory
+		// error type if sent by a server to a client.
+		if wrapper, ok := statusCodeToErrorWrapper[resp.StatusCode]; ok {
+			err = wrapper(err, reference.ServerID())
+		}
+		return nil, err
 	}
 
 	return resp.Body, nil
@@ -117,5 +125,5 @@ func (n *noopClient) InvokeActorRemote(
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	return nil, fmt.Errorf(
-		"noopClient: tried to invoke actor(%v) remotely using noop client. Instantiate Environment with a real client instead", reference)
+		"noopClient: tried to invoke actor(%s) remotely using noop client. Instantiate Environment with a real client instead", reference.ActorID())
 }

@@ -31,6 +31,10 @@ func newObject(
 	}
 }
 
+func (o *object) MemoryUsageBytes() int {
+	return int(o.instance.MemorySize())
+}
+
 func (o *object) Invoke(
 	ctx context.Context,
 	operation string,
