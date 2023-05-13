@@ -416,7 +416,7 @@ func (r *environment) InvokeActorStream(
 		return resp, nil
 	}
 
-	if IsBlacklistedActivationError(err) {
+	if isServerIdBlacklistedActivationError(err) {
 		// If we received an error because the target server has blacklisted activations
 		// of this actor, then we'll invalidate our cache to force the subsequent call
 		// to lookup the actor's new activation location in the registry. We'll also set

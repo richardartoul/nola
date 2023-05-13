@@ -118,7 +118,7 @@ func (a *activations) invoke(
 	invokePayload []byte,
 	isTimer bool,
 ) (io.ReadCloser, error) {
-	if err := a.isBlacklisted(reference); err != nil {
+	if err := a.isServerIdBlacklisted(reference); err != nil {
 		return nil, err
 	}
 
@@ -607,7 +607,7 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 	return nil
 }
 
-func (a *activations) isBlacklisted(
+func (a *activations) isServerIdBlacklisted(
 	reference types.ActorReferenceVirtual,
 ) error {
 	bufIface, cacheKey := actorCacheKeyUnsafePooled(

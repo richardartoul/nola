@@ -258,9 +258,9 @@ func (k *kvRegistry) EnsureActivation(
 		if err != nil {
 			return nil, fmt.Errorf("error getting versionstamp: %w", err)
 		}
-		isBlacklisted := make(map[string]bool)
+		isServerIdBlacklisted := make(map[string]bool)
 		for _, s := range req.BlacklistedServerIDs {
-			isBlacklisted[s] = true
+			isServerIdBlacklisted[s] = true
 		}
 
 		for _, a := range ra.Activations {
@@ -268,7 +268,7 @@ func (k *kvRegistry) EnsureActivation(
 				break
 			}
 
-			if isBlacklisted[a.ServerID] {
+			if isServerIdBlacklisted[a.ServerID] {
 				continue
 			}
 
@@ -333,7 +333,7 @@ func (k *kvRegistry) EnsureActivation(
 		}
 
 		selected := pickServersForActivation(
-			req.ReplicasNumber-len(refs), liveServers, k.opts, isBlacklisted, req.CachedActivationServerIDs, len(refs)==0)
+			req.ReplicasNumber-len(refs), liveServers, k.opts, isServerIdBlacklisted, req.CachedActivationServerIDs, len(refs) == 0)
 		for _, s := range selected {
 			serverID := s.ServerID
 			serverAddress := s.HeartbeatState.Address
@@ -652,7 +652,7 @@ func pickServersForActivation(
 	N int,
 	available []serverState,
 	opts KVRegistryOptions,
-	isBlacklisted map[string]bool,
+	isServerIdBlacklisted map[string]bool,
 	cachedServerIDs []string,
 	isFirstTimeObservingActor bool,
 ) (result []serverState) {
@@ -675,7 +675,7 @@ func pickServersForActivation(
 			return result
 		}
 
-		if !isBlacklisted[cachedServerID] && !seen[cachedServerID] {
+		if !isServerIdBlacklisted[cachedServerID] && !seen[cachedServerID] {
 			for _, server := range available {
 				if server.ServerID == cachedServerID {
 					result = append(result, server)
@@ -715,7 +715,7 @@ func pickServersForActivation(
 			return result
 		}
 
-		if !isBlacklisted[server.ServerID] && !seen[server.ServerID] {
+		if !isServerIdBlacklisted[server.ServerID] && !seen[server.ServerID] {
 			result = append(result, server)
 			seen[server.ServerID] = true
 		}
