@@ -13,14 +13,14 @@ func TestBlacklistedActivationError(t *testing.T) {
 	require.False(t, errors.Is(errors.New("random"), BlacklistedActivationErr{}))
 	require.False(t, IsBlacklistedActivationError(errors.New("random")))
 
-	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random"), "abc"), &BlacklistedActivationErr{}))
-	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random"), "abc"), BlacklistedActivationErr{}))
-	require.True(t, IsBlacklistedActivationError(NewBlacklistedActivationError(errors.New("random"), "abc")))
-	require.True(t, IsBlacklistedActivationError(fmt.Errorf("wrapped: %w", NewBlacklistedActivationError(errors.New("random"), "abc"))))
+	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random"), []string{"abc"}), &BlacklistedActivationErr{}))
+	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random"), []string{"abc"}), BlacklistedActivationErr{}))
+	require.True(t, IsBlacklistedActivationError(NewBlacklistedActivationError(errors.New("random"), []string{"abc"})))
+	require.True(t, IsBlacklistedActivationError(fmt.Errorf("wrapped: %w", NewBlacklistedActivationError(errors.New("random"), []string{"abc"}))))
 
-	require.Equal(t, "abc", NewBlacklistedActivationError(errors.New("random"), "abc").(BlacklistedActivationErr).ServerID())
+	require.Contains(t, NewBlacklistedActivationError(errors.New("random"), []string{"abc"}).(BlacklistedActivationErr).ServerIDs(), "abc")
 
 	var httpErr HTTPError
 	require.True(t, errors.As(
-		NewBlacklistedActivationError(errors.New("random"), "abc"), &httpErr))
+		NewBlacklistedActivationError(errors.New("random"), []string{"abc"}), &httpErr))
 }

@@ -112,11 +112,11 @@ type RegisterModuleResult struct{}
 
 // EnsureActiationRequest contains the arguments for the EnsureActivation method.
 type EnsureActivationRequest struct {
-	ReplicasNumber int    `json:"replica_num"`
 	Namespace      string `json:"namespace"`
 	ModuleID       string `json:"module_id"`
 	ActorID        string `json:"actor_id"`
 
+	ReplicasNumber int    `json:"replica_num"`
 	// BlacklistedServerIDs is set if the caller is calling the EnsureActivation method
 	// after receiving an error from the server the actor is *supposed* to be activated
 	// on that the server has blacklisted the actor. The server may blacklist the actor

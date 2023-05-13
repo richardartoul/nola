@@ -619,7 +619,7 @@ func (a *activations) isBlacklisted(
 		err := fmt.Errorf(
 			"actor %s is blacklisted on this server", reference.ActorID())
 		serverID, _ := a.getServerState()
-		return NewBlacklistedActivationError(err, serverID)
+		return NewBlacklistedActivationError(err, []string{serverID})
 	}
 
 	return nil

@@ -411,7 +411,7 @@ func (r *environment) InvokeActorStream(
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	resp, err := r.invokeActorStreamHelper(
-		ctx, namespace, actorID, moduleID, operation, payload, create, "")
+		ctx, namespace, actorID, moduleID, operation, payload, create, []string{})
 	if err == nil {
 		return resp, nil
 	}
@@ -424,15 +424,15 @@ func (r *environment) InvokeActorStream(
 		// that actor to ensure we get an activation on a different serer since the registry
 		// may not know about the blacklist yet.
 		r.activationsCache.delete(namespace, moduleID, actorID)
-		blacklistedServerID := err.(BlacklistedActivationErr).ServerID()
+		blacklistedServerIDs := err.(BlacklistedActivationErr).ServerIDs()
 
 		r.log.Warn(
 			"encountered blacklisted actor, forcing activation cache refresh and retrying",
 			slog.String("actor_id", fmt.Sprintf("%s::%s::%s", namespace, moduleID, actorID)),
-			slog.String("blacklisted_server_id", blacklistedServerID))
+			slog.Any("blacklisted_server_ids", blacklistedServerIDs))
 
 		return r.invokeActorStreamHelper(
-			ctx, namespace, actorID, moduleID, operation, payload, create, blacklistedServerID)
+			ctx, namespace, actorID, moduleID, operation, payload, create, blacklistedServerIDs)
 	}
 
 	return nil, err
@@ -446,7 +446,7 @@ func (r *environment) invokeActorStreamHelper(
 	operation string,
 	payload []byte,
 	create types.CreateIfNotExist,
-	blacklistedServerID string,
+	blacklistedServerID []string,
 ) (io.ReadCloser, error) {
 	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
@@ -468,7 +468,7 @@ func (r *environment) invokeActorStreamHelper(
 	}
 
 	references, err := r.activationsCache.ensureActivation(
-		ctx, namespace, moduleID, actorID, blacklistedServerID)
+		ctx, namespace, moduleID, actorID, create.Options.ReplicasNumber, blacklistedServerID)
 	if err != nil {
 		return nil, fmt.Errorf("error ensuring actor activation: %w", err)
 	}

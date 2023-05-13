@@ -69,7 +69,7 @@ func (h *httpClient) InvokeActorRemote(
 		// in statusCodeToErrorWrapper will be converted back to the proper in memory
 		// error type if sent by a server to a client.
 		if wrapper, ok := statusCodeToErrorWrapper[resp.StatusCode]; ok {
-			err = wrapper(err, reference.ServerID())
+			err = wrapper(err, []string{reference.ServerID()})
 		}
 		return nil, err
 	}
