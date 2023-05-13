@@ -112,11 +112,12 @@ type RegisterModuleResult struct{}
 
 // EnsureActiationRequest contains the arguments for the EnsureActivation method.
 type EnsureActivationRequest struct {
-	Namespace string `json:"namespace"`
-	ModuleID  string `json:"module_id"`
-	ActorID   string `json:"actor_id"`
+	ReplicasNumber int    `json:"replica_num"`
+	Namespace      string `json:"namespace"`
+	ModuleID       string `json:"module_id"`
+	ActorID        string `json:"actor_id"`
 
-	// BlacklistedServerID is set if the caller is calling the EnsureActivation method
+	// BlacklistedServerIDs is set if the caller is calling the EnsureActivation method
 	// after receiving an error from the server the actor is *supposed* to be activated
 	// on that the server has blacklisted the actor. The server may blacklist the actor
 	// temporarily due to excessive resource consumption and/or to accomplish balancing
@@ -124,7 +125,7 @@ type EnsureActivationRequest struct {
 	// the ID of the server that the actor was blacklisted on so the registry can keep
 	// track of that information and ensure the actor is activated elsewhere / balanced
 	// properly.
-	BlacklistedServerID       string   `json:"blacklisted_server_id"`
+	BlacklistedServerIDs      []string   `json:"blacklisted_server_id"`
 	CachedActivationServerIDs []string `json:"cached_activation_server_id"`
 }
 

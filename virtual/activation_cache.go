@@ -185,7 +185,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			ModuleID:  moduleID,
 			ActorID:   actorID,
 
-			BlacklistedServerID:       blacklistedServerID,
+			BlacklistedServerIDs:      blacklistedServerID,
 			CachedActivationServerIDs: cachedServerIDs,
 		})
 		// Release the semaphore as soon as we're done with the network call since the purpose
