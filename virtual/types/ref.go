@@ -10,18 +10,19 @@ type actorRef struct {
 	virtualRef    *virtualRef
 	serverID      string
 	serverVersion int64
-	address       string
+
+	serverState ServerState
 }
 
 // NewActorReference creates an ActorReference.
 func NewActorReference(
 	serverID string,
 	serverVersion int64,
-	address string,
 	namespace string,
 	moduleID string,
 	actorID string,
 	generation uint64,
+	serverState ServerState,
 ) (ActorReference, error) {
 	virtual, err := NewVirtualActorReference(namespace, moduleID, actorID, generation)
 	if err != nil {
@@ -31,7 +32,7 @@ func NewActorReference(
 	if serverID == "" {
 		return nil, errors.New("serverID cannot be empty")
 	}
-	if address == "" {
+	if serverState.Address() == "" {
 		return nil, errors.New("address cannot be empty")
 	}
 
@@ -40,7 +41,7 @@ func NewActorReference(
 		virtualRef:    &vr,
 		serverID:      serverID,
 		serverVersion: serverVersion,
-		address:       address,
+		serverState:   serverState,
 	}, nil
 }
 
@@ -56,11 +57,12 @@ func NewActorReferenceFromJSON(data []byte) (ActorReference, error) {
 	ref, err := NewActorReference(
 		serializable.ServerID,
 		serializable.ServerVersion,
-		serializable.Address,
 		serializable.Namespace,
 		serializable.ModuleID,
 		serializable.ActorID,
-		serializable.Generation)
+		serializable.Generation,
+		serializable.ServerState,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating new actor reference after JSON unmarshal: %w", err)
 	}
@@ -93,8 +95,8 @@ func (l actorRef) ModuleID() NamespacedID {
 	return l.virtualRef.ModuleID()
 }
 
-func (l actorRef) Address() string {
-	return l.address
+func (l actorRef) ServerState() ServerState {
+	return l.serverState
 }
 
 func (l actorRef) Generation() uint64 {
@@ -111,7 +113,11 @@ func (l actorRef) MarshalJSON() ([]byte, error) {
 		IDType:        l.virtualRef.idType,
 		ServerID:      l.serverID,
 		ServerVersion: l.serverVersion,
-		Address:       l.address,
+		ServerState: serializableServerState{
+			SNumActivatedActors: l.serverState.NumActivatedActors(),
+			SUsedMemory:         l.serverState.UsedMemory(),
+			SAddress:            l.serverState.Address(),
+		},
 	})
 }
 
@@ -123,8 +129,37 @@ type serializableActorRef struct {
 	// idType allows us to ensure that an actor and a worker with the
 	// same tuple of <namespace, moduleID, "actorID"> are still
 	// namespaced away from each other in any in-memory datastructures.
-	IDType        string `json:"idType"`
-	ServerID      string `json:"server_id"`
-	ServerVersion int64  `json:"server_version"`
-	Address       string `json:"address"`
+	IDType        string                  `json:"idType"`
+	ServerID      string                  `json:"server_id"`
+	ServerVersion int64                   `json:"server_version"`
+	ServerState   serializableServerState `json:"server_state"`
+}
+
+// ServerState contains information that accompanies a server's heartbeat. It contains
+// various information about the current state of the server that might be useful to the
+// registry. For example, the number of currently activated actors on the server is useful
+// to the registry so it can load-balance future actor activations around the cluster to
+// achieve uniformity.
+//
+// TODO: This should include things like how many CPU seconds and memory the actors are
+// using, etc for hotspot detection.
+type serializableServerState struct {
+	// NumActivatedActors is the number of actors currently activated on the server.
+	SNumActivatedActors int `json:"num_activated_actors"`
+	// UsedMemory is the amount of memory currently being used by actors on the server.
+	SUsedMemory int `json:"used_memory"`
+	// Address is the address at which the server can be reached.
+	SAddress string `json:"address"`
+}
+
+func (s serializableServerState) NumActivatedActors() int {
+	return s.SNumActivatedActors
+}
+
+func (s serializableServerState) UsedMemory() int {
+	return s.SUsedMemory
+}
+
+func (s serializableServerState) Address() string {
+	return s.SAddress
 }

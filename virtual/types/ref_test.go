@@ -7,11 +7,11 @@ import (
 )
 
 func TestNewActorReference(t *testing.T) {
-	ref, err := NewActorReference("server1", 0, "server1path", "a", "b", "c", 1)
+	ref, err := NewActorReference("server1", 0, "a", "b", "c", 1, serializableServerState{SAddress: "server1path"})
 	require.NoError(t, err)
 
 	require.Equal(t, "server1", ref.ServerID())
-	require.Equal(t, "server1path", ref.Address())
+	require.Equal(t, "server1path", ref.ServerState().Address())
 	require.Equal(t, "a", ref.Namespace())
 	require.Equal(t, "a", ref.ActorID().Namespace)
 	require.Equal(t, "c", ref.ActorID().ID)
@@ -30,12 +30,12 @@ func TestNewActorReference(t *testing.T) {
 }
 
 func TestNewWorkerReference(t *testing.T) {
-	ref, err := NewActorReference("server1", 0, "server1path", "a", "b", "c", 1)
+	ref, err := NewActorReference("server1", 0, "a", "b", "c", 1, serializableServerState{SAddress: "server1path"})
 	require.NoError(t, err)
 	ref.(*actorRef).virtualRef.idType = IDTypeWorker
 
 	require.Equal(t, "server1", ref.ServerID())
-	require.Equal(t, "server1path", ref.Address())
+	require.Equal(t, "server1path", ref.ServerState().Address())
 	require.Equal(t, "a", ref.Namespace())
 	require.Equal(t, "a", ref.ActorID().Namespace)
 	require.Equal(t, "c", ref.ActorID().ID)

@@ -45,7 +45,7 @@ func (h *httpClient) InvokeActorRemote(
 
 	req, err := http.NewRequestWithContext(
 		ctx, "POST",
-		fmt.Sprintf("http://%s/api/v1/invoke-actor-direct", reference.Address()),
+		fmt.Sprintf("http://%s/api/v1/invoke-actor-direct", reference.ServerState().Address()),
 		bytes.NewReader(marshaled))
 	if err != nil {
 		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error constructing request: %w", err)

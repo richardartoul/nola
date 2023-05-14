@@ -292,7 +292,7 @@ func (k *kvRegistry) EnsureActivation(
 					// as long as the activation is still active, it guarantees that the server's version
 					// has not changed since the activation was first created.
 					ref, err := types.NewActorReference(
-						server.ServerID, server.ServerVersion, server.HeartbeatState.Address, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation)
+						server.ServerID, server.ServerVersion, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation, refPhysicalState{hb: server.HeartbeatState})
 					if err != nil {
 						return nil, fmt.Errorf("error creating new actor reference: %w", err)
 					}
@@ -362,7 +362,7 @@ func (k *kvRegistry) EnsureActivation(
 			)
 
 			ref, err := types.NewActorReference(
-				serverID, serverVersion, serverAddress, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation)
+				serverID, serverVersion, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation, refPhysicalState{hb: server.HeartbeatState})
 			if err != nil {
 				return nil, fmt.Errorf("error creating new actor reference: %w", err)
 			}

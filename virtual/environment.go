@@ -771,7 +771,7 @@ func (r *environment) invokeReferences(
 		// potentially trying to communicate between multiple different in-memory
 		// instances of Environment.
 		localEnvironmentsRouterLock.RLock()
-		localEnv, ok := localEnvironmentsRouter[ref.Address()]
+		localEnv, ok := localEnvironmentsRouter[ref.ServerState().Address()]
 		localEnvironmentsRouterLock.RUnlock()
 		if ok {
 			return localEnv.InvokeActorDirectStream(
@@ -795,7 +795,7 @@ func (r *environment) invokeReferences(
 		// always return dnsregistry.Localhost as the address for all actor references and
 		// thus ensure that tests can be written without having to also ensure that a NOLA
 		// server is running on the appropriate port, among other things.
-		if ref.Address() == Localhost || ref.Address() == dnsregistry.Localhost {
+		if ref.ServerState().Address() == Localhost || ref.ServerState().Address() == dnsregistry.Localhost {
 			return localEnv.InvokeActorDirectStream(
 				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
 				operation, payload, create)

@@ -64,7 +64,7 @@ func TestDNSRegistrySimple(t *testing.T) {
 		require.Equal(t, 1, len(activations.References))
 		require.Equal(t, "a", activations.References[0].ActorID().ID)
 		require.Equal(t, "test-module", activations.References[0].ModuleID().ID)
-		require.Equal(t, "127.0.0.3:9090", activations.References[0].Address())
+		require.Equal(t, "127.0.0.3:9090", activations.References[0].ServerState().Address())
 		require.Equal(t, DNSServerID, activations.References[0].ServerID())
 		require.Equal(t, DNSServerVersion, activations.References[0].ServerVersion())
 		break
@@ -96,7 +96,7 @@ func TestDNSRegistrySingleNode(t *testing.T) {
 	require.Equal(t, 1, len(activations.References))
 	require.Equal(t, "a", activations.References[0].ActorID().ID)
 	require.Equal(t, "test-module", activations.References[0].ModuleID().ID)
-	require.Equal(t, "127.0.0.1:9090", activations.References[0].Address())
+	require.Equal(t, "127.0.0.1:9090", activations.References[0].ServerState().Address())
 	require.Equal(t, DNSServerID, activations.References[0].ServerID())
 	require.Equal(t, DNSServerVersion, activations.References[0].ServerVersion())
 }

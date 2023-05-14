@@ -65,6 +65,22 @@ type HeartbeatState struct {
 	Address string `json:"address"`
 }
 
+type refPhysicalState struct {
+	hb HeartbeatState
+}
+
+func (s refPhysicalState) NumActivatedActors() int {
+	return s.hb.NumActivatedActors
+}
+
+func (s refPhysicalState) UsedMemory() int {
+	return s.hb.UsedMemory
+}
+
+func (s refPhysicalState) Address() string {
+	return s.hb.Address
+}
+
 // HeartbeatResult is the result returned by the Heartbeat() method.
 type HeartbeatResult struct {
 	// VersionStamp associated with the successful heartbeat.

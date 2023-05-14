@@ -45,9 +45,21 @@ type ActorReferenceVirtual interface {
 type ActorReferencePhysical interface {
 	// ServerID is the ID of the physical server that this reference targets.
 	ServerID() string
-	// The address of the referenced actor.
-	Address() string
 	// ServerVersion is incremented every time a server's heartbeat expires and resumes,
 	// guaranteeing the server's ability to identify periods of inactivity/death for correctness purposes.
 	ServerVersion() int64
+
+	// The state of the physical server that this reference targets.
+	// Contains information that is sent in the heartbeat.
+	ServerState() ServerState
+}
+
+
+type ServerState interface {
+	// NumActivatedActors is the number of actors currently activated on the server.
+	NumActivatedActors() int
+	// UsedMemory is the amount of memory currently being used by actors on the server.
+	UsedMemory() int
+	// Address is the address at which the server can be reached.
+	Address() string
 }
