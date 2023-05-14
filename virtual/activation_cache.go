@@ -84,7 +84,7 @@ func (a *activationsCache) ensureActivation(
 	moduleID,
 	actorID string,
 
-	replicasNumber int,
+	extraReplicas uint64,
 	blacklistedServerIDs []string,
 ) ([]types.ActorReference, error) {
 	// Ensure we have a short timeout when communicating with registry.
@@ -99,7 +99,7 @@ func (a *activationsCache) ensureActivation(
 	if a.c == nil {
 		// Cache disabled, load directly.
 		return a.ensureActivationAndUpdateCache(
-			ctx, namespace, moduleID, actorID, replicasNumber, nil, isServerIdBlacklisted, blacklistedServerIDs)
+			ctx, namespace, moduleID, actorID, extraReplicas, nil, isServerIdBlacklisted, blacklistedServerIDs)
 	}
 
 	var (
@@ -110,17 +110,19 @@ func (a *activationsCache) ensureActivation(
 	aceI, ok := a.c.Get(cacheKey)
 	bufPool.Put(bufIface)
 
-	// Cache miss, fill the cache.
-	blacklistedIDs := aceI.(activationCacheEntry).blacklistedServerIDs
 	hasBlacklistedID := false
+	if ok {
+		blacklistedIDs := aceI.(activationCacheEntry).blacklistedServerIDs
 
-	for _, id := range blacklistedIDs {
-		if isServerIdBlacklisted[id] {
-			hasBlacklistedID = true
-			break
+		for _, id := range blacklistedIDs {
+			if isServerIdBlacklisted[id] {
+				hasBlacklistedID = true
+				break
+			}
 		}
 	}
 
+	// Cache miss, fill the cache.
 	if !ok ||
 		// There is an existing cache entry, however, it was satisfied by a request that did not provide
 		// the same blacklistedServerID we have currently. We must ignore this entry because it could be
@@ -131,7 +133,7 @@ func (a *activationsCache) ensureActivation(
 			cachedReferences = aceI.(activationCacheEntry).references
 		}
 		return a.ensureActivationAndUpdateCache(
-			ctx, namespace, moduleID, actorID, replicasNumber, cachedReferences, isServerIdBlacklisted, blacklistedServerIDs)
+			ctx, namespace, moduleID, actorID, extraReplicas, cachedReferences, isServerIdBlacklisted, blacklistedServerIDs)
 	}
 
 	// Cache hit, return result from cache but check if we should proactively refresh
@@ -144,7 +146,7 @@ func (a *activationsCache) ensureActivation(
 		go func() {
 			defer cc()
 			_, err := a.ensureActivationAndUpdateCache(
-				ctx, namespace, moduleID, actorID, replicasNumber, ace.references, isServerIdBlacklisted, blacklistedServerIDs)
+				ctx, namespace, moduleID, actorID, extraReplicas, ace.references, isServerIdBlacklisted, blacklistedServerIDs)
 			if err != nil {
 				a.logger.Error(
 					"error refreshing activation cache in background",
@@ -174,7 +176,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 	moduleID,
 	actorID string,
 
-	replicasNumber int,
+	extraReplicas uint64,
 	cachedReferences []types.ActorReference,
 	isServerIdBlacklisted map[string]bool,
 	blacklistedServerIDs []string,
@@ -205,7 +207,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			ModuleID:  moduleID,
 			ActorID:   actorID,
 
-			ReplicasNumber:            replicasNumber,
+			ExtraReplicas:             extraReplicas,
 			BlacklistedServerIDs:      blacklistedServerIDs,
 			CachedActivationServerIDs: cachedServerIDs,
 		})
@@ -246,7 +248,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			references:           references.References,
 			cachedAt:             time.Now(),
 			registryVersionStamp: references.VersionStamp,
-			blacklistedServerIDs:  blacklistedServerIDs,
+			blacklistedServerIDs: blacklistedServerIDs,
 		}
 
 		// a.c is internally synchronized, but we use a lock here so we can do an atomic
@@ -285,5 +287,5 @@ type activationCacheEntry struct {
 	references           []types.ActorReference
 	cachedAt             time.Time
 	registryVersionStamp int64
-	blacklistedServerIDs  []string
+	blacklistedServerIDs []string
 }

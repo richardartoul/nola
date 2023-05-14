@@ -264,7 +264,7 @@ func (k *kvRegistry) EnsureActivation(
 		}
 
 		for _, a := range ra.Activations {
-			if len(refs) >= req.ReplicasNumber {
+			if uint64(len(refs)) >= 1+req.ExtraReplicas {
 				break
 			}
 
@@ -300,7 +300,7 @@ func (k *kvRegistry) EnsureActivation(
 			}
 		}
 
-		if len(refs) >= req.ReplicasNumber {
+		if uint64(len(refs)) >= 1+req.ExtraReplicas {
 			return EnsureActivationResult{
 				References:   refs,
 				VersionStamp: vs,
@@ -333,11 +333,11 @@ func (k *kvRegistry) EnsureActivation(
 		}
 
 		selected := pickServersForActivation(
-			req.ReplicasNumber-len(refs), liveServers, k.opts, isServerIdBlacklisted, req.CachedActivationServerIDs, len(refs) == 0)
-		for _, s := range selected {
-			serverID := s.ServerID
-			serverAddress := s.HeartbeatState.Address
-			serverVersion := s.ServerVersion
+			(1+req.ExtraReplicas)-uint64(len(refs)), liveServers, k.opts, isServerIdBlacklisted, req.CachedActivationServerIDs, len(refs) == 0)
+		for _, server := range selected {
+			serverID := server.ServerID
+			serverAddress := server.HeartbeatState.Address
+			serverVersion := server.ServerVersion
 			currActivation := newActivation(serverID, serverVersion)
 
 			ra.Activations = append(ra.Activations, currActivation)
@@ -349,8 +349,8 @@ func (k *kvRegistry) EnsureActivation(
 			tr.Put(ctx, actorKey, marshaled)
 
 			if !k.opts.DisableHighConflictOperations {
-				s.HeartbeatState.NumActivatedActors++
-				marshaled, err := json.Marshal(&selected)
+				server.HeartbeatState.NumActivatedActors++
+				marshaled, err := json.Marshal(&server)
 				if err != nil {
 					return nil, fmt.Errorf("error marshaling server state: %w", err)
 				}
@@ -649,7 +649,7 @@ func getLiveServers(
 // TODO: Would be nice to make this function pluggable/injectable for easier testing and to make the
 // system more flexible for more use cases.
 func pickServersForActivation(
-	N int,
+	n uint64,
 	available []serverState,
 	opts KVRegistryOptions,
 	isServerIdBlacklisted map[string]bool,
@@ -671,7 +671,7 @@ func pickServersForActivation(
 	seen := make(map[string]bool)
 
 	for _, cachedServerID := range cachedServerIDs {
-		if len(result) >= N {
+		if uint64(len(result)) >= n {
 			return result
 		}
 
@@ -711,7 +711,7 @@ func pickServersForActivation(
 	})
 
 	for _, server := range available {
-		if len(result) >= N {
+		if uint64(len(result)) >= n {
 			return result
 		}
 

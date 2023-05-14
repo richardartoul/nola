@@ -468,7 +468,7 @@ func (r *environment) invokeActorStreamHelper(
 	}
 
 	references, err := r.activationsCache.ensureActivation(
-		ctx, namespace, moduleID, actorID, create.Options.ReplicasNumber, blacklistedServerID)
+		ctx, namespace, moduleID, actorID, create.Options.ExtraReplicas, blacklistedServerID)
 	if err != nil {
 		return nil, fmt.Errorf("error ensuring actor activation: %w", err)
 	}

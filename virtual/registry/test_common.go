@@ -54,9 +54,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 
 	// Should succeed now that we have a server to activate on.
 	activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
-		Namespace: "ns1",
-		ActorID:   "a",
-		ModuleID:  "test-module1",
+		Namespace:     "ns1",
+		ActorID:       "a",
+		ModuleID:      "test-module1",
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations.References))
@@ -72,9 +72,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	prevVS := activations.VersionStamp
 
 	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-		Namespace: "ns1",
-		ActorID:   "a",
-		ModuleID:  "test-module1",
+		Namespace:     "ns1",
+		ActorID:       "a",
+		ModuleID:      "test-module1",
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations.References))
@@ -102,9 +102,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// server 1.
 	for i := 0; i < 10; i++ {
 		activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
-			Namespace: "ns1",
-			ActorID:   "a",
-			ModuleID:  "test-module1",
+			Namespace:     "ns1",
+			ActorID:       "a",
+			ModuleID:      "test-module1",
 		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
@@ -120,9 +120,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// Reuse the same actor ID, but with a different module. The registry should consider
 	// it a completely separate entity therefore it will go on a different server.
 	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-		Namespace: "ns1",
-		ActorID:   "a",
-		ModuleID:  "test-module2",
+		Namespace:     "ns1",
+		ActorID:       "a",
+		ModuleID:      "test-module2",
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations.References))
@@ -139,9 +139,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("0-%d", i)
 		activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-			Namespace: "ns1",
-			ActorID:   actorID,
-			ModuleID:  "test-module1",
+			Namespace:     "ns1",
+			ActorID:       actorID,
+			ModuleID:      "test-module1",
 		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
@@ -159,9 +159,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("1-%d", i)
 		activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-			Namespace: "ns1",
-			ActorID:   actorID,
-			ModuleID:  "test-module1",
+			Namespace:     "ns1",
+			ActorID:       actorID,
+			ModuleID:      "test-module1",
 		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
@@ -198,9 +198,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("2-%d", i)
 		activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-			Namespace: "ns1",
-			ActorID:   actorID,
-			ModuleID:  "test-module1",
+			Namespace:     "ns1",
+			ActorID:       actorID,
+			ModuleID:      "test-module1",
 		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))

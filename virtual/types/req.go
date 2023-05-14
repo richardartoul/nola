@@ -29,5 +29,5 @@ type CreateIfNotExist struct {
 
 // ActorOptions contains the options for a given actor.
 type ActorOptions struct {
-	ReplicasNumber int `json:"replicas_num"`
+	ExtraReplicas uint64 `json:"extra_replicas"`
 }
