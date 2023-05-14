@@ -251,8 +251,10 @@ func (k *kvRegistry) EnsureActivation(
 		}
 
 		var (
-			refs []types.ActorReference
+			refs            []types.ActorReference
+			currActivations = ra.Activations
 		)
+		ra.Activations = []activation{}
 
 		vs, err := tr.GetVersionStamp()
 		if err != nil {
@@ -263,7 +265,7 @@ func (k *kvRegistry) EnsureActivation(
 			isServerIdBlacklisted[s] = true
 		}
 
-		for _, a := range ra.Activations {
+		for _, a := range currActivations {
 			if uint64(len(refs)) >= 1+req.ExtraReplicas {
 				break
 			}
@@ -296,6 +298,7 @@ func (k *kvRegistry) EnsureActivation(
 					}
 
 					refs = append(refs, ref)
+					ra.Activations = append(ra.Activations, a)
 				}
 			}
 		}
@@ -338,16 +341,9 @@ func (k *kvRegistry) EnsureActivation(
 			serverID := server.ServerID
 			serverAddress := server.HeartbeatState.Address
 			serverVersion := server.ServerVersion
-			currActivation := newActivation(serverID, serverVersion)
+			a := newActivation(serverID, serverVersion)
 
-			ra.Activations = append(ra.Activations, currActivation)
-			marshaled, err := json.Marshal(&ra)
-			if err != nil {
-				return nil, fmt.Errorf("error marshaling activation: %w", err)
-			}
-
-			tr.Put(ctx, actorKey, marshaled)
-
+			ra.Activations = append(ra.Activations, a)
 			if !k.opts.DisableHighConflictOperations {
 				server.HeartbeatState.NumActivatedActors++
 				marshaled, err := json.Marshal(&server)
@@ -373,6 +369,12 @@ func (k *kvRegistry) EnsureActivation(
 
 			refs = append(refs, ref)
 		}
+
+		marshaled, err := json.Marshal(&ra)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling activation: %w", err)
+		}
+		tr.Put(ctx, actorKey, marshaled)
 
 		return EnsureActivationResult{
 			References:   refs,
