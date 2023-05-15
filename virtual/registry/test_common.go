@@ -17,6 +17,10 @@ func TestAllCommon(t *testing.T, registryCtor func() Registry) {
 	t.Run("service discovery and ensure activation", func(t *testing.T) {
 		testRegistryServiceDiscoveryAndEnsureActivation(t, registryCtor())
 	})
+
+	t.Run("test registry replication", func(t *testing.T) {
+		testRegistryReplication(t, registryCtor())
+	})
 }
 
 // testRegistryServiceDiscoveryAndEnsureActivation tests the combination of the
@@ -54,9 +58,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 
 	// Should succeed now that we have a server to activate on.
 	activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
-		Namespace:     "ns1",
-		ActorID:       "a",
-		ModuleID:      "test-module1",
+		Namespace: "ns1",
+		ActorID:   "a",
+		ModuleID:  "test-module1",
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations.References))
@@ -72,9 +76,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	prevVS := activations.VersionStamp
 
 	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-		Namespace:     "ns1",
-		ActorID:       "a",
-		ModuleID:      "test-module1",
+		Namespace: "ns1",
+		ActorID:   "a",
+		ModuleID:  "test-module1",
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations.References))
@@ -102,9 +106,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// server 1.
 	for i := 0; i < 10; i++ {
 		activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
-			Namespace:     "ns1",
-			ActorID:       "a",
-			ModuleID:      "test-module1",
+			Namespace: "ns1",
+			ActorID:   "a",
+			ModuleID:  "test-module1",
 		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
@@ -120,9 +124,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	// Reuse the same actor ID, but with a different module. The registry should consider
 	// it a completely separate entity therefore it will go on a different server.
 	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-		Namespace:     "ns1",
-		ActorID:       "a",
-		ModuleID:      "test-module2",
+		Namespace: "ns1",
+		ActorID:   "a",
+		ModuleID:  "test-module2",
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(activations.References))
@@ -139,9 +143,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("0-%d", i)
 		activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-			Namespace:     "ns1",
-			ActorID:       actorID,
-			ModuleID:      "test-module1",
+			Namespace: "ns1",
+			ActorID:   actorID,
+			ModuleID:  "test-module1",
 		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
@@ -159,9 +163,9 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("1-%d", i)
 		activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-			Namespace:     "ns1",
-			ActorID:       actorID,
-			ModuleID:      "test-module1",
+			Namespace: "ns1",
+			ActorID:   actorID,
+			ModuleID:  "test-module1",
 		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
@@ -198,12 +202,92 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	for i := 0; i < 10; i++ {
 		actorID := fmt.Sprintf("2-%d", i)
 		activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
-			Namespace:     "ns1",
-			ActorID:       actorID,
-			ModuleID:      "test-module1",
+			Namespace: "ns1",
+			ActorID:   actorID,
+			ModuleID:  "test-module1",
 		})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
 		require.Equal(t, "server2", activations.References[0].ServerID())
 	}
+}
+
+
+// testRegistryReplication is a test function that verifies the replication behavior of a registry implementation.
+// The steps performed by this function are as follows:
+//
+// 1. Ensure Activation - Single Replica:
+//    The function calls the `EnsureActivation` method again, this time without requesting any additional replicas.
+//    This step verifies the successful activation of an actor with a single replica. The number of returned
+//    activation references is validated to ensure that only one reference is returned.
+//
+// 2. Ensure Activation - Extra Replica:
+//    The function calls the `EnsureActivation` method of the registry to ensure the activation of an actor with the
+//    given namespace, actor ID, and module ID. In this step, an additional replica is requested for the actor.
+//    The number of returned activation references is validated to ensure that two references are returned.
+//
+// 3. Ensure Activation - Extra Replicas:
+//    The function calls the `EnsureActivation` method once more, but this time requests two additional replicas
+//    for the actor. It's important to note that even though the function requests three replicas in total, the
+//    replication behavior is limited by the number of available servers. In this case, since there are only two
+//    servers ("server1" and "server2"), the maximum number of replicas that can be created is also limited to two.
+//    The purpose of this step is to test the successful activation of an actor with the maximum number of replicas
+//    that the available servers can accommodate. The number of returned activation references is validated to ensure
+//    that two references are returned, indicating that the replication behavior respects the available server
+//    resources and doesn't exceed the limit.
+// service discovery system and EnsureActivation() method to ensure we can:
+//  1. Register servers.
+//  2. Load balance across servers.
+//  3. Remember which server an actor activation is currently assigned to.
+//  4. Detect dead servers and reactive actors elsewhere.
+func testRegistryReplication(t *testing.T, registry Registry) {
+	ctx := context.Background()
+	defer registry.Close(ctx)
+
+	for i := 0; i < 5; i++ {
+		// Heartbeat 5 times because some registry implementations (like the
+		// LeaderRegistry) require multiple successful heartbeats from at least
+		// 1 server before any actors can be placed.
+		heartbeatResult, err := registry.Heartbeat(ctx, "server1", HeartbeatState{
+			NumActivatedActors: 10,
+			Address:            "server1_address",
+		})
+		require.NoError(t, err)
+		require.True(t, heartbeatResult.VersionStamp > 0)
+		require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
+
+		heartbeatResult, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
+			NumActivatedActors: 10,
+			Address:            "server2_address",
+		})
+		require.NoError(t, err)
+		require.True(t, heartbeatResult.VersionStamp > 0)
+		require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
+	}
+
+	activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
+		Namespace: "ns1",
+		ActorID:   "a",
+		ModuleID:  "test-module1",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(activations.References))
+
+	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+		Namespace:     "ns1",
+		ActorID:       "b",
+		ModuleID:      "test-module1",
+		ExtraReplicas: 1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, len(activations.References))
+
+	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
+		Namespace:     "ns1",
+		ActorID:       "c",
+		ModuleID:      "test-module1",
+		ExtraReplicas: 2,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, len(activations.References))
 }

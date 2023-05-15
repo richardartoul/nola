@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -764,8 +765,7 @@ func (r *environment) invokeReferences(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
-	// TODO: Load balancing or some other strategy if the number of references is > 1?
-	ref := references[0]
+	ref := pickServerForInvocation(references, create)
 	if !r.opts.ForceRemoteProcedureCalls {
 		// First check the global localEnvironmentsRouter map for scenarios where we're
 		// potentially trying to communicate between multiple different in-memory
@@ -898,4 +898,13 @@ func formatActorCacheKey(
 	dst = append(dst, []byte(moduleID)...)
 	dst = append(dst, []byte(actorID)...)
 	return dst
+}
+
+func pickServerForInvocation(references []types.ActorReference, create types.CreateIfNotExist) types.ActorReference {
+	// TODO: implement invokation strategies in 'create' e.g. memory-balanced, cpu-balanced, multi-invoke...
+	sort.Slice(references, func(i, j int) bool {
+		return references[i].ServerState().UsedMemory() < references[j].ServerState().UsedMemory()
+	})
+
+	return references[0]
 }

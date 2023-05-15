@@ -253,6 +253,7 @@ func (k *kvRegistry) EnsureActivation(
 		var (
 			refs            []types.ActorReference
 			currActivations = ra.Activations
+			isActivated     = make(map[string]bool)
 		)
 		ra.Activations = []activation{}
 
@@ -299,6 +300,7 @@ func (k *kvRegistry) EnsureActivation(
 
 					refs = append(refs, ref)
 					ra.Activations = append(ra.Activations, a)
+					isActivated[a.ServerID] = true
 				}
 			}
 		}
@@ -336,7 +338,7 @@ func (k *kvRegistry) EnsureActivation(
 		}
 
 		selected := pickServersForActivation(
-			(1+req.ExtraReplicas)-uint64(len(refs)), liveServers, k.opts, isServerIdBlacklisted, req.CachedActivationServerIDs, len(refs) == 0)
+			(1+req.ExtraReplicas)-uint64(len(refs)), liveServers, k.opts, isServerIdBlacklisted, req.CachedActivationServerIDs, isActivated, len(refs) == 0)
 		for _, server := range selected {
 			serverID := server.ServerID
 			serverAddress := server.HeartbeatState.Address
@@ -656,6 +658,7 @@ func pickServersForActivation(
 	opts KVRegistryOptions,
 	isServerIdBlacklisted map[string]bool,
 	cachedServerIDs []string,
+	isActivated map[string]bool,
 	isFirstTimeObservingActor bool,
 ) (result []serverState) {
 	if len(available) == 0 {
@@ -677,7 +680,7 @@ func pickServersForActivation(
 			return result
 		}
 
-		if !isServerIdBlacklisted[cachedServerID] && !seen[cachedServerID] {
+		if !isServerIdBlacklisted[cachedServerID] && !seen[cachedServerID] && !isActivated[cachedServerID] {
 			for _, server := range available {
 				if server.ServerID == cachedServerID {
 					result = append(result, server)
@@ -717,7 +720,7 @@ func pickServersForActivation(
 			return result
 		}
 
-		if !isServerIdBlacklisted[server.ServerID] && !seen[server.ServerID] {
+		if !isServerIdBlacklisted[server.ServerID] && !seen[server.ServerID] && !isActivated[server.ServerID] {
 			result = append(result, server)
 			seen[server.ServerID] = true
 		}
