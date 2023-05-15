@@ -132,6 +132,10 @@ type EnsureActivationRequest struct {
 	ModuleID  string `json:"module_id"`
 	ActorID   string `json:"actor_id"`
 
+	// ExtraReplicas represents the number of additional replicas requested for an actor.
+	// It specifies the desired number of replicas, in addition to the primary replica,
+	// that should be created during actor activation.
+	// The value of ExtraReplicas should be a non-negative integer.
 	ExtraReplicas uint64 `json:"extra_replicas"`
 	// BlacklistedServerIDs is set if the caller is calling the EnsureActivation method
 	// after receiving an error from the server the actor is *supposed* to be activated
