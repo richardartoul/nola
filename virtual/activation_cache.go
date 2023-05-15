@@ -122,8 +122,8 @@ func (a *activationsCache) ensureActivation(
 		}
 	}
 
-	// Cache miss, fill the cache.
-	if !ok ||
+	// Cache miss or not enough replicas, fill the cache.
+	if !ok || (1+extraReplicas)> uint64(len(aceI.(activationCacheEntry).references)) ||
 		// There is an existing cache entry, however, it was satisfied by a request that did not provide
 		// the same blacklistedServerID we have currently. We must ignore this entry because it could be
 		// stale and end up routing us back to the blacklisted server ID.

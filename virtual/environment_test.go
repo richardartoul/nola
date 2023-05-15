@@ -688,6 +688,134 @@ func testHeartbeatAndRebalancingWithMemory(
 	}
 }
 
+// TestReplicationMemoryLoadBalancingGoModule tests the replication logic of the environment with respect to memory load balancing.
+//
+// This test specifically examines how actors are replicated when the ExtraReplicas option is set to a value greater than 0.
+// The test verifies that the actor is replicated if the memory usage of the server where the actor is currently activated is not the lowest among available servers,
+// and there are other servers with lower memory usage that can accommodate additional replicas.
+func TestReplicationMemoryLoadBalancingGoModule(t *testing.T) {
+	var (
+		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
+			RebalanceMemoryThreshold: 1 << 24,
+		})
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
+	)
+	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+	// needs its own port so it looks unique.
+	opts1 := defaultOptsWASM
+	opts1.Discovery.Port = 1
+	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
+	opts2 := defaultOptsWASM
+	opts2.Discovery.Port = 2
+	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
+	opts3 := defaultOptsWASM
+	opts3.Discovery.Port = 3
+	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+	require.NoError(t, err)
+	defer env3.Close(context.Background())
+
+	testReplicationMemoryLoadBalancing(t, env1, env2, env3)
+}
+
+func TestReplicationMemoryLoadBalancingWASMModule(t *testing.T) {
+	var (
+		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
+			RebalanceMemoryThreshold: 1 << 24,
+		})
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
+	)
+	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+	// needs its own port so it looks unique.
+	opts1 := defaultOptsWASM
+	opts1.Discovery.Port = 1
+	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
+	opts2 := defaultOptsWASM
+	opts2.Discovery.Port = 2
+	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
+	opts3 := defaultOptsWASM
+	opts3.Discovery.Port = 3
+	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+	require.NoError(t, err)
+	defer env3.Close(context.Background())
+
+	testReplicationMemoryLoadBalancing(t, env1, env2, env3)
+}
+
+// testReplicationMemoryLoadBalancing is a test function that verifies the memory load balancing behavior of actor replication across multiple environments.
+//
+// The test logic is as follows:
+// 1. Activate an actor per server in each environment to ensure initial non-empty server states.
+// 2. Verify that each environment has one activated actor, ensuring load balancing.
+// 3. Invoke the same actor twice with a single replica, testing replication behavior.
+//    - The actor's memory usage is set to 1<<26 (64MB).
+//    - The CreateIfNotExist option is used with ExtraReplicas set to 0 to ensure only one replica.
+//    - The activated actor count should increase by one.
+// 4. Invoke the same actor once more with two replicas, testing further replication behavior.
+//    - The actor's memory usage is set to 1<<26 (64MB) again.
+//    - The CreateIfNotExist option is used with ExtraReplicas set to 1 to request an additional replica.
+//    - Since the server with the activated actor has the highest memory usage, the actor should be replicated to a second server.
+//    - The activated actor count should increase by two.
+func testReplicationMemoryLoadBalancing(
+	t *testing.T,
+	env1, env2, env3 Environment,
+) {
+	ctx := context.Background()
+
+	// Activate an actor per server, so that the initial state of servers is not empty.
+	for i := 0; i < 3; i++ {
+		_, err := env1.InvokeActor(ctx, "ns-1", fmt.Sprintf("actor-%d", i), "test-module", "inc", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+	}
+
+	// Registry load-balancing should ensure that we ended up with an equal number of actors in each environment.
+	require.True(t, env1.NumActivatedActors() == 1)
+	require.True(t, env2.NumActivatedActors() == 1)
+	require.True(t, env3.NumActivatedActors() == 1)
+
+	// Invoke the same actor twice, with a single replica. Since there is only one replica, the amount of activated actors should only increase by one.
+	_, err := env1.InvokeActor(
+		ctx, "ns-1", "actor-3", "test-module", "setMemoryUsage",
+		[]byte(fmt.Sprintf("%d", 1<<26)), types.CreateIfNotExist{Options: types.ActorOptions{ExtraReplicas: 0}})
+	require.NoError(t, err)
+
+	_, err = env1.InvokeActor(
+		ctx, "ns-1", "actor-3", "test-module", "setMemoryUsage",
+		[]byte(fmt.Sprintf("%d", 1<<26)), types.CreateIfNotExist{Options: types.ActorOptions{ExtraReplicas: 0}})
+	require.NoError(t, err)
+
+	numActivatedActors := env1.NumActivatedActors() + env2.NumActivatedActors() + env3.NumActivatedActors()
+	require.Equal(t, 4, numActivatedActors)
+
+	// Invoke the same actor one more time, but with two replicas. Since the server with the activated actor is the one consuming the most memory, the actor should be replicated into a second server, and the amount of activated actors should only increase by two.
+	_, err = env1.InvokeActor(
+		ctx, "ns-1", "actor-3", "test-module", "setMemoryUsage",
+		[]byte(fmt.Sprintf("%d", 1<<26)), types.CreateIfNotExist{Options: types.ActorOptions{ExtraReplicas: 1}})
+	require.NoError(t, err)
+
+	numActivatedActors = env1.NumActivatedActors() + env2.NumActivatedActors() + env3.NumActivatedActors()
+	require.Equal(t, 5, numActivatedActors)
+}
+
 // TestVersionStampIsHonored ensures that the interaction between the client and server
 // around versionstamp coordination works by preventing the server from updating its
 // internal versionstamp and ensuring that eventually RPCs start to fail because the
