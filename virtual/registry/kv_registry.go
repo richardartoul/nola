@@ -261,9 +261,9 @@ func (k *kvRegistry) EnsureActivation(
 		if err != nil {
 			return nil, fmt.Errorf("error getting versionstamp: %w", err)
 		}
-		isServerIdBlacklisted := make(map[string]bool)
+		isServerIDBlacklisted := make(map[string]bool)
 		for _, s := range req.BlacklistedServerIDs {
-			isServerIdBlacklisted[s] = true
+			isServerIDBlacklisted[s] = true
 		}
 
 		for _, a := range currActivations {
@@ -271,7 +271,7 @@ func (k *kvRegistry) EnsureActivation(
 				break
 			}
 
-			if isServerIdBlacklisted[a.ServerID] {
+			if isServerIDBlacklisted[a.ServerID] {
 				continue
 			}
 
@@ -338,7 +338,7 @@ func (k *kvRegistry) EnsureActivation(
 		}
 
 		selected := pickServersForActivation(
-			(1+req.ExtraReplicas)-uint64(len(refs)), liveServers, k.opts, isServerIdBlacklisted, req.CachedActivationServerIDs, isActivated, len(refs) == 0)
+			(1+req.ExtraReplicas)-uint64(len(refs)), liveServers, k.opts, isServerIDBlacklisted, req.CachedActivationServerIDs, isActivated, len(refs) == 0)
 		for _, server := range selected {
 			serverID := server.ServerID
 			serverAddress := server.HeartbeatState.Address
@@ -656,7 +656,7 @@ func pickServersForActivation(
 	n uint64,
 	available []serverState,
 	opts KVRegistryOptions,
-	isServerIdBlacklisted map[string]bool,
+	isServerIDBlacklisted map[string]bool,
 	cachedServerIDs []string,
 	isActivated map[string]bool,
 	isFirstTimeObservingActor bool,
@@ -680,7 +680,7 @@ func pickServersForActivation(
 			return result
 		}
 
-		if !isServerIdBlacklisted[cachedServerID] && !seen[cachedServerID] && !isActivated[cachedServerID] {
+		if !isServerIDBlacklisted[cachedServerID] && !seen[cachedServerID] && !isActivated[cachedServerID] {
 			for _, server := range available {
 				if server.ServerID == cachedServerID {
 					result = append(result, server)
@@ -720,7 +720,7 @@ func pickServersForActivation(
 			return result
 		}
 
-		if !isServerIdBlacklisted[server.ServerID] && !seen[server.ServerID] && !isActivated[server.ServerID] {
+		if !isServerIDBlacklisted[server.ServerID] && !seen[server.ServerID] && !isActivated[server.ServerID] {
 			result = append(result, server)
 			seen[server.ServerID] = true
 		}

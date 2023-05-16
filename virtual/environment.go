@@ -417,7 +417,7 @@ func (r *environment) InvokeActorStream(
 		return resp, nil
 	}
 
-	if isServerIdBlacklistedActivationError(err) {
+	if isServerIDBlacklistedActivationError(err) {
 		// If we received an error because the target server has blacklisted activations
 		// of this actor, then we'll invalidate our cache to force the subsequent call
 		// to lookup the actor's new activation location in the registry. We'll also set
@@ -470,7 +470,7 @@ func (r *environment) invokeActorStreamHelper(
 
 	references, err := r.activationsCache.ensureActivation(
 		ctx, namespace, moduleID, actorID, create.Options.ExtraReplicas, blacklistedServerID)
-		if err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("error ensuring actor activation: %w", err)
 	}
 	if len(references) == 0 {

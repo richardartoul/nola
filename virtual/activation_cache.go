@@ -91,15 +91,15 @@ func (a *activationsCache) ensureActivation(
 	ctx, cc := context.WithTimeout(ctx, defaultActivationCacheTimeout)
 	defer cc()
 
-	isServerIdBlacklisted := make(map[string]bool)
+	isServerIDBlacklisted := make(map[string]bool)
 	for _, s := range blacklistedServerIDs {
-		isServerIdBlacklisted[s] = true
+		isServerIDBlacklisted[s] = true
 	}
 
 	if a.c == nil {
 		// Cache disabled, load directly.
 		return a.ensureActivationAndUpdateCache(
-			ctx, namespace, moduleID, actorID, extraReplicas, nil, isServerIdBlacklisted, blacklistedServerIDs)
+			ctx, namespace, moduleID, actorID, extraReplicas, nil, isServerIDBlacklisted, blacklistedServerIDs)
 	}
 
 	var (
@@ -115,7 +115,7 @@ func (a *activationsCache) ensureActivation(
 		blacklistedIDs := aceI.(activationCacheEntry).blacklistedServerIDs
 
 		for _, id := range blacklistedIDs {
-			if isServerIdBlacklisted[id] {
+			if isServerIDBlacklisted[id] {
 				hasBlacklistedID = true
 				break
 			}
@@ -123,7 +123,7 @@ func (a *activationsCache) ensureActivation(
 	}
 
 	// Cache miss or not enough replicas, fill the cache.
-	if !ok || (1+extraReplicas)> uint64(len(aceI.(activationCacheEntry).references)) ||
+	if !ok || (1+extraReplicas) > uint64(len(aceI.(activationCacheEntry).references)) ||
 		// There is an existing cache entry, however, it was satisfied by a request that did not provide
 		// the same blacklistedServerID we have currently. We must ignore this entry because it could be
 		// stale and end up routing us back to the blacklisted server ID.
@@ -133,7 +133,7 @@ func (a *activationsCache) ensureActivation(
 			cachedReferences = aceI.(activationCacheEntry).references
 		}
 		return a.ensureActivationAndUpdateCache(
-			ctx, namespace, moduleID, actorID, extraReplicas, cachedReferences, isServerIdBlacklisted, blacklistedServerIDs)
+			ctx, namespace, moduleID, actorID, extraReplicas, cachedReferences, isServerIDBlacklisted, blacklistedServerIDs)
 	}
 
 	// Cache hit, return result from cache but check if we should proactively refresh
@@ -146,7 +146,7 @@ func (a *activationsCache) ensureActivation(
 		go func() {
 			defer cc()
 			_, err := a.ensureActivationAndUpdateCache(
-				ctx, namespace, moduleID, actorID, extraReplicas, ace.references, isServerIdBlacklisted, blacklistedServerIDs)
+				ctx, namespace, moduleID, actorID, extraReplicas, ace.references, isServerIDBlacklisted, blacklistedServerIDs)
 			if err != nil {
 				a.logger.Error(
 					"error refreshing activation cache in background",
@@ -178,7 +178,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 
 	extraReplicas uint64,
 	cachedReferences []types.ActorReference,
-	isServerIdBlacklisted map[string]bool,
+	isServerIDBlacklisted map[string]bool,
 	blacklistedServerIDs []string,
 ) ([]types.ActorReference, error) {
 	// Since this method is less common (cache miss) we just allocate instead of messing
@@ -232,7 +232,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 		}
 
 		for _, ref := range references.References {
-			if isServerIdBlacklisted[ref.ServerID()] {
+			if isServerIDBlacklisted[ref.ServerID()] {
 				return nil, fmt.Errorf(
 					"[invariant violated] registry returned blacklisted server ID: %s in references",
 					blacklistedServerIDs)
