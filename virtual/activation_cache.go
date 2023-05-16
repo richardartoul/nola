@@ -188,7 +188,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 	// Include blacklistedServerID in the dedupeKey so that "force refreshes" due to a
 	// server blacklist / load-shedding an actor can be initiated *after* a regular
 	// refresh has already started, but *before* it has completed.
-	dedupeKey := fmt.Sprintf("%s::%s", cacheKey, strings.Join(blacklistedServerIDs, ":"))
+	dedupeKey := fmt.Sprintf("%s::%s", cacheKey, strings.Join(blacklistedServerIDs, ","))
 	referencesI, err, _ := a.deduper.Do(dedupeKey, func() (any, error) {
 		var cachedServerIDs []string
 		for _, ref := range cachedReferences {
