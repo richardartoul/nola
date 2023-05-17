@@ -85,8 +85,8 @@ type ActorReferenceVirtual struct {
 	IDType string `json:"idType"`
 
 	// Buffers for Namespaced ActorID and ModuleID
-	actorIDWithNamespace  *NamespacedActorID
-	moduleIDWithNamespace *NamespacedID
+	actorIDWithNamespace  *NamespacedActorID `json:"-"`
+	moduleIDWithNamespace *NamespacedID      `json:"-"`
 }
 
 func (ref *ActorReferenceVirtual) ActorIDWithNamespace() NamespacedActorID {
@@ -97,7 +97,7 @@ func (ref *ActorReferenceVirtual) ActorIDWithNamespace() NamespacedActorID {
 	return *ref.actorIDWithNamespace
 }
 
-func (ref ActorReferenceVirtual) ModuleIDWithNamespace() NamespacedID {
+func (ref *ActorReferenceVirtual) ModuleIDWithNamespace() NamespacedID {
 	if ref.moduleIDWithNamespace == nil {
 		moduleIDWithNamespace := NewNamespacedID(ref.Namespace, ref.ModuleID, ref.IDType)
 		ref.moduleIDWithNamespace = &moduleIDWithNamespace
