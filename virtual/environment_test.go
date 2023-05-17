@@ -688,11 +688,9 @@ func testHeartbeatAndRebalancingWithMemory(
 	}
 }
 
-// TestReplicationRandomLoadBalancingGoModule tests the replication logic of the environment with respect to memory load balancing.
-//
+// TestReplicationRandomLoadBalancingGoModule tests the replication logic of the environment with respect to random load balancing.
 // This test specifically examines how actors are replicated when the ExtraReplicas option is set to a value greater than 0.
-// The test verifies that the actor is replicated if the memory usage of the server where the actor is currently activated is not the lowest among available servers,
-// and there are other servers with lower memory usage that can accommodate additional replicas.
+// The test verifies that the actor is replicated across multiple environments in a random manner.
 func TestReplicationRandomLoadBalancingGoModule(t *testing.T) {
 	var (
 		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
@@ -724,7 +722,7 @@ func TestReplicationRandomLoadBalancingGoModule(t *testing.T) {
 	require.NoError(t, err)
 	defer env3.Close(context.Background())
 
-	testReplicationMemoryLoadBalancing(t, env1, env2, env3)
+	testReplicationRandomLoadBalancing(t, env1, env2, env3)
 }
 
 func TestReplicationRandomLoadBalancingWASMModule(t *testing.T) {
@@ -758,25 +756,18 @@ func TestReplicationRandomLoadBalancingWASMModule(t *testing.T) {
 	require.NoError(t, err)
 	defer env3.Close(context.Background())
 
-	testReplicationMemoryLoadBalancing(t, env1, env2, env3)
+	testReplicationRandomLoadBalancing(t, env1, env2, env3)
 }
 
-// testReplicationMemoryLoadBalancing is a test function that verifies the memory load balancing behavior of actor replication across multiple environments.
+// testReplicationRandomLoadBalancing is a test function that verifies the random load balancing behavior of actor replication across multiple environments.
 //
 // The test logic is as follows:
-// 1. Activate an actor per server in each environment to ensure initial non-empty server states.
-// 2. Verify that each environment has one activated actor, ensuring load balancing.
-// 3. Invoke the same actor twice with a single replica, testing replication behavior.
-//   - The actor's memory usage is set to 1<<26 (64MB).
-//   - The CreateIfNotExist option is used with ExtraReplicas set to 0 to ensure only one replica.
-//   - The activated actor count should increase by one.
-//
-// 4. Invoke the same actor once more with two replicas, testing further replication behavior.
-//   - The actor's memory usage is set to 1<<26 (64MB) again.
-//   - The CreateIfNotExist option is used with ExtraReplicas set to 1 to request an additional replica.
-//   - Since the server with the activated actor has the highest memory usage, the actor should be replicated to a second server.
-//   - The activated actor count should increase by two.
-func testReplicationMemoryLoadBalancing(
+// - Invoke an actor with the ExtraReplicas option set to 2.
+// - Continuously check if the actor has been replicated in all three environments.
+// - If the actor is not activated in all three environments, invoke the actor again.
+// - Repeat the check until the actor is activated in all three environments or until a certain timeout is reached.
+// - If the actor is not activated in all three environments within the specified time, the test fails.
+func testReplicationRandomLoadBalancing(
 	t *testing.T,
 	env1, env2, env3 Environment,
 ) {
@@ -788,7 +779,7 @@ func testReplicationMemoryLoadBalancing(
 			return true
 		}
 
-		_, err := env1.InvokeActor(ctx, "ns-1", "actor-0", "test-module", "inc", nil, types.CreateIfNotExist{})
+		_, err := env1.InvokeActor(ctx, "ns-1", "actor-0", "test-module", "inc", nil, types.CreateIfNotExist{Options: types.ActorOptions{ExtraReplicas: 2}})
 		require.NoError(t, err)
 
 		return false
