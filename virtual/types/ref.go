@@ -52,10 +52,6 @@ func NewActorReferenceFromJSON(data []byte) (ActorReference, error) {
 	return ref, nil
 }
 
-func (ref ActorReference) MarshalJSON() ([]byte, error) {
-	return json.Marshal(ref)
-}
-
 // ActorReference abstracts over different forms of ReferenceType. It provides all the
 // necessary information for communicating with an actor. Some of the fields are "logical"
 type ActorReference struct {

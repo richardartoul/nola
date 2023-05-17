@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,7 @@ func TestNewActorReference(t *testing.T) {
 	require.Equal(t, uint64(1), ref.Virtual.Generation)
 	require.Equal(t, IDTypeActor, ref.Virtual.IDType)
 
-	marshaled, err := ref.MarshalJSON()
+	marshaled, err := json.Marshal(ref)
 	require.NoError(t, err)
 
 	unmarshaled, err := NewActorReferenceFromJSON(marshaled)
@@ -40,7 +41,7 @@ func TestNewWorkerReference(t *testing.T) {
 	require.Equal(t, uint64(1), ref.Virtual.Generation)
 	require.Equal(t, IDTypeWorker, ref.Virtual.IDType)
 
-	marshaled, err := ref.MarshalJSON()
+	marshaled, err := json.Marshal(ref)
 	require.NoError(t, err)
 
 	unmarshaled, err := NewActorReferenceFromJSON(marshaled)
