@@ -107,25 +107,43 @@ func (a *activationsCache) ensureActivation(
 	aceI, ok := a.c.Get(cacheKey)
 	bufPool.Put(bufIface)
 
-	hasBlacklistedID := false
+	var (
+		cachedReferences               []types.ActorReference
+		nonBlacklistedCachedReferences []types.ActorReference
+		currentBlaclistedIDsAreInvalid = false
+	)
+
+	// Check if any of the servers the current request wants to blacklist are not marked as blacklisted in the cache.
+	// If any server is not blacklisted in the cache, it suggests that the cache entry might be stale and could potentially
+	// route us back to the blacklisted server ID. In such cases, the cache needs to be refreshed, and the existing entry should be ignored.
+	//
+	// Additionally, create a new slice `nonBlacklistedCachedReferences` that only includes the references from the cache
+	// that belong to non-blacklisted servers. This filtered slice will be used for subsequent processing.
+
 	if ok {
 		blacklistedIDs := aceI.(activationCacheEntry).blacklistedServerIDs
 
 		for _, id := range blacklistedIDs {
 			if isServerIDBlacklisted[id] {
-				hasBlacklistedID = true
+				currentBlaclistedIDsAreInvalid = true
 				break
+			}
+		}
+
+		nonBlacklistedCachedReferences = cachedReferences[:0]
+		for _, ref := range cachedReferences {
+			if !isServerIDBlacklisted[ref.Physical.ServerID] {
+				nonBlacklistedCachedReferences = append(nonBlacklistedCachedReferences, ref)
 			}
 		}
 	}
 
-	// Cache miss or not enough replicas, fill the cache.
-	if !ok || (1+extraReplicas) > uint64(len(aceI.(activationCacheEntry).references)) ||
+	// Cache miss, not enough non-blacklisted replicas, or invalid blacklistedIDs list, then fill the cache.
+	if !ok || (1+extraReplicas) > uint64(len(nonBlacklistedCachedReferences)) ||
 		// There is an existing cache entry, however, it was satisfied by a request that did not provide
 		// the same blacklistedServerID we have currently. We must ignore this entry because it could be
 		// stale and end up routing us back to the blacklisted server ID.
-		hasBlacklistedID {
-		var cachedReferences []types.ActorReference
+		currentBlaclistedIDsAreInvalid {
 		if ok {
 			cachedReferences = aceI.(activationCacheEntry).references
 		}
@@ -136,7 +154,6 @@ func (a *activationsCache) ensureActivation(
 
 	// Cache hit, return result from cache but check if we should proactively refresh
 	// the cache also.
-
 	ace := aceI.(activationCacheEntry)
 	// TODO: Jitter here.
 	if time.Since(ace.cachedAt) > a.idealCacheStaleness {
@@ -153,7 +170,7 @@ func (a *activationsCache) ensureActivation(
 		}()
 	}
 
-	return limit(ace.references, extraReplicas), nil
+	return limit(nonBlacklistedCachedReferences, extraReplicas), nil
 }
 
 func limit(slice []types.ActorReference, min uint64) []types.ActorReference {
