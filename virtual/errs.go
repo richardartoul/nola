@@ -64,8 +64,8 @@ func (b BlacklistedActivationErr) ServerIDs() []string {
 	return b.serverIDs
 }
 
-// isServerIDBlacklistedActivationError returns a boolean indicating whether the error
+// IsBlacklistedActivationError returns a boolean indicating whether the error
 // was caused by the actor being blacklisted from being activated on the server.
-func isServerIDBlacklistedActivationError(err error) bool {
+func IsBlacklistedActivationError(err error) bool {
 	return errors.Is(err, BlacklistedActivationErr{})
 }

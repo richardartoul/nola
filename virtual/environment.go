@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"runtime"
-	"sort"
 	"sync"
 	"time"
 
@@ -417,7 +417,7 @@ func (r *environment) InvokeActorStream(
 		return resp, nil
 	}
 
-	if isServerIDBlacklistedActivationError(err) {
+	if IsBlacklistedActivationError(err) {
 		// If we received an error because the target server has blacklisted activations
 		// of this actor, then we'll invalidate our cache to force the subsequent call
 		// to lookup the actor's new activation location in the registry. We'll also set
@@ -771,11 +771,11 @@ func (r *environment) invokeReferences(
 		// potentially trying to communicate between multiple different in-memory
 		// instances of Environment.
 		localEnvironmentsRouterLock.RLock()
-		localEnv, ok := localEnvironmentsRouter[ref.ServerState().Address()]
+		localEnv, ok := localEnvironmentsRouter[ref.Physical.ServerState.Address]
 		localEnvironmentsRouterLock.RUnlock()
 		if ok {
 			return localEnv.InvokeActorDirectStream(
-				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
+				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
 				operation, payload, create)
 		}
 
@@ -795,14 +795,14 @@ func (r *environment) invokeReferences(
 		// always return dnsregistry.Localhost as the address for all actor references and
 		// thus ensure that tests can be written without having to also ensure that a NOLA
 		// server is running on the appropriate port, among other things.
-		if ref.ServerState().Address() == Localhost || ref.ServerState().Address() == dnsregistry.Localhost {
+		if ref.Physical.ServerState.Address == Localhost || ref.Physical.ServerState.Address == dnsregistry.Localhost {
 			return localEnv.InvokeActorDirectStream(
-				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
+				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
 				operation, payload, create)
 		}
 	}
 
-	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
+	return r.client.InvokeActorRemote(ctx, versionStamp, *ref, operation, payload, create)
 }
 
 func (r *environment) freezeHeartbeatState() {
@@ -900,11 +900,11 @@ func formatActorCacheKey(
 	return dst
 }
 
-func pickServerForInvocation(references []types.ActorReference, create types.CreateIfNotExist) types.ActorReference {
-	// TODO: implement invokation strategies in 'create' e.g. memory-balanced, cpu-balanced, multi-invoke...
-	sort.Slice(references, func(i, j int) bool {
-		return references[i].ServerState().UsedMemory() < references[j].ServerState().UsedMemory()
-	})
+func pickServerForInvocation(references []types.ActorReference, create types.CreateIfNotExist) *types.ActorReference {
+	// TODO: implement invokation strategies in 'create' e.g. region-based, multi-invoke...
+	if len(references) == 0 || references == nil {
+		return nil
+	}
 
-	return references[0]
+	return &references[rand.Intn(len(references))]
 }

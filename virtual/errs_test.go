@@ -11,12 +11,12 @@ import (
 func TestBlacklistedActivationError(t *testing.T) {
 	require.False(t, errors.Is(errors.New("random"), &BlacklistedActivationErr{}))
 	require.False(t, errors.Is(errors.New("random"), BlacklistedActivationErr{}))
-	require.False(t, isServerIDBlacklistedActivationError(errors.New("random")))
+	require.False(t, IsBlacklistedActivationError(errors.New("random")))
 
 	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random"), []string{"abc"}), &BlacklistedActivationErr{}))
 	require.True(t, errors.Is(NewBlacklistedActivationError(errors.New("random"), []string{"abc"}), BlacklistedActivationErr{}))
-	require.True(t, isServerIDBlacklistedActivationError(NewBlacklistedActivationError(errors.New("random"), []string{"abc"})))
-	require.True(t, isServerIDBlacklistedActivationError(fmt.Errorf("wrapped: %w", NewBlacklistedActivationError(errors.New("random"), []string{"abc"}))))
+	require.True(t, IsBlacklistedActivationError(NewBlacklistedActivationError(errors.New("random"), []string{"abc"})))
+	require.True(t, IsBlacklistedActivationError(fmt.Errorf("wrapped: %w", NewBlacklistedActivationError(errors.New("random"), []string{"abc"}))))
 
 	require.Contains(t, NewBlacklistedActivationError(errors.New("random"), []string{"abc"}).(BlacklistedActivationErr).ServerIDs(), "abc")
 

@@ -221,90 +221,35 @@ func (k *kvRegistry) EnsureActivation(
 	req EnsureActivationRequest,
 ) (EnsureActivationResult, error) {
 	actorKey := getActorKey(req.Namespace, req.ActorID, req.ModuleID)
+
+	// Perform a transaction to ensure atomicity.
 	references, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
-		ra, ok, err := k.getActor(ctx, tr, actorKey)
-		if err == nil && !ok {
-			_, err := k.createActor(
-				ctx, tr, req.Namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
-			if err != nil {
-				return nil, fmt.Errorf("EnsureActivation: error creating actor: %w", err)
-			}
-			ra, ok, err = k.getActor(ctx, tr, actorKey)
-			if err != nil {
-				return nil, fmt.Errorf("EnsureActivation: error getting actor: %w", err)
-			}
-			if !ok {
-				return nil, fmt.Errorf(
-					"[invariant violated] error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
-					req.ActorID, req.Namespace, errActorDoesNotExist)
-			}
-		}
+		ra, err := k.getOrCreateActor(ctx, req, actorKey, tr)
 		if err != nil {
-			return nil, fmt.Errorf("EnsureActivation: error getting actor: %w", err)
-		}
-		if !ok {
-			// Make sure we use %w to wrap the errActorDoesNotExist so the caller can use
-			// errors.Is() on it.
-			return nil, fmt.Errorf(
-				"[invariant violated] error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
-				req.ActorID, req.Namespace, errActorDoesNotExist)
+			return nil, err
 		}
 
-		var (
-			refs            []types.ActorReference
-			currActivations = ra.Activations
-			isActivated     = make(map[string]bool)
-		)
-		ra.Activations = []activation{}
-
+		// Get the version stamp for transaction consistency.
 		vs, err := tr.GetVersionStamp()
 		if err != nil {
 			return nil, fmt.Errorf("error getting versionstamp: %w", err)
 		}
-		isServerIDBlacklisted := make(map[string]bool)
-		for _, s := range req.BlacklistedServerIDs {
-			isServerIDBlacklisted[s] = true
+		// Convert blacklisted server IDs to a set for efficient lookup.
+		isServerIDBlacklisted := types.StringSliceToSet(req.BlacklistedServerIDs)
+
+		// Get references from currently running actor activations
+		refs, activations, err := k.getReferencesFromActivations(ctx, tr, req, isServerIDBlacklisted, vs, ra)
+		if err != nil {
+			return nil, err
 		}
 
-		for _, a := range currActivations {
-			if uint64(len(refs)) >= 1+req.ExtraReplicas {
-				break
-			}
-
-			if isServerIDBlacklisted[a.ServerID] {
-				continue
-			}
-
-			serverKey := getServerKey(a.ServerID)
-			v, ok, err := tr.Get(ctx, serverKey)
-			if err != nil {
-				return nil, err
-			}
-
-			if ok {
-				var server serverState
-				if err := json.Unmarshal(v, &server); err != nil {
-					return nil, fmt.Errorf("error unmarsaling server state with ID: %s", req.ActorID)
-				}
-				if versionSince(vs, server.LastHeartbeatedAt) < HeartbeatTTL {
-					// We have an existing activation and the server is still alive, so just use that.
-
-					// It is acceptable to look up the ServerVersion from the server discovery key directly,
-					// as long as the activation is still active, it guarantees that the server's version
-					// has not changed since the activation was first created.
-					ref, err := types.NewActorReference(
-						server.ServerID, server.ServerVersion, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation, refPhysicalState{hb: server.HeartbeatState})
-					if err != nil {
-						return nil, fmt.Errorf("error creating new actor reference: %w", err)
-					}
-
-					refs = append(refs, ref)
-					ra.Activations = append(ra.Activations, a)
-					isActivated[a.ServerID] = true
-				}
-			}
+		ra.Activations = activations
+		isActivated := make(map[string]bool, len(activations))
+		for _, a := range activations {
+			isActivated[a.ServerID] = true
 		}
 
+		// If the desired number of replicas is achieved, return the references
 		if uint64(len(refs)) >= 1+req.ExtraReplicas {
 			return EnsureActivationResult{
 				References:   refs,
@@ -312,11 +257,10 @@ func (k *kvRegistry) EnsureActivation(
 			}, nil
 		}
 
-		// We need to create a new activation because either:
-		//   1. There is no activation OR
-		//   2. The server the actor is currently activated on has stopped heartbeating OR
-		//   3. The server the actor is currently activated on has blacklisted this actor (most
-		//       likely for balancing reasons)
+		// We need to create a new activation because the desired number of replicas has not been achieved. This can happen in the following scenarios:
+		//   1. There is no existing activation for the actor.
+		//   2. The server where the actor is currently activated has stopped heartbeating.
+		//   3. The server where the actor is currently activated has blacklisted the actor, typically for load balancing purposes.
 		liveServers, err := getLiveServers(ctx, vs, tr)
 		if err != nil {
 			return nil, err
@@ -325,46 +269,37 @@ func (k *kvRegistry) EnsureActivation(
 			return nil, fmt.Errorf("0 live servers available for new activation")
 		}
 
+		// Find the maximum number of heartbeats among live servers.
 		maxNumHeartbeats := 0
 		for _, s := range liveServers {
 			if s.NumHeartbeats > maxNumHeartbeats {
 				maxNumHeartbeats = s.NumHeartbeats
 			}
 		}
+
+		// Check if the maximum number of heartbeats satisfies the required threshold.
 		if maxNumHeartbeats < k.opts.MinSuccessiveHeartbeatsBeforeAllowActivations {
 			return nil, fmt.Errorf(
 				"maxNumHeartbeats: %d < MinSuccessiveHeartbeatsBeforeAllowActivations(%d)",
 				maxNumHeartbeats, k.opts.MinSuccessiveHeartbeatsBeforeAllowActivations)
 		}
 
+		// Pick servers for activation based on replication criteria.
 		selected := pickServersForActivation(
 			(1+req.ExtraReplicas)-uint64(len(refs)), liveServers, k.opts, isServerIDBlacklisted, req.CachedActivationServerIDs, isActivated, len(refs) == 0)
 		for _, server := range selected {
-			serverID := server.ServerID
-			serverAddress := server.HeartbeatState.Address
-			serverVersion := server.ServerVersion
-			a := newActivation(serverID, serverVersion)
-
-			ra.Activations = append(ra.Activations, a)
-			if !k.opts.DisableHighConflictOperations {
-				server.HeartbeatState.NumActivatedActors++
-				marshaled, err := json.Marshal(&server)
-				if err != nil {
-					return nil, fmt.Errorf("error marshaling server state: %w", err)
-				}
-
-				tr.Put(ctx, getServerKey(serverID), marshaled)
+			if err := k.activateActor(ctx, tr, server, ra); err != nil {
+				return nil, err
 			}
-
 			k.opts.Logger.Info(
 				"activated actor on server",
 				slog.String("actor_id", fmt.Sprintf("%s::%s:%s", req.Namespace, req.ModuleID, req.ActorID)),
-				slog.String("server_id", serverID),
-				slog.String("server_address", serverAddress),
+				slog.String("server_id", server.ServerID),
+				slog.String("server_address", server.HeartbeatState.Address),
 			)
 
 			ref, err := types.NewActorReference(
-				serverID, serverVersion, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation, refPhysicalState{hb: server.HeartbeatState})
+				server.ServerID, server.ServerVersion, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation, types.ServerState{Address: server.HeartbeatState.Address})
 			if err != nil {
 				return nil, fmt.Errorf("error creating new actor reference: %w", err)
 			}
@@ -388,6 +323,102 @@ func (k *kvRegistry) EnsureActivation(
 	}
 
 	return references.(EnsureActivationResult), nil
+}
+
+func (k *kvRegistry) getOrCreateActor(ctx context.Context,
+	req EnsureActivationRequest,
+	actorKey []byte, tr kv.Transaction) (registeredActor, error) {
+	ra, ok, err := k.getActor(ctx, tr, actorKey)
+	if err == nil && !ok {
+		_, err := k.createActor(
+			ctx, tr, req.Namespace, req.ActorID, req.ModuleID, types.ActorOptions{})
+		if err != nil {
+			return registeredActor{}, fmt.Errorf("EnsureActivation: error creating actor: %w", err)
+		}
+		ra, ok, err = k.getActor(ctx, tr, actorKey)
+		if err != nil {
+			return registeredActor{}, fmt.Errorf("EnsureActivation: error getting actor: %w", err)
+		}
+		if !ok {
+			return registeredActor{}, fmt.Errorf(
+				"[invariant violated] error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
+				req.ActorID, req.Namespace, errActorDoesNotExist)
+		}
+	}
+	if err != nil {
+		return registeredActor{}, fmt.Errorf("EnsureActivation: error getting actor: %w", err)
+	}
+	if !ok {
+		// Make sure we use %w to wrap the errActorDoesNotExist so the caller can use
+		// errors.Is() on it.
+		return registeredActor{}, fmt.Errorf(
+			"[invariant violated] error ensuring activation of actor with ID: %s, does not exist in namespace: %s, err: %w",
+			req.ActorID, req.Namespace, errActorDoesNotExist)
+	}
+
+	return ra, nil
+}
+
+func (k *kvRegistry) getReferencesFromActivations(ctx context.Context, tr kv.Transaction, req EnsureActivationRequest, isServerIDBlacklisted map[string]bool, vs int64, ra registeredActor) ([]types.ActorReference, []activation, error) {
+	activations := ra.Activations
+	refs := make([]types.ActorReference, 0, len(activations))
+	newActivations := make([]activation, 0, len(activations))
+	// Iterate through the current activations and convert into references, until replicas is already achieved.
+	for _, a := range activations {
+		if uint64(len(refs)) >= 1+req.ExtraReplicas {
+			break
+		}
+
+		if isServerIDBlacklisted[a.ServerID] {
+			continue
+		}
+
+		serverKey := getServerKey(a.ServerID)
+		v, ok, err := tr.Get(ctx, serverKey)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if ok {
+			var server serverState
+			if err := json.Unmarshal(v, &server); err != nil {
+				return nil, nil, fmt.Errorf("error unmarsaling server state with ID: %s", req.ActorID)
+			}
+			if versionSince(vs, server.LastHeartbeatedAt) < HeartbeatTTL {
+				// We have an existing activation and the server is still alive, so just use that.
+
+				// It is acceptable to look up the ServerVersion from the server discovery key directly,
+				// as long as the activation is still active, it guarantees that the server's version
+				// has not changed since the activation was first created.
+				ref, err := types.NewActorReference(
+					server.ServerID, server.ServerVersion, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation, types.ServerState{Address: server.HeartbeatState.Address})
+				if err != nil {
+					return nil, nil, fmt.Errorf("error creating new actor reference: %w", err)
+				}
+
+				refs = append(refs, ref)
+				newActivations = append(newActivations, a)
+			}
+		}
+	}
+	return refs, newActivations, nil
+}
+
+func (k *kvRegistry) activateActor(ctx context.Context, tr kv.Transaction, server serverState, ra registeredActor) error {
+	a := newActivation(server.ServerID, server.ServerVersion)
+	ra.Activations = append(ra.Activations, a)
+
+	if !k.opts.DisableHighConflictOperations {
+		server.HeartbeatState.NumActivatedActors++
+		marshaled, err := json.Marshal(&server)
+		if err != nil {
+			return fmt.Errorf("error marshaling server state: %w", err)
+		}
+
+		tr.Put(ctx, getServerKey(server.ServerID), marshaled)
+	}
+
+	return nil
 }
 
 func (k *kvRegistry) GetVersionStamp(

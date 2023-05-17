@@ -7,18 +7,16 @@ import (
 )
 
 func TestNewActorReference(t *testing.T) {
-	ref, err := NewActorReference("server1", 0, "a", "b", "c", 1, serializableServerState{SAddress: "server1path"})
+	ref, err := NewActorReference("server1", 0, "a", "b", "c", 1, ServerState{Address: "server1path"})
 	require.NoError(t, err)
 
-	require.Equal(t, "server1", ref.ServerID())
-	require.Equal(t, "server1path", ref.ServerState().Address())
-	require.Equal(t, "a", ref.Namespace())
-	require.Equal(t, "a", ref.ActorID().Namespace)
-	require.Equal(t, "c", ref.ActorID().ID)
-	require.Equal(t, "a", ref.ModuleID().Namespace)
-	require.Equal(t, "b", ref.ModuleID().ID)
-	require.Equal(t, uint64(1), ref.Generation())
-	require.Equal(t, IDTypeActor, ref.ActorID().IDType)
+	require.Equal(t, "server1", ref.Physical.ServerID)
+	require.Equal(t, "server1path", ref.Physical.ServerID)
+	require.Equal(t, "a", ref.Virtual.Namespace)
+	require.Equal(t, "c", ref.Virtual.ActorID)
+	require.Equal(t, "b", ref.Virtual.ModuleID)
+	require.Equal(t, uint64(1), ref.Virtual.Generation)
+	require.Equal(t, IDTypeActor, ref.Virtual.IDType)
 
 	marshaled, err := ref.MarshalJSON()
 	require.NoError(t, err)
@@ -30,19 +28,17 @@ func TestNewActorReference(t *testing.T) {
 }
 
 func TestNewWorkerReference(t *testing.T) {
-	ref, err := NewActorReference("server1", 0, "a", "b", "c", 1, serializableServerState{SAddress: "server1path"})
+	ref, err := NewActorReference("server1", 0, "a", "b", "c", 1, ServerState{Address: "server1path"})
 	require.NoError(t, err)
-	ref.(*actorRef).virtualRef.idType = IDTypeWorker
+	ref.Virtual.IDType = IDTypeWorker
 
-	require.Equal(t, "server1", ref.ServerID())
-	require.Equal(t, "server1path", ref.ServerState().Address())
-	require.Equal(t, "a", ref.Namespace())
-	require.Equal(t, "a", ref.ActorID().Namespace)
-	require.Equal(t, "c", ref.ActorID().ID)
-	require.Equal(t, "a", ref.ModuleID().Namespace)
-	require.Equal(t, "b", ref.ModuleID().ID)
-	require.Equal(t, uint64(1), ref.Generation())
-	require.Equal(t, IDTypeWorker, ref.ActorID().IDType)
+	require.Equal(t, "server1", ref.Physical.ServerID)
+	require.Equal(t, "server1path", ref.Physical.ServerState.Address)
+	require.Equal(t, "a", ref.Virtual.Namespace)
+	require.Equal(t, "b", ref.Virtual.ModuleID)
+	require.Equal(t, "c", ref.Virtual.ActorID)
+	require.Equal(t, uint64(1), ref.Virtual.Generation)
+	require.Equal(t, IDTypeWorker, ref.Virtual.IDType)
 
 	marshaled, err := ref.MarshalJSON()
 	require.NoError(t, err)

@@ -108,11 +108,11 @@ func newHostFnRouter(
 func extractActorRef(ctx context.Context) (types.ActorReferenceVirtual, error) {
 	actorRefIface := ctx.Value(hostFnActorReferenceCtxKey{})
 	if actorRefIface == nil {
-		return nil, fmt.Errorf("wazeroHostFnRouter: could not find non-empty actor reference in context")
+		return types.ActorReferenceVirtual{}, fmt.Errorf("wazeroHostFnRouter: could not find non-empty actor reference in context")
 	}
 	actorRef, ok := actorRefIface.(types.ActorReferenceVirtual)
 	if !ok {
-		return nil, fmt.Errorf("wazeroHostFnRouter: wrong type for actor reference in context: %T", actorRef)
+		return types.ActorReferenceVirtual{}, fmt.Errorf("wazeroHostFnRouter: wrong type for actor reference in context: %T", actorRef)
 	}
 	return actorRef, nil
 }
@@ -127,7 +127,7 @@ func (w wazeroModule) Instantiate(
 	instantiatePayload []byte,
 	host HostCapabilities,
 ) (Actor, error) {
-	obj, err := w.m.Instantiate(ctx, reference.ActorID().ID)
+	obj, err := w.m.Instantiate(ctx, reference.ActorID)
 	if err != nil {
 		return nil, err
 	}

@@ -91,10 +91,7 @@ func (a *activationsCache) ensureActivation(
 	ctx, cc := context.WithTimeout(ctx, defaultActivationCacheTimeout)
 	defer cc()
 
-	isServerIDBlacklisted := make(map[string]bool)
-	for _, s := range blacklistedServerIDs {
-		isServerIDBlacklisted[s] = true
-	}
+	isServerIDBlacklisted := types.StringSliceToSet(blacklistedServerIDs)
 
 	if a.c == nil {
 		// Cache disabled, load directly.
@@ -192,7 +189,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 	referencesI, err, _ := a.deduper.Do(dedupeKey, func() (any, error) {
 		var cachedServerIDs []string
 		for _, ref := range cachedReferences {
-			cachedServerIDs = append(cachedServerIDs, ref.ServerID())
+			cachedServerIDs = append(cachedServerIDs, ref.Physical.ServerID)
 		}
 
 		// Acquire the semaphore before making the network call to avoid DDOSing the
@@ -232,7 +229,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 		}
 
 		for _, ref := range references.References {
-			if isServerIDBlacklisted[ref.ServerID()] {
+			if isServerIDBlacklisted[ref.Physical.ServerID] {
 				return nil, fmt.Errorf(
 					"[invariant violated] registry returned blacklisted server ID: %s in references",
 					blacklistedServerIDs)
@@ -289,3 +286,4 @@ type activationCacheEntry struct {
 	registryVersionStamp int64
 	blacklistedServerIDs []string
 }
+
