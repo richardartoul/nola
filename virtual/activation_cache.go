@@ -129,6 +129,7 @@ func (a *activationsCache) ensureActivation(
 		if ok {
 			cachedReferences = aceI.(activationCacheEntry).references
 		}
+		// Force cache update and ignore the existing entry to prevent routing to blacklisted server ID.
 		return a.ensureActivationAndUpdateCache(
 			ctx, namespace, moduleID, actorID, extraReplicas, cachedReferences, isServerIDBlacklisted, blacklistedServerIDs)
 	}
@@ -152,7 +153,14 @@ func (a *activationsCache) ensureActivation(
 		}()
 	}
 
-	return ace.references, nil
+	return limit(ace.references, extraReplicas), nil
+}
+
+func limit(slice []types.ActorReference, min uint64) []types.ActorReference {
+	if len(slice) > int(min) {
+		return slice[:min]
+	}
+	return slice
 }
 
 func (a *activationsCache) delete(
@@ -286,4 +294,3 @@ type activationCacheEntry struct {
 	registryVersionStamp int64
 	blacklistedServerIDs []string
 }
-
