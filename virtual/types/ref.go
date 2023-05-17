@@ -67,9 +67,9 @@ type ActorReferenceVirtual struct {
 	// Namespace is the namespace to which this ActorReference belongs.
 	Namespace string `json:"namespace"`
 	// ModuleID is the ID of the WASM module that this actor is instantiated from.
-	ModuleID string `json:"moduleID"`
+	ModuleID string `json:"module_id"`
 	// The ID of the referenced actor.
-	ActorID string `json:"actorID"`
+	ActorID string `json:"actor_id"`
 	// Generation represents the generation count for the actor's activation. This value
 	// may be bumped by the registry at any time to signal to the rest of the system that
 	// all outstanding activations should be recreated for whatever reason.
@@ -78,7 +78,7 @@ type ActorReferenceVirtual struct {
 	// IDType allows us to ensure that an actor and a worker with the
 	// same tuple of <namespace, moduleID, "actorID"> are still
 	// namespaced away from each other in any in-memory datastructures.
-	IDType string `json:"idType"`
+	IDType string `json:"id_type"`
 
 	// Buffers for Namespaced ActorID and ModuleID
 	actorIDWithNamespace  *NamespacedActorID `json:"-"`
@@ -105,14 +105,14 @@ func (ref *ActorReferenceVirtual) ModuleIDWithNamespace() NamespacedID {
 // that is used to actually find and communicate with the actor's current activation.
 type ActorReferencePhysical struct {
 	// ServerID is the ID of the physical server that this reference targets.
-	ServerID string `json:"serverID"`
+	ServerID string `json:"server_id"`
 	// ServerVersion is incremented every time a server's heartbeat expires and resumes,
 	// guaranteeing the server's ability to identify periods of inactivity/death for correctness purposes.
-	ServerVersion int64 `json:"serverVersion"`
+	ServerVersion int64 `json:"server_version"`
 
 	// The state of the physical server that this reference targets.
 	// Contains information that is sent in the heartbeat.
-	ServerState ServerState `json:"serverState"`
+	ServerState ServerState `json:"server_state"`
 }
 
 type ServerState struct {

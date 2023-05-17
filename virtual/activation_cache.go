@@ -108,9 +108,9 @@ func (a *activationsCache) ensureActivation(
 	bufPool.Put(bufIface)
 
 	var (
-		cachedReferences               []types.ActorReference
-		nonBlacklistedCachedReferences []types.ActorReference
-		currentBlaclistedIDsAreInvalid = false
+		cachedReferences                []types.ActorReference
+		nonBlacklistedCachedReferences  []types.ActorReference
+		currentBlacklistedIDsAreInvalid = false
 	)
 
 	// Check if any of the servers the current request wants to blacklist are not marked as blacklisted in the cache.
@@ -119,14 +119,16 @@ func (a *activationsCache) ensureActivation(
 	//
 	// Additionally, create a new slice `nonBlacklistedCachedReferences` that only includes the references from the cache
 	// that belong to non-blacklisted servers. This filtered slice will be used for subsequent processing.
-
 	if ok {
-		blacklistedIDs := aceI.(activationCacheEntry).blacklistedServerIDs
+		blacklistedIDsFromCache := aceI.(activationCacheEntry).blacklistedServerIDs
 
-		for _, id := range blacklistedIDs {
-			if isServerIDBlacklisted[id] {
-				currentBlaclistedIDsAreInvalid = true
-				break
+		currentBlacklistedIDsAreInvalid = len(blacklistedIDsFromCache) != len(blacklistedServerIDs)
+		if !currentBlacklistedIDsAreInvalid {
+			for _, id := range blacklistedIDsFromCache {
+				if !isServerIDBlacklisted[id] {
+					currentBlacklistedIDsAreInvalid = true
+					break
+				}
 			}
 		}
 
@@ -143,7 +145,7 @@ func (a *activationsCache) ensureActivation(
 		// There is an existing cache entry, however, it was satisfied by a request that did not provide
 		// the same blacklistedServerID we have currently. We must ignore this entry because it could be
 		// stale and end up routing us back to the blacklisted server ID.
-		currentBlaclistedIDsAreInvalid {
+		currentBlacklistedIDsAreInvalid {
 		if ok {
 			cachedReferences = aceI.(activationCacheEntry).references
 		}
@@ -257,7 +259,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			if isServerIDBlacklisted[ref.Physical.ServerID] {
 				return nil, fmt.Errorf(
 					"[invariant violated] registry returned blacklisted server ID: %s in references",
-					blacklistedServerIDs)
+					ref.Physical.ServerID)
 			}
 		}
 

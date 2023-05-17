@@ -244,12 +244,12 @@ func (k *kvRegistry) EnsureActivation(
 		}
 
 		ra.Activations = activations
-		isActivated := make(map[string]bool, len(activations))
+		isActivatedOnServer := make(map[string]bool, len(activations))
 		for _, a := range activations {
-			isActivated[a.ServerID] = true
+			isActivatedOnServer[a.ServerID] = true
 		}
 
-		// If the desired number of replicas is achieved, return the references
+		// If we already have enough replicas, return the references.
 		if uint64(len(refs)) >= 1+req.ExtraReplicas {
 			return EnsureActivationResult{
 				References:   refs,
@@ -257,13 +257,14 @@ func (k *kvRegistry) EnsureActivation(
 			}, nil
 		}
 
-		// We need to create a new activation because the desired number of replicas has not been achieved. This can happen in the following scenarios:
+		// We need to create a new activation because the desired number of replicas has not been achieved. 
+		// This can happen in the following scenarios:
 		//   1. There is no existing activation for the actor.
-		//   2. The server where the actor is currently activated has stopped heartbeating.
-		//   3. The server where the actor is currently activated has blacklisted the actor, typically for load balancing purposes.
+		//   2. One or more of the servers where the actor is currently activated has stopped heartbeating.
+		//   3. One or more of the servers where the actor is currently activated has blacklisted the actor, typically for load balancing purposes.
 		liveServers, err := getLiveServers(ctx, vs, tr)
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("failed to get live servers: %w", err), err
 		}
 		if len(liveServers) == 0 {
 			return nil, fmt.Errorf("0 live servers available for new activation")
@@ -286,10 +287,17 @@ func (k *kvRegistry) EnsureActivation(
 
 		// Pick servers for activation based on replication criteria.
 		selected := pickServersForActivation(
-			(1+req.ExtraReplicas)-uint64(len(refs)), liveServers, k.opts, isServerIDBlacklisted, req.CachedActivationServerIDs, isActivated, len(refs) == 0)
+			(1+req.ExtraReplicas)-uint64(len(refs)),
+			liveServers,
+			k.opts,
+			isServerIDBlacklisted,
+			req.CachedActivationServerIDs,
+			isActivatedOnServer,
+			len(refs) == 0,
+		)
 		for _, server := range selected {
 			if err := k.activateActor(ctx, tr, server, ra); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed activating actor: %w", err)
 			}
 			k.opts.Logger.Info(
 				"activated actor on server",

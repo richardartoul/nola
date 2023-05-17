@@ -412,7 +412,7 @@ func (r *environment) InvokeActorStream(
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	resp, err := r.invokeActorStreamHelper(
-		ctx, namespace, actorID, moduleID, operation, payload, create, []string{})
+		ctx, namespace, actorID, moduleID, operation, payload, create, nil)
 	if err == nil {
 		return resp, nil
 	}
@@ -447,7 +447,7 @@ func (r *environment) invokeActorStreamHelper(
 	operation string,
 	payload []byte,
 	create types.CreateIfNotExist,
-	blacklistedServerID []string,
+	blacklistedServerIDs []string,
 ) (io.ReadCloser, error) {
 	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
@@ -469,7 +469,7 @@ func (r *environment) invokeActorStreamHelper(
 	}
 
 	references, err := r.activationsCache.ensureActivation(
-		ctx, namespace, moduleID, actorID, create.Options.ExtraReplicas, blacklistedServerID)
+		ctx, namespace, moduleID, actorID, create.Options.ExtraReplicas, blacklistedServerIDs)
 	if err != nil {
 		return nil, fmt.Errorf("error ensuring actor activation: %w", err)
 	}

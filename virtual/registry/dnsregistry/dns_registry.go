@@ -260,19 +260,3 @@ func (f *constResolver) LookupIP(host string) ([]registry.Address, error) {
 	defer f.Unlock()
 	return f.addresses, nil
 }
-
-type refPhysicalState struct {
-	addr string
-}
-
-func (s refPhysicalState) NumActivatedActors() int {
-	return 0
-}
-
-func (s refPhysicalState) UsedMemory() int {
-	return 0
-}
-
-func (s refPhysicalState) Address() string {
-	return s.addr
-}
