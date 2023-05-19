@@ -224,12 +224,16 @@ func (k *kvRegistry) EnsureActivation(
 
 	// Perform a transaction to ensure atomicity.
 	references, err := k.kv.Transact(func(tr kv.Transaction) (any, error) {
+		// First, check if the actor exists already, and if not create it.
 		ra, err := k.getOrCreateActor(ctx, req, actorKey, tr)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get/create actor: %w", err)
 		}
 
-		// Get the version stamp for transaction consistency.
+		// Next we try to get unblacklisted servers where the actor is currently running.
+		// Because we don't activate an actor in a new server unless there are not enough replicas
+
+		// Get the version stamp for validations of Heartbeat TTLs.
 		vs, err := tr.GetVersionStamp()
 		if err != nil {
 			return nil, fmt.Errorf("error getting versionstamp: %w", err)
@@ -237,17 +241,15 @@ func (k *kvRegistry) EnsureActivation(
 		// Convert blacklisted server IDs to a set for efficient lookup.
 		isServerIDBlacklisted := types.StringSliceToSet(req.BlacklistedServerIDs)
 
-		// Get references from currently running actor activations
-		refs, activations, err := k.getReferencesFromActivations(ctx, tr, req, isServerIDBlacklisted, vs, ra)
+		// Get servers from currently running actor activations
+		refs, activations, err := k.getExistingUnblacklistedActivations(ctx, tr, req, isServerIDBlacklisted, vs, ra)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed getting existing unblacklisted references from the kv store: %w", err)
 		}
 
+		// We reset activations because the activations slice may have been filtered to
+		// exclude activations associated with blacklisted server IDs.
 		ra.Activations = activations
-		isActivatedOnServer := make(map[string]bool, len(activations))
-		for _, a := range activations {
-			isActivatedOnServer[a.ServerID] = true
-		}
 
 		// If we already have enough replicas, return the references.
 		if uint64(len(refs)) >= 1+req.ExtraReplicas {
@@ -257,11 +259,13 @@ func (k *kvRegistry) EnsureActivation(
 			}, nil
 		}
 
-		// We need to create a new activation because the desired number of replicas has not been achieved. 
+		// We need to create a new activation because we don't have the desired number of replicas.
 		// This can happen in the following scenarios:
 		//   1. There is no existing activation for the actor.
 		//   2. One or more of the servers where the actor is currently activated has stopped heartbeating.
 		//   3. One or more of the servers where the actor is currently activated has blacklisted the actor, typically for load balancing purposes.
+
+		// First to see where the new replicas should be activated we need to get a list of all available servers.
 		liveServers, err := getLiveServers(ctx, vs, tr)
 		if err != nil {
 			return fmt.Errorf("failed to get live servers: %w", err), err
@@ -270,13 +274,8 @@ func (k *kvRegistry) EnsureActivation(
 			return nil, fmt.Errorf("0 live servers available for new activation")
 		}
 
-		// Find the maximum number of heartbeats among live servers.
-		maxNumHeartbeats := 0
-		for _, s := range liveServers {
-			if s.NumHeartbeats > maxNumHeartbeats {
-				maxNumHeartbeats = s.NumHeartbeats
-			}
-		}
+		// Then, we find the maximum number of heartbeats among live servers, to ensure there are no stale entries.
+		maxNumHeartbeats := findMaxNumHeartbeats(liveServers)
 
 		// Check if the maximum number of heartbeats satisfies the required threshold.
 		if maxNumHeartbeats < k.opts.MinSuccessiveHeartbeatsBeforeAllowActivations {
@@ -285,7 +284,13 @@ func (k *kvRegistry) EnsureActivation(
 				maxNumHeartbeats, k.opts.MinSuccessiveHeartbeatsBeforeAllowActivations)
 		}
 
-		// Pick servers for activation based on replication criteria.
+		// We create a set with the unblacklisted existing servers,
+		// to avoid filling the selection with servers that are already selected
+		isActivatedOnServer := make(map[string]bool, len(activations))
+		for _, ref := range refs {
+			isActivatedOnServer[ref.Physical.ServerID] = true
+		}
+		// Pick the remaining servers needed to comply with the replication criteria.
 		selected := pickServersForActivation(
 			(1+req.ExtraReplicas)-uint64(len(refs)),
 			liveServers,
@@ -293,10 +298,12 @@ func (k *kvRegistry) EnsureActivation(
 			isServerIDBlacklisted,
 			req.CachedActivationServerIDs,
 			isActivatedOnServer,
-			len(refs) == 0,
 		)
+
+		// For every select server, updates the required information to reflect the activation,
+		// creates a reference for it, and adds it to the 'refs' result.
 		for _, server := range selected {
-			if err := k.activateActor(ctx, tr, server, ra); err != nil {
+			if err := k.activateActor(ctx, tr, server, &ra); err != nil {
 				return nil, fmt.Errorf("failed activating actor: %w", err)
 			}
 			k.opts.Logger.Info(
@@ -315,6 +322,7 @@ func (k *kvRegistry) EnsureActivation(
 			refs = append(refs, ref)
 		}
 
+		// Store the newly updated actor, to reflect the latest changes of its activations.
 		marshaled, err := json.Marshal(&ra)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling activation: %w", err)
@@ -333,9 +341,14 @@ func (k *kvRegistry) EnsureActivation(
 	return references.(EnsureActivationResult), nil
 }
 
-func (k *kvRegistry) getOrCreateActor(ctx context.Context,
+// getOrCreateActor retrieves an existing actor from the registry or creates a new one if it doesn't exist.
+// After creating the actor, it attempts to get the actor again to ensure its existence.
+func (k *kvRegistry) getOrCreateActor(
+	ctx context.Context,
 	req EnsureActivationRequest,
-	actorKey []byte, tr kv.Transaction) (registeredActor, error) {
+	actorKey []byte,
+	tr kv.Transaction,
+) (registeredActor, error) {
 	ra, ok, err := k.getActor(ctx, tr, actorKey)
 	if err == nil && !ok {
 		_, err := k.createActor(
@@ -367,10 +380,22 @@ func (k *kvRegistry) getOrCreateActor(ctx context.Context,
 	return ra, nil
 }
 
-func (k *kvRegistry) getReferencesFromActivations(ctx context.Context, tr kv.Transaction, req EnsureActivationRequest, isServerIDBlacklisted map[string]bool, vs int64, ra registeredActor) ([]types.ActorReference, []activation, error) {
-	activations := ra.Activations
-	refs := make([]types.ActorReference, 0, len(activations))
-	newActivations := make([]activation, 0, len(activations))
+// getExistingUnblacklistedActivations retrieves existing unblacklisted activations for a given actor from the registry.
+// It iterates through the current activations and converts them into actor references until the desired number of replicas is achieved.
+// For each activation, it checks if the server is still alive and within the heartbeat TTL.
+func (k *kvRegistry) getExistingUnblacklistedActivations(
+	ctx context.Context,
+	tr kv.Transaction,
+	req EnsureActivationRequest,
+	isServerIDBlacklisted map[string]bool,
+	vs int64,
+	ra registeredActor,
+) ([]types.ActorReference, []activation, error) {
+	var (
+		activations       = ra.Activations
+		refs              = make([]types.ActorReference, 0, len(activations))
+		validActivactions = make([]activation, 0, len(activations))
+	)
 	// Iterate through the current activations and convert into references, until replicas is already achieved.
 	for _, a := range activations {
 		if uint64(len(refs)) >= 1+req.ExtraReplicas {
@@ -387,32 +412,54 @@ func (k *kvRegistry) getReferencesFromActivations(ctx context.Context, tr kv.Tra
 			return nil, nil, err
 		}
 
-		if ok {
-			var server serverState
-			if err := json.Unmarshal(v, &server); err != nil {
-				return nil, nil, fmt.Errorf("error unmarsaling server state with ID: %s", req.ActorID)
-			}
-			if versionSince(vs, server.LastHeartbeatedAt) < HeartbeatTTL {
-				// We have an existing activation and the server is still alive, so just use that.
-
-				// It is acceptable to look up the ServerVersion from the server discovery key directly,
-				// as long as the activation is still active, it guarantees that the server's version
-				// has not changed since the activation was first created.
-				ref, err := types.NewActorReference(
-					server.ServerID, server.ServerVersion, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation, types.ServerState{Address: server.HeartbeatState.Address})
-				if err != nil {
-					return nil, nil, fmt.Errorf("error creating new actor reference: %w", err)
-				}
-
-				refs = append(refs, ref)
-				newActivations = append(newActivations, a)
-			}
+		if !ok {
+			// Server doesn't exist so this activation is invalid.
+			continue
 		}
+
+		// Server exists.
+
+		var server serverState
+		if err := json.Unmarshal(v, &server); err != nil {
+			return nil, nil, fmt.Errorf("error unmarsaling server state with ID: %s", req.ActorID)
+		}
+		if versionSince(vs, server.LastHeartbeatedAt) > HeartbeatTTL {
+			// Server "exists" but has not heartbeated recently. Assume its dead and ignore this activation.
+			continue
+		}
+
+		// We have an existing activation and the server is still alive, so just use that.
+		// It is acceptable to look up the ServerVersion from the server discovery key directly,
+		// as long as the activation is still active, it guarantees that the server's version
+		// has not changed since the activation was first created.
+		ref, err := types.NewActorReference(
+			server.ServerID, server.ServerVersion, req.Namespace, ra.ModuleID, req.ActorID, ra.Generation, types.ServerState{Address: server.HeartbeatState.Address})
+		if err != nil {
+			return nil, nil, fmt.Errorf("error creating new actor reference: %w", err)
+		}
+
+		// Activation is assigned to an active, non-blacklisted server ID list so we can use it.
+		refs = append(refs, ref)
+		validActivactions = append(validActivactions, a)
 	}
-	return refs, newActivations, nil
+	return refs, validActivactions, nil
 }
 
-func (k *kvRegistry) activateActor(ctx context.Context, tr kv.Transaction, server serverState, ra registeredActor) error {
+func findMaxNumHeartbeats(servers []serverState) int {
+	maxNumHeartbeats := 0
+	for _, s := range servers {
+		if s.NumHeartbeats > maxNumHeartbeats {
+			maxNumHeartbeats = s.NumHeartbeats
+		}
+	}
+
+	return maxNumHeartbeats
+}
+
+// activateActor updates the registry to indicate that a server has a newly activated actor.
+// This function is responsible for updating the necessary information in the registry to reflect the activation
+// of an actor on a specific server.
+func (k *kvRegistry) activateActor(ctx context.Context, tr kv.Transaction, server serverState, ra *registeredActor) error {
 	a := newActivation(server.ServerID, server.ServerVersion)
 	ra.Activations = append(ra.Activations, a)
 
@@ -684,7 +731,7 @@ func getLiveServers(
 	return liveServers, nil
 }
 
-// pickServersForActivation is responsible for deciding which server to activate an actor on. It
+// pickServersForActivation is responsible for deciding which server(s) to activate an actor on. It
 // prioritizes activating actors on the server that currently has the lowest memory usage. However,
 // all else being equal, it will tiebreak by selecting the server with the lowest number of activated
 // actors.
@@ -697,8 +744,7 @@ func pickServersForActivation(
 	opts KVRegistryOptions,
 	isServerIDBlacklisted map[string]bool,
 	cachedServerIDs []string,
-	isActivated map[string]bool,
-	isFirstTimeObservingActor bool,
+	seen map[string]bool,
 ) (result []serverState) {
 	if len(available) == 0 {
 		panic("[invariant violated] pickServerForActivation should not be called with empty slice")
@@ -712,14 +758,16 @@ func pickServersForActivation(
 	// despite the new leader having very little state to go off of. Note that for this feature to
 	// work properly the MinSuccessiveHeartbeatsBeforeAllowActivations option must be set to some
 	// reasonable value (3 or 4 at least).
-	seen := make(map[string]bool)
+	serverCanHostActor := func(serverID string) bool {
+		return !isServerIDBlacklisted[serverID] && !seen[serverID]
+	}
 
 	for _, cachedServerID := range cachedServerIDs {
 		if uint64(len(result)) >= n {
 			return result
 		}
 
-		if !isServerIDBlacklisted[cachedServerID] && !seen[cachedServerID] && !isActivated[cachedServerID] {
+		if serverCanHostActor(cachedServerID) {
 			for _, server := range available {
 				if server.ServerID == cachedServerID {
 					result = append(result, server)
@@ -759,7 +807,7 @@ func pickServersForActivation(
 			return result
 		}
 
-		if !isServerIDBlacklisted[server.ServerID] && !seen[server.ServerID] && !isActivated[server.ServerID] {
+		if serverCanHostActor(server.ServerID) {
 			result = append(result, server)
 			seen[server.ServerID] = true
 		}

@@ -688,10 +688,10 @@ func testHeartbeatAndRebalancingWithMemory(
 	}
 }
 
-// TestReplicationRandomLoadBalancingGoModule tests the replication logic of the environment with respect to random load balancing.
+// TestReplicationRandomGoModule tests the random replication logic of the environment.
 // This test specifically examines how actors are replicated when the ExtraReplicas option is set to a value greater than 0.
 // The test verifies that the actor is replicated across multiple environments in a random manner.
-func TestReplicationRandomLoadBalancingGoModule(t *testing.T) {
+func TestReplicationRandomGoModule(t *testing.T) {
 	var (
 		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
 			RebalanceMemoryThreshold: 1 << 24,
@@ -722,10 +722,10 @@ func TestReplicationRandomLoadBalancingGoModule(t *testing.T) {
 	require.NoError(t, err)
 	defer env3.Close(context.Background())
 
-	testReplicationRandomLoadBalancing(t, env1, env2, env3)
+	testReplicationRandom(t, env1, env2, env3)
 }
 
-func TestReplicationRandomLoadBalancingWASMModule(t *testing.T) {
+func TestReplicationRandomWASMModule(t *testing.T) {
 	var (
 		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
 			RebalanceMemoryThreshold: 1 << 24,
@@ -756,10 +756,10 @@ func TestReplicationRandomLoadBalancingWASMModule(t *testing.T) {
 	require.NoError(t, err)
 	defer env3.Close(context.Background())
 
-	testReplicationRandomLoadBalancing(t, env1, env2, env3)
+	testReplicationRandom(t, env1, env2, env3)
 }
 
-// testReplicationRandomLoadBalancing is a test function that verifies the random load balancing behavior of actor replication across multiple environments.
+// testReplicationRandom is a test function that verifies the random replication of actors across multiple environments.
 //
 // The test logic is as follows:
 // - Invoke an actor with the ExtraReplicas option set to 2.
@@ -767,7 +767,7 @@ func TestReplicationRandomLoadBalancingWASMModule(t *testing.T) {
 // - If the actor is not activated in all three environments, invoke the actor again.
 // - Repeat the check until the actor is activated in all three environments or until a certain timeout is reached.
 // - If the actor is not activated in all three environments within the specified time, the test fails.
-func testReplicationRandomLoadBalancing(
+func testReplicationRandom(
 	t *testing.T,
 	env1, env2, env3 Environment,
 ) {

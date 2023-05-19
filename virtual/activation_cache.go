@@ -141,6 +141,9 @@ func (a *activationsCache) ensureActivation(
 	}
 
 	// Cache miss, not enough non-blacklisted replicas, or invalid blacklistedIDs list, then fill the cache.
+	// If there is a cache entry but it was satisfied by a request with a different blacklistedServerID,
+	// we must ignore the entry to avoid routing to a potentially stale blacklisted server.
+	// By forcing a cache update, we prevent routing to the blacklisted server ID and ensure fresh data.
 	if !ok || (1+extraReplicas) > uint64(len(nonBlacklistedCachedReferences)) ||
 		// There is an existing cache entry, however, it was satisfied by a request that did not provide
 		// the same blacklistedServerID we have currently. We must ignore this entry because it could be

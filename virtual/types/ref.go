@@ -81,24 +81,22 @@ type ActorReferenceVirtual struct {
 	IDType string `json:"id_type"`
 
 	// Buffers for Namespaced ActorID and ModuleID
-	actorIDWithNamespace  *NamespacedActorID `json:"-"`
-	moduleIDWithNamespace *NamespacedID      `json:"-"`
+	actorIDWithNamespace  NamespacedActorID `json:"-"`
+	moduleIDWithNamespace NamespacedID      `json:"-"`
 }
 
 func (ref *ActorReferenceVirtual) ActorIDWithNamespace() NamespacedActorID {
-	if ref.actorIDWithNamespace == nil {
-		actorIDWithNamespace := NewNamespacedActorID(ref.Namespace, ref.ActorID, ref.ModuleID, ref.IDType)
-		ref.actorIDWithNamespace = &actorIDWithNamespace
+	if ref.actorIDWithNamespace.ID == "" {
+		ref.actorIDWithNamespace = NewNamespacedActorID(ref.Namespace, ref.ActorID, ref.ModuleID, ref.IDType)
 	}
-	return *ref.actorIDWithNamespace
+	return ref.actorIDWithNamespace
 }
 
 func (ref *ActorReferenceVirtual) ModuleIDWithNamespace() NamespacedID {
-	if ref.moduleIDWithNamespace == nil {
-		moduleIDWithNamespace := NewNamespacedID(ref.Namespace, ref.ModuleID, ref.IDType)
-		ref.moduleIDWithNamespace = &moduleIDWithNamespace
+	if ref.moduleIDWithNamespace.ID == "" {
+		ref.moduleIDWithNamespace = NewNamespacedID(ref.Namespace, ref.ModuleID, ref.IDType)
 	}
-	return *ref.moduleIDWithNamespace
+	return ref.moduleIDWithNamespace
 }
 
 // ActorReferencePhysical is the subset of data in ActorReference that is "physical" and

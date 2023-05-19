@@ -35,6 +35,9 @@ var (
 	// Var so can be modified by tests.
 	defaultActivationsCacheTTL                    = heartbeatTimeout
 	DefaultGCActorsAfterDurationWithNoInvocations = time.Minute
+
+	randEnv = rand.New(rand.NewSource(time.Now().UnixNano()))
+	muRand  = sync.Mutex{}
 )
 
 type environment struct {
@@ -765,7 +768,10 @@ func (r *environment) invokeReferences(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
-	ref := pickServerForInvocation(references, create)
+	ref, ok := pickServerForInvocation(references, create)
+	if !ok {
+		return nil, errors.New("failed to pick server")
+	}
 	if !r.opts.ForceRemoteProcedureCalls {
 		// First check the global localEnvironmentsRouter map for scenarios where we're
 		// potentially trying to communicate between multiple different in-memory
@@ -802,7 +808,7 @@ func (r *environment) invokeReferences(
 		}
 	}
 
-	return r.client.InvokeActorRemote(ctx, versionStamp, *ref, operation, payload, create)
+	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
 }
 
 func (r *environment) freezeHeartbeatState() {
@@ -900,11 +906,13 @@ func formatActorCacheKey(
 	return dst
 }
 
-func pickServerForInvocation(references []types.ActorReference, create types.CreateIfNotExist) *types.ActorReference {
+func pickServerForInvocation(references []types.ActorReference, create types.CreateIfNotExist) (types.ActorReference, bool) {
 	// TODO: implement invokation strategies in 'create' e.g. region-based, multi-invoke...
-	if len(references) == 0 || references == nil {
-		return nil
+	if len(references) == 0 {
+		return types.ActorReference{}, false
 	}
 
-	return &references[rand.Intn(len(references))]
+	muRand.Lock()
+	defer muRand.Unlock()
+	return references[randEnv.Intn(len(references))], true
 }
