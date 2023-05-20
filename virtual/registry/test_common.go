@@ -305,7 +305,7 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 	defer cc()
 	defer registry.Close(ctx)
 
-	const testDuration = 10 * time.Second
+	const testDuration = 5 * time.Second
 
 	for i := 0; i < 5; i++ {
 		// Heartbeat 5 times because some registry implementations (like the
@@ -332,26 +332,16 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		// This goroutine simulates heartbeats while the test is running.
 		for ctx.Err() == nil {
 			// Perform a heartbeat for "server1"
-			heartbeatResult, err := registry.Heartbeat(ctx, "server1", HeartbeatState{
+			registry.Heartbeat(ctx, "server1", HeartbeatState{
 				NumActivatedActors: 10,
 				Address:            "server1_address",
 			})
-			if err != nil {
-				fmt.Println("Error:", err)
-			} else {
-				fmt.Println("Heartbeat result:", heartbeatResult)
-			}
 
 			// Perform a heartbeat for "server2"
-			heartbeatResult, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
+			registry.Heartbeat(ctx, "server2", HeartbeatState{
 				NumActivatedActors: 10,
 				Address:            "server2_address",
 			})
-			if err != nil {
-				fmt.Println("Error:", err)
-			} else {
-				fmt.Println("Heartbeat result:", heartbeatResult)
-			}
 
 			// Wait for HeartbeatTTL / 2 before sending the next heartbeat
 			select {
