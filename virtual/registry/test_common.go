@@ -301,8 +301,11 @@ func testRegistryReplication(t *testing.T, registry Registry) {
 // returned actor references, the test helps identify any issues related to persistence and ensures that activations remain stable and
 // unchanged across multiple calls to the EnsureActivation function.
 func testEnsureActivationPersistence(t *testing.T, registry Registry) {
-	ctx := context.Background()
+	ctx, cc := context.WithCancel(context.Background())
+	defer cc()
 	defer registry.Close(ctx)
+
+	const testDuration = 10 * time.Second
 
 	for i := 0; i < 5; i++ {
 		// Heartbeat 5 times because some registry implementations (like the
@@ -325,6 +328,40 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 	}
 
+	go func() {
+		// This goroutine simulates heartbeats while the test is running.
+		for ctx.Err() == nil {
+			// Perform a heartbeat for "server1"
+			heartbeatResult, err := registry.Heartbeat(ctx, "server1", HeartbeatState{
+				NumActivatedActors: 10,
+				Address:            "server1_address",
+			})
+			if err != nil {
+				fmt.Println("Error:", err)
+			} else {
+				fmt.Println("Heartbeat result:", heartbeatResult)
+			}
+
+			// Perform a heartbeat for "server2"
+			heartbeatResult, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
+				NumActivatedActors: 10,
+				Address:            "server2_address",
+			})
+			if err != nil {
+				fmt.Println("Error:", err)
+			} else {
+				fmt.Println("Heartbeat result:", heartbeatResult)
+			}
+
+			// Wait for HeartbeatTTL / 2 before sending the next heartbeat
+			select {
+			case <-time.After(HeartbeatTTL / 2):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	var ref types.ActorReference
 	require.Never(t, func() bool {
 		activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
@@ -337,5 +374,5 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		differentActivation := !(ref == types.ActorReference{} || ref == activations.References[0])
 		ref = activations.References[0]
 		return differentActivation
-	}, time.Minute, time.Microsecond, "actor has been activated in more than one server")
+	}, testDuration, time.Microsecond, "actor has been activated in more than one server")
 }
