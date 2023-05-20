@@ -304,7 +304,7 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 	ctx, cc := context.WithCancel(context.Background())
 	defer cc()
 	defer registry.Close(ctx)
-
+	defer println("CALLING CLOSE")
 	const testDuration = 5 * time.Second
 
 	for i := 0; i < 5; i++ {
