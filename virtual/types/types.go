@@ -17,7 +17,7 @@ func StringSliceToSet(slice []string) map[string]bool {
 	if slice == nil {
 		return make(map[string]bool)
 	}
-	
+
 	set := make(map[string]bool, len(slice))
 	for _, item := range slice {
 		set[item] = true

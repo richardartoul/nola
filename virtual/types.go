@@ -248,4 +248,3 @@ type InvokeActorResult struct {
 
 type ScheduleInvocationResult struct {
 }
-
