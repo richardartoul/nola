@@ -73,11 +73,14 @@ func init() {
 }
 
 func TestMain(m *testing.M) {
-	// Make sure this map is cleared between tests even if the test forgets to
-	// call env.Close().
+	// Make sure this map is cleared between tests. We could just clear it
+	// here, but its easier to  understand/debug if we just assert and fix
+	// tests that dont close properly instead of trying to be clever and wipe
+	// it automatically.
 	localEnvironmentsRouterLock.Lock()
-	for k := range localEnvironmentsRouter {
-		delete(localEnvironmentsRouter, k)
+	if len(localEnvironmentsRouter) != 0 {
+		localEnvironmentsRouterLock.Unlock()
+		panic("test did not clear localEnvironmentsRoute")
 	}
 	localEnvironmentsRouterLock.Unlock()
 
@@ -423,6 +426,8 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
+	defer reg.Close(context.Background())
+
 	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
 	// needs its own port so it looks unique.
 	opts1 := defaultOptsWASM
@@ -555,6 +560,8 @@ func TestHeartbeatAndRebalancingWithMemoryGoModule(t *testing.T) {
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
+	defer reg.Close(context.Background())
+
 	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
 	// needs its own port so it looks unique.
 	opts1 := defaultOptsGoByte
@@ -594,6 +601,7 @@ func TestHeartbeatAndRebalancingWithMemoryWASMModule(t *testing.T) {
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
+	defer reg.Close(context.Background())
 	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
@@ -877,6 +885,8 @@ func runWithDifferentConfigs(
 			reg         = localregistry.NewLocalRegistry()
 			moduleStore = newTestModuleStore()
 		)
+		defer reg.Close(context.Background())
+
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, opts)
 		require.NoError(t, err)
 		defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
@@ -912,6 +922,8 @@ func runWithDifferentConfigs(
 			reg         = localregistry.NewLocalRegistry()
 			moduleStore = newTestModuleStore()
 		)
+		defer reg.Close(context.Background())
+
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, opts)
 		require.NoError(t, err)
 		defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
