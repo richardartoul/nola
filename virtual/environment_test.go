@@ -555,6 +555,8 @@ func TestHeartbeatAndRebalancingWithMemoryGoModule(t *testing.T) {
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
+	defer reg.Close(context.Background())
+
 	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
 	// needs its own port so it looks unique.
 	opts1 := defaultOptsGoByte
@@ -594,6 +596,7 @@ func TestHeartbeatAndRebalancingWithMemoryWASMModule(t *testing.T) {
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
+	defer reg.Close(context.Background())
 	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
 	require.NoError(t, err)
 
