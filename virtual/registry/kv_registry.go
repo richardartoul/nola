@@ -602,7 +602,7 @@ func (k *kvRegistry) getActorBytes(
 	actorBytes, ok, err := tr.Get(ctx, actorKey)
 	if err != nil {
 		return nil, false, fmt.Errorf(
-			"error getting actor bytes for key: %s", string(actorBytes))
+			"error getting actor bytes for key '%s': %w", string(actorKey), err)
 	}
 	if !ok {
 		return nil, false, nil
