@@ -121,6 +121,7 @@ func (a *activationsCache) ensureActivation(
 	// that belong to non-blacklisted servers. This filtered slice will be used for subsequent processing.
 	if ok {
 		blacklistedIDsFromCache := aceI.(activationCacheEntry).blacklistedServerIDs
+		cachedReferences = aceI.(activationCacheEntry).references
 
 		currentBlacklistedIDsAreInvalid = len(blacklistedIDsFromCache) != len(blacklistedServerIDs)
 		if !currentBlacklistedIDsAreInvalid {
@@ -132,7 +133,6 @@ func (a *activationsCache) ensureActivation(
 			}
 		}
 
-		nonBlacklistedCachedReferences = cachedReferences[:0]
 		for _, ref := range cachedReferences {
 			if !isServerIDBlacklisted[ref.Physical.ServerID] {
 				nonBlacklistedCachedReferences = append(nonBlacklistedCachedReferences, ref)
@@ -149,9 +149,6 @@ func (a *activationsCache) ensureActivation(
 		// the same blacklistedServerID we have currently. We must ignore this entry because it could be
 		// stale and end up routing us back to the blacklisted server ID.
 		currentBlacklistedIDsAreInvalid {
-		if ok {
-			cachedReferences = aceI.(activationCacheEntry).references
-		}
 		// Force cache update and ignore the existing entry to prevent routing to blacklisted server ID.
 		return a.ensureActivationAndUpdateCache(
 			ctx, namespace, moduleID, actorID, extraReplicas, cachedReferences, isServerIDBlacklisted, blacklistedServerIDs)
@@ -175,7 +172,7 @@ func (a *activationsCache) ensureActivation(
 		}()
 	}
 
-	return limit(nonBlacklistedCachedReferences, extraReplicas), nil
+	return limit(nonBlacklistedCachedReferences, 1+extraReplicas), nil
 }
 
 func limit(slice []types.ActorReference, min uint64) []types.ActorReference {
