@@ -791,7 +791,7 @@ func testReplicationRandom(
 		require.NoError(t, err)
 
 		return false
-	}, time.Second, time.Millisecond, "actor is not replicated")
+	}, time.Second, time.Microsecond, "actor is not replicated")
 }
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server

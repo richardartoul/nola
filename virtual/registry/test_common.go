@@ -337,5 +337,5 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		differentActivation := !(ref == types.ActorReference{} || ref == activations.References[0])
 		ref = activations.References[0]
 		return differentActivation
-	}, time.Second, time.Millisecond, "actor has been activated in more than one server")
+	}, time.Second, time.Microsecond, "actor has been activated in more than one server")
 }
