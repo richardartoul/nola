@@ -291,7 +291,7 @@ func (k *kvRegistry) EnsureActivation(
 			isActivatedOnServer[ref.Physical.ServerID] = true
 		}
 		// Pick the remaining servers needed to comply with the replication criteria.
-		selected := pickServersForActivation(
+		selected, selectionReason := pickServersForActivation(
 			(1+req.ExtraReplicas)-uint64(len(refs)),
 			liveServers,
 			k.opts,
@@ -311,6 +311,7 @@ func (k *kvRegistry) EnsureActivation(
 				slog.String("actor_id", fmt.Sprintf("%s::%s:%s", req.Namespace, req.ModuleID, req.ActorID)),
 				slog.String("server_id", server.ServerID),
 				slog.String("server_address", server.HeartbeatState.Address),
+				slog.String("selection_reason", selectionReason),
 			)
 
 			ref, err := types.NewActorReference(
@@ -745,10 +746,14 @@ func pickServersForActivation(
 	isServerIDBlacklisted map[string]bool,
 	cachedServerIDs []string,
 	seen map[string]bool,
-) (result []serverState) {
+) (result []serverState, reason string) {
 	if len(available) == 0 {
 		panic("[invariant violated] pickServerForActivation should not be called with empty slice")
 	}
+
+	var (
+		fromCache, fromHeartbeat bool
+	)
 
 	// If the caller told us which server the actor was previously activated on *and* that server
 	// is still alive *and* that server is not the blacklisted server *and* this is the first time
@@ -763,18 +768,19 @@ func pickServersForActivation(
 	}
 
 	for _, cachedServerID := range cachedServerIDs {
-		if uint64(len(result)) >= n {
-			return result
-		}
-
 		if serverCanHostActor(cachedServerID) {
 			for _, server := range available {
 				if server.ServerID == cachedServerID {
 					result = append(result, server)
 					seen[cachedServerID] = true
+					fromCache = true
 					break
 				}
 			}
+		}
+
+		if uint64(len(result)) >= n {
+			return result, selectionReason(fromCache, fromHeartbeat)
 		}
 	}
 
@@ -803,17 +809,16 @@ func pickServersForActivation(
 	})
 
 	for _, server := range available {
-		if uint64(len(result)) >= n {
-			return result
-		}
-
 		if serverCanHostActor(server.ServerID) {
 			result = append(result, server)
 			seen[server.ServerID] = true
+			fromHeartbeat = true
+		}
+		if uint64(len(result)) >= n {
+			return result, selectionReason(fromCache, fromHeartbeat)
 		}
 	}
-
-	return result
+	return result, selectionReason(fromCache, fromHeartbeat)
 }
 
 func minMaxMemUsage(available []serverState) (serverState, serverState) {
@@ -835,4 +840,17 @@ func minMaxMemUsage(available []serverState) (serverState, serverState) {
 	}
 
 	return minMemUsage, maxMemUsage
+}
+
+func selectionReason(fromCache bool, fromHeartbeat bool) string {
+	if fromCache && fromHeartbeat {
+		return "from_client_cache_and_heartbeat"
+	}
+	if fromCache {
+		return "from_client_cache"
+	}
+	if fromCache {
+		return "from_heartbeat"
+	}
+	return "none"
 }
