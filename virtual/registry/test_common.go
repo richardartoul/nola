@@ -285,21 +285,12 @@ func testRegistryReplication(t *testing.T, registry Registry) {
 }
 
 // The purpose of this test function is to verify the persistence of actor activations across consecutive calls to the EnsureActivation function.
-// The logic of the test involves calling the EnsureActivation function every millisecond for a second and expecting to consistently receive
+// The logic of the test involves calling the EnsureActivation function every microsecond for 5 seconds and expecting to consistently receive
 // the same actor reference (server) in return.
 //
 // The test is designed to check whether activations are persisted correctly, meaning that the same actor reference should be returned unless
 // the server is blacklisted or goes down. It assumes that if activations are persisted, the EnsureActivation function will consistently return
 // the same reference, unless exceptional circumstances such as server blacklisting or failure occur, which are not expected during the test.
-//
-// The test executes a series of heartbeats to simulate active servers and establish a stable environment. Then, it calls the EnsureActivation
-// function and checks that the received actor reference remains the same throughout the test duration. If persistence is functioning as
-// expected, the test should never encounter a different reference during the test. However, if persistence is not working correctly, there
-// is a probability that at least once during the test, a different reference may be returned when ensuring activations for an actor.
-//
-// This test is valuable in ensuring the reliability and consistency of the activation persistence feature. By continuously monitoring the
-// returned actor references, the test helps identify any issues related to persistence and ensures that activations remain stable and
-// unchanged across multiple calls to the EnsureActivation function.
 func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 	const testDuration = 5 * time.Second
 
