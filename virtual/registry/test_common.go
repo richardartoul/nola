@@ -301,11 +301,11 @@ func testRegistryReplication(t *testing.T, registry Registry) {
 // returned actor references, the test helps identify any issues related to persistence and ensures that activations remain stable and
 // unchanged across multiple calls to the EnsureActivation function.
 func testEnsureActivationPersistence(t *testing.T, registry Registry) {
+	const testDuration = 5 * time.Second
+
 	ctx, cc := context.WithCancel(context.Background())
 	defer cc()
 	defer registry.Close(ctx)
-	defer println("CALLING CLOSE")
-	const testDuration = 5 * time.Second
 
 	for i := 0; i < 5; i++ {
 		// Heartbeat 5 times because some registry implementations (like the
