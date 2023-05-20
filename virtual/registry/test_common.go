@@ -365,4 +365,10 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		ref = activations.References[0]
 		return differentActivation
 	}, testDuration, time.Microsecond, "actor has been activated in more than one server")
+
+	// Sleeping for a second is necessary to ensure that the last call to registry.EnsureActivation
+	// finishes executing. This is important because the condition is called asynchronously, and
+	// there is a possibility of encountering an error if the registry has been closed before
+	// completion.
+	time.Sleep(time.Second)
 }
