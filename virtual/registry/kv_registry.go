@@ -691,7 +691,7 @@ func pickServerForActivation(
 	if len(available) > 1 && selected.ServerID == blacklistedServerID {
 		selected = available[1]
 	}
-	return available[0]
+	return selected
 }
 
 func minMaxMemUsage(available []serverState) (serverState, serverState) {
