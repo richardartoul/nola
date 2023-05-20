@@ -423,6 +423,8 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
+	defer reg.Close(context.Background())
+
 	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
 	// needs its own port so it looks unique.
 	opts1 := defaultOptsWASM
@@ -880,6 +882,8 @@ func runWithDifferentConfigs(
 			reg         = localregistry.NewLocalRegistry()
 			moduleStore = newTestModuleStore()
 		)
+		defer reg.Close(context.Background())
+
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, opts)
 		require.NoError(t, err)
 		defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
@@ -915,6 +919,8 @@ func runWithDifferentConfigs(
 			reg         = localregistry.NewLocalRegistry()
 			moduleStore = newTestModuleStore()
 		)
+		defer reg.Close(context.Background())
+
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, opts)
 		require.NoError(t, err)
 		defer func() { noErrIgnoreDupeClose(t, env.Close(context.Background())) }()
