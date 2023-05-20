@@ -853,7 +853,7 @@ func selectionReason(fromCache bool, fromHeartbeat bool) string {
 	if fromCache {
 		return "from_client_cache"
 	}
-	if fromCache {
+	if fromHeartbeat {
 		return "from_heartbeat"
 	}
 	return "none"
