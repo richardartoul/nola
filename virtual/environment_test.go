@@ -76,10 +76,14 @@ func TestMain(m *testing.M) {
 	// Make sure this map is cleared between tests even if the test forgets to
 	// call env.Close().
 	localEnvironmentsRouterLock.Lock()
-	for k := range localEnvironmentsRouter {
-		delete(localEnvironmentsRouter, k)
+	defer localEnvironmentsRouterLock.Unlock()
+	if len(localEnvironmentsRouter) != 0 {
+		panic("test did not clear localEnvironmentsRoute")
 	}
-	localEnvironmentsRouterLock.Unlock()
+	// for k := range localEnvironmentsRouter {
+	// 	delete(localEnvironmentsRouter, k)
+	// }
+	// localEnvironmentsRouterLock.Unlock()
 
 	// Override constants to make the tests faster.
 	oldDefaultActivationsCacheTTL := defaultActivationsCacheTTL

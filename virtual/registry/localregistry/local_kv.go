@@ -3,6 +3,7 @@ package localregistry
 import (
 	"bytes"
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -91,7 +92,7 @@ func (l *localKV) Put(
 	k, v []byte,
 ) error {
 	if l.closed {
-		panic("KV already closed")
+		return errors.New("KV already closed")
 	}
 
 	// Copy v in case the caller reuses it or mutates it.
@@ -105,7 +106,7 @@ func (l *localKV) Get(
 	k []byte,
 ) ([]byte, bool, error) {
 	if l.closed {
-		panic("KV already closed")
+		return nil, false, errors.New("KV already closed")
 	}
 
 	v, ok := l.b.Get(btreeKV{k, nil})
@@ -121,7 +122,7 @@ func (l *localKV) IterPrefix(
 	prefix []byte, fn func(k, v []byte) error,
 ) error {
 	if l.closed {
-		panic("KV already closed")
+		return errors.New("KV already closed")
 	}
 
 	var globalErr error
