@@ -751,6 +751,8 @@ func pickServersForActivation(
 		panic("[invariant violated] pickServerForActivation should not be called with empty slice")
 	}
 
+	// These variables are initialized as boolean values to indicate if the selection
+	// is derived from the cache (fromCache) or from heartbeat messages (fromHeartbeat).
 	var (
 		fromCache, fromHeartbeat bool
 	)
@@ -842,6 +844,8 @@ func minMaxMemUsage(available []serverState) (serverState, serverState) {
 	return minMemUsage, maxMemUsage
 }
 
+// selectionReason determines the reason for the server selection based on the provided flags.
+// It returns a string indicating whether the selection is from cache, heartbeat, both, or none.
 func selectionReason(fromCache bool, fromHeartbeat bool) string {
 	if fromCache && fromHeartbeat {
 		return "from_client_cache_and_heartbeat"
