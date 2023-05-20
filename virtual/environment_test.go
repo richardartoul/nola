@@ -78,10 +78,11 @@ func TestMain(m *testing.M) {
 	// tests that dont close properly instead of trying to be clever and wipe
 	// it automatically.
 	localEnvironmentsRouterLock.Lock()
-	defer localEnvironmentsRouterLock.Unlock()
 	if len(localEnvironmentsRouter) != 0 {
+		localEnvironmentsRouterLock.Unlock()
 		panic("test did not clear localEnvironmentsRoute")
 	}
+	localEnvironmentsRouterLock.Unlock()
 
 	// Override constants to make the tests faster.
 	oldDefaultActivationsCacheTTL := defaultActivationsCacheTTL
