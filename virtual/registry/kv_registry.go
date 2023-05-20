@@ -323,7 +323,7 @@ func (k *kvRegistry) EnsureActivation(
 				cachedServerID = req.CachedActivationServerIDs[0]
 			}
 
-			selected := pickServerForActivation(
+			selected, selectionReason := pickServerForActivation(
 				liveServers, k.opts, req.BlacklistedServerID, cachedServerID, !activationExists)
 			serverID = selected.ServerID
 			serverAddress = selected.HeartbeatState.Address
@@ -353,6 +353,7 @@ func (k *kvRegistry) EnsureActivation(
 				slog.String("actor_id", fmt.Sprintf("%s::%s:%s", req.Namespace, req.ModuleID, req.ActorID)),
 				slog.String("server_id", selected.ServerID),
 				slog.String("server_address", selected.HeartbeatState.Address),
+				slog.String("selection_reason", selectionReason),
 			)
 		}
 
@@ -642,7 +643,7 @@ func pickServerForActivation(
 	blacklistedServerID string,
 	cachedServerID string,
 	isFirstTimeObservingActor bool,
-) serverState {
+) (serverState, string) {
 	if len(available) == 0 {
 		panic("[invariant violated] pickServerForActivation should not be called with empty slice")
 	}
@@ -658,7 +659,7 @@ func pickServerForActivation(
 	if cachedServerID != "" && cachedServerID != blacklistedServerID {
 		for _, s := range available {
 			if s.ServerID == cachedServerID {
-				return s
+				return s, "from_client_cache"
 			}
 		}
 	}
@@ -691,7 +692,7 @@ func pickServerForActivation(
 	if len(available) > 1 && selected.ServerID == blacklistedServerID {
 		selected = available[1]
 	}
-	return selected
+	return selected, "based_on_heartbeat_state"
 }
 
 func minMaxMemUsage(available []serverState) (serverState, serverState) {

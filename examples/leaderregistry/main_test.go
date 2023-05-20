@@ -298,7 +298,7 @@ func newServer(
 				AllowFailedInitialHeartbeat: true,
 			},
 			// Need to set this otherwise the environment will detect the address is localhost and just
-			// do everythin in-memory which is not what we want since we're trying to simulate a fairly
+			// do everything in-memory which is not what we want since we're trying to simulate a fairly
 			// real scenario.
 			ForceRemoteProcedureCalls: true,
 			// Speedup actor GC so the test finishes faster.
