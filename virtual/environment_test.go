@@ -73,17 +73,15 @@ func init() {
 }
 
 func TestMain(m *testing.M) {
-	// Make sure this map is cleared between tests even if the test forgets to
-	// call env.Close().
+	// Make sure this map is cleared between tests. We could just clear it
+	// here, but its easier to  understand/debug if we just assert and fix
+	// tests that dont close properly instead of trying to be clever and wipe
+	// it automatically.
 	localEnvironmentsRouterLock.Lock()
 	defer localEnvironmentsRouterLock.Unlock()
 	if len(localEnvironmentsRouter) != 0 {
 		panic("test did not clear localEnvironmentsRoute")
 	}
-	// for k := range localEnvironmentsRouter {
-	// 	delete(localEnvironmentsRouter, k)
-	// }
-	// localEnvironmentsRouterLock.Unlock()
 
 	// Override constants to make the tests faster.
 	oldDefaultActivationsCacheTTL := defaultActivationsCacheTTL
