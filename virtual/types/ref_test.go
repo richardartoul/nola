@@ -12,7 +12,7 @@ func TestNewActorReference(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "server1", ref.Physical.ServerID)
-	require.Equal(t, "server1path", ref.Physical.ServerID)
+	require.Equal(t, "server1path", ref.Physical.ServerState.Address)
 	require.Equal(t, "a", ref.Virtual.Namespace)
 	require.Equal(t, "c", ref.Virtual.ActorID)
 	require.Equal(t, "b", ref.Virtual.ModuleID)

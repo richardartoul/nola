@@ -35,6 +35,7 @@ func NewActorReference(
 			ServerVersion: serverVersion,
 			ServerState:   serverState,
 		},
+		Type: ReferenceTypeLocal,
 	}, nil
 }
 
@@ -55,7 +56,7 @@ func NewActorReferenceFromJSON(data []byte) (ActorReference, error) {
 // ActorReference abstracts over different forms of ReferenceType. It provides all the
 // necessary information for communicating with an actor. Some of the fields are "logical"
 type ActorReference struct {
-	Type     ReferenceType          `json:"type"`
+	Type     ReferenceType          `json:"-"`
 	Virtual  ActorReferenceVirtual  `json:"virtual"`
 	Physical ActorReferencePhysical `json:"physical"`
 }
