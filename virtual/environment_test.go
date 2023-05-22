@@ -1143,22 +1143,6 @@ func (ta *testActor) Invoke(
 			return []byte("true"), nil
 		}
 		return []byte("false"), nil
-	// case "kvPutCount":
-	// 	value := []byte(fmt.Sprintf("%d", ta.count))
-	// 	return nil, transaction.Put(ctx, payload, value)
-	// case "kvPutCountError":
-	// 	value := []byte(fmt.Sprintf("%d", ta.count))
-	// 	err := transaction.Put(ctx, payload, value)
-	// 	if err == nil {
-	// 		return nil, errors.New("some fake error")
-	// 	}
-	// 	return nil, err
-	// case "kvGet":
-	// 	v, _, err := transaction.Get(ctx, payload)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	return v, nil
 	case "invokeActor":
 		var req types.InvokeActorRequest
 		if err := json.Unmarshal(payload, &req); err != nil {
