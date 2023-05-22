@@ -116,7 +116,12 @@ type EnsureActivationRequest struct {
 	ModuleID  string `json:"module_id"`
 	ActorID   string `json:"actor_id"`
 
-	// BlacklistedServerID is set if the caller is calling the EnsureActivation method
+	// ExtraReplicas represents the number of additional replicas requested for an actor.
+	// It specifies the desired number of replicas, in addition to the primary replica,
+	// that should be created during actor activation.
+	// The value of ExtraReplicas should be a non-negative integer.
+	ExtraReplicas uint64 `json:"extra_replicas"`
+	// BlacklistedServerIDs is set if the caller is calling the EnsureActivation method
 	// after receiving an error from the server the actor is *supposed* to be activated
 	// on that the server has blacklisted the actor. The server may blacklist the actor
 	// temporarily due to excessive resource consumption and/or to accomplish balancing
@@ -124,8 +129,8 @@ type EnsureActivationRequest struct {
 	// the ID of the server that the actor was blacklisted on so the registry can keep
 	// track of that information and ensure the actor is activated elsewhere / balanced
 	// properly.
-	BlacklistedServerID       string   `json:"blacklisted_server_id"`
-	CachedActivationServerIDs []string `json:"cached_activation_server_id"`
+	BlacklistedServerIDs      []string `json:"blacklisted_server_ids"`
+	CachedActivationServerIDs []string `json:"cached_activation_server_ids"`
 }
 
 // EnsureActivationResult contains the result of invoking the EnsureActivation method.

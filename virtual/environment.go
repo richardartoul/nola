@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"runtime"
 	"sync"
@@ -34,6 +35,9 @@ var (
 	// Var so can be modified by tests.
 	defaultActivationsCacheTTL                    = heartbeatTimeout
 	DefaultGCActorsAfterDurationWithNoInvocations = time.Minute
+
+	randEnv = rand.New(rand.NewSource(time.Now().UnixNano()))
+	muRand  = sync.Mutex{}
 )
 
 type environment struct {
@@ -411,7 +415,7 @@ func (r *environment) InvokeActorStream(
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	resp, err := r.invokeActorStreamHelper(
-		ctx, namespace, actorID, moduleID, operation, payload, create, "")
+		ctx, namespace, actorID, moduleID, operation, payload, create, nil)
 	if err == nil {
 		return resp, nil
 	}
@@ -424,15 +428,15 @@ func (r *environment) InvokeActorStream(
 		// that actor to ensure we get an activation on a different serer since the registry
 		// may not know about the blacklist yet.
 		r.activationsCache.delete(namespace, moduleID, actorID)
-		blacklistedServerID := err.(BlacklistedActivationErr).ServerID()
+		blacklistedServerIDs := err.(BlacklistedActivationErr).ServerIDs()
 
 		r.log.Warn(
 			"encountered blacklisted actor, forcing activation cache refresh and retrying",
 			slog.String("actor_id", fmt.Sprintf("%s::%s::%s", namespace, moduleID, actorID)),
-			slog.String("blacklisted_server_id", blacklistedServerID))
+			slog.Any("blacklisted_server_ids", blacklistedServerIDs))
 
 		return r.invokeActorStreamHelper(
-			ctx, namespace, actorID, moduleID, operation, payload, create, blacklistedServerID)
+			ctx, namespace, actorID, moduleID, operation, payload, create, blacklistedServerIDs)
 	}
 
 	return nil, err
@@ -446,7 +450,7 @@ func (r *environment) invokeActorStreamHelper(
 	operation string,
 	payload []byte,
 	create types.CreateIfNotExist,
-	blacklistedServerID string,
+	blacklistedServerIDs []string,
 ) (io.ReadCloser, error) {
 	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
@@ -468,7 +472,7 @@ func (r *environment) invokeActorStreamHelper(
 	}
 
 	references, err := r.activationsCache.ensureActivation(
-		ctx, namespace, moduleID, actorID, blacklistedServerID)
+		ctx, namespace, moduleID, actorID, create.Options.ExtraReplicas, blacklistedServerIDs)
 	if err != nil {
 		return nil, fmt.Errorf("error ensuring actor activation: %w", err)
 	}
@@ -764,18 +768,20 @@ func (r *environment) invokeReferences(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
-	// TODO: Load balancing or some other strategy if the number of references is > 1?
-	ref := references[0]
+	ref, ok := pickServerForInvocation(references, create)
+	if !ok {
+		return nil, errors.New("failed to pick server")
+	}
 	if !r.opts.ForceRemoteProcedureCalls {
 		// First check the global localEnvironmentsRouter map for scenarios where we're
 		// potentially trying to communicate between multiple different in-memory
 		// instances of Environment.
 		localEnvironmentsRouterLock.RLock()
-		localEnv, ok := localEnvironmentsRouter[ref.Address()]
+		localEnv, ok := localEnvironmentsRouter[ref.Physical.ServerState.Address]
 		localEnvironmentsRouterLock.RUnlock()
 		if ok {
 			return localEnv.InvokeActorDirectStream(
-				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
+				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
 				operation, payload, create)
 		}
 
@@ -795,9 +801,9 @@ func (r *environment) invokeReferences(
 		// always return dnsregistry.Localhost as the address for all actor references and
 		// thus ensure that tests can be written without having to also ensure that a NOLA
 		// server is running on the appropriate port, among other things.
-		if ref.Address() == Localhost || ref.Address() == dnsregistry.Localhost {
+		if ref.Physical.ServerState.Address == Localhost || ref.Physical.ServerState.Address == dnsregistry.Localhost {
 			return localEnv.InvokeActorDirectStream(
-				ctx, versionStamp, ref.ServerID(), ref.ServerVersion(), ref,
+				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
 				operation, payload, create)
 		}
 	}
@@ -898,4 +904,15 @@ func formatActorCacheKey(
 	dst = append(dst, []byte(moduleID)...)
 	dst = append(dst, []byte(actorID)...)
 	return dst
+}
+
+func pickServerForInvocation(references []types.ActorReference, create types.CreateIfNotExist) (types.ActorReference, bool) {
+	// TODO: implement invokation strategies in 'create' e.g. region-based, multi-invoke...
+	if len(references) == 0 {
+		return types.ActorReference{}, false
+	}
+
+	muRand.Lock()
+	defer muRand.Unlock()
+	return references[randEnv.Intn(len(references))], true
 }

@@ -10,17 +10,6 @@ const (
 	IDTypeWorker = "worker"
 )
 
-type virtualRef struct {
-	namespace  string
-	moduleID   string
-	actorID    string
-	generation uint64
-	// idType allows us to ensure that an actor and a worker with the
-	// same tuple of <namespace, moduleID, "actorID"> are still
-	// namespaced away from each other in any in-memory datastructures.
-	idType string
-}
-
 // func NewVirtualWorkerReference creates a new VirtualActorReference
 // for a given worker.
 func NewVirtualWorkerReference(
@@ -56,39 +45,23 @@ func newVirtualActorReference(
 	idType string,
 ) (ActorReferenceVirtual, error) {
 	if namespace == "" {
-		return nil, errors.New("namespace cannot be empty")
+		return ActorReferenceVirtual{}, errors.New("namespace cannot be empty")
 	}
 	if moduleID == "" {
-		return nil, errors.New("moduleID cannot be empty")
+		return ActorReferenceVirtual{}, errors.New("moduleID cannot be empty")
 	}
 	if actorID == "" {
-		return nil, errors.New("moduleID cannot be empty")
+		return ActorReferenceVirtual{}, errors.New("moduleID cannot be empty")
 	}
 	if generation <= 0 {
-		return nil, errors.New("generation must be >0")
+		return ActorReferenceVirtual{}, errors.New("generation must be >0")
 	}
 
-	return virtualRef{
-		namespace:  namespace,
-		moduleID:   moduleID,
-		actorID:    actorID,
-		generation: generation,
-		idType:     idType,
+	return ActorReferenceVirtual{
+		Namespace:  namespace,
+		ModuleID:   moduleID,
+		ActorID:    actorID,
+		Generation: generation,
+		IDType:     idType,
 	}, nil
-}
-
-func (l virtualRef) Namespace() string {
-	return l.namespace
-}
-
-func (l virtualRef) ActorID() NamespacedActorID {
-	return NewNamespacedActorID(l.namespace, l.actorID, l.moduleID, l.idType)
-}
-
-func (l virtualRef) ModuleID() NamespacedID {
-	return NewNamespacedID(l.namespace, l.moduleID, l.idType)
-}
-
-func (l virtualRef) Generation() uint64 {
-	return l.generation
 }

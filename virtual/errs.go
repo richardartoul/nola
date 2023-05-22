@@ -7,12 +7,12 @@ import (
 )
 
 var (
-	statusCodeToErrorWrapper = map[int]func(err error, serverID string) error{
+	statusCodeToErrorWrapper = map[int]func(err error, serverID []string) error{
 		410: NewBlacklistedActivationError,
 	}
 
 	// Make sure it implements interface.
-	_ HTTPError = NewBlacklistedActivationError(errors.New("n/a"), "n/a").(HTTPError)
+	_ HTTPError = NewBlacklistedActivationError(errors.New("n/a"), []string{"n/a"}).(HTTPError)
 )
 
 // HTTPError is the interface implemented by errors that map to a specific
@@ -28,22 +28,22 @@ type HTTPError interface {
 // blacklisted on this specific server temporarily (usually due to resource
 // usage or balancing reasons).
 type BlacklistedActivationErr struct {
-	err      error
-	serverID string
+	err       error
+	serverIDs []string
 }
 
 // NewBlacklistedActivationError creates a new BlacklistedActivationErr.
-func NewBlacklistedActivationError(err error, serverID string) error {
-	if serverID == "" {
+func NewBlacklistedActivationError(err error, serverIDs []string) error {
+	if len(serverIDs) <= 0 {
 		panic("[invariant violated] serverID cannot be empty")
 	}
-	return BlacklistedActivationErr{err: err, serverID: serverID}
+	return BlacklistedActivationErr{err: err, serverIDs: serverIDs}
 }
 
 func (b BlacklistedActivationErr) Error() string {
 	return fmt.Sprintf(
 		"BlacklistedActivationError(ServerID:%s): %s",
-		b.serverID, b.err.Error())
+		b.serverIDs, b.err.Error())
 }
 
 func (b BlacklistedActivationErr) Is(target error) bool {
@@ -60,8 +60,8 @@ func (b BlacklistedActivationErr) HTTPStatusCode() int {
 	return http.StatusGone
 }
 
-func (b BlacklistedActivationErr) ServerID() string {
-	return b.serverID
+func (b BlacklistedActivationErr) ServerIDs() []string {
+	return b.serverIDs
 }
 
 // IsBlacklistedActivationError returns a boolean indicating whether the error

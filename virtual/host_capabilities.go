@@ -47,7 +47,7 @@ func (h *hostCapabilities) InvokeActor(
 	req types.InvokeActorRequest,
 ) ([]byte, error) {
 	return h.env.InvokeActor(
-		ctx, h.reference.Namespace(), req.ActorID, req.ModuleID,
+		ctx, h.reference.Namespace, req.ActorID, req.ModuleID,
 		req.Operation, req.Payload, req.CreateIfNotExist)
 }
 
@@ -98,5 +98,5 @@ func (h *hostCapabilities) CustomFn(
 	}
 	return nil, fmt.Errorf(
 		"unknown host function: %s::%s::%s",
-		h.reference.Namespace(), operation, payload)
+		h.reference.Namespace, operation, payload)
 }

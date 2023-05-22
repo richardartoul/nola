@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,16 +84,19 @@ func (a *activationsCache) ensureActivation(
 	moduleID,
 	actorID string,
 
-	blacklistedServerID string,
+	extraReplicas uint64,
+	blacklistedServerIDs []string,
 ) ([]types.ActorReference, error) {
 	// Ensure we have a short timeout when communicating with registry.
 	ctx, cc := context.WithTimeout(ctx, defaultActivationCacheTimeout)
 	defer cc()
 
+	isServerIDBlacklisted := types.StringSliceToSet(blacklistedServerIDs)
+
 	if a.c == nil {
 		// Cache disabled, load directly.
 		return a.ensureActivationAndUpdateCache(
-			ctx, namespace, moduleID, actorID, nil, blacklistedServerID)
+			ctx, namespace, moduleID, actorID, extraReplicas, nil, isServerIDBlacklisted, blacklistedServerIDs)
 	}
 
 	var (
@@ -102,23 +106,56 @@ func (a *activationsCache) ensureActivation(
 	bufIface, cacheKey = actorCacheKeyUnsafePooled(namespace, moduleID, actorID)
 	aceI, ok := a.c.Get(cacheKey)
 	bufPool.Put(bufIface)
-	// Cache miss, fill the cache.
-	if !ok ||
+
+	var (
+		cachedReferences                []types.ActorReference
+		nonBlacklistedCachedReferences  []types.ActorReference
+		currentBlacklistedIDsAreInvalid = false
+	)
+
+	// Check if any of the servers the current request wants to blacklist are not marked as blacklisted in the cache.
+	// If any server is not blacklisted in the cache, it suggests that the cache entry might be stale and could potentially
+	// route us back to the blacklisted server ID. In such cases, the cache needs to be refreshed, and the existing entry should be ignored.
+	//
+	// Additionally, create a new slice `nonBlacklistedCachedReferences` that only includes the references from the cache
+	// that belong to non-blacklisted servers. This filtered slice will be used for subsequent processing.
+	if ok {
+		blacklistedIDsFromCache := aceI.(activationCacheEntry).blacklistedServerIDs
+		cachedReferences = aceI.(activationCacheEntry).references
+
+		currentBlacklistedIDsAreInvalid = len(blacklistedIDsFromCache) != len(blacklistedServerIDs)
+		if !currentBlacklistedIDsAreInvalid {
+			for _, id := range blacklistedIDsFromCache {
+				if !isServerIDBlacklisted[id] {
+					currentBlacklistedIDsAreInvalid = true
+					break
+				}
+			}
+		}
+
+		for _, ref := range cachedReferences {
+			if !isServerIDBlacklisted[ref.Physical.ServerID] {
+				nonBlacklistedCachedReferences = append(nonBlacklistedCachedReferences, ref)
+			}
+		}
+	}
+
+	// Cache miss, not enough non-blacklisted replicas, or invalid blacklistedIDs list, then fill the cache.
+	// If there is a cache entry but it was satisfied by a request with a different blacklistedServerID,
+	// we must ignore the entry to avoid routing to a potentially stale blacklisted server.
+	// By forcing a cache update, we prevent routing to the blacklisted server ID and ensure fresh data.
+	if !ok || (1+extraReplicas) > uint64(len(nonBlacklistedCachedReferences)) ||
 		// There is an existing cache entry, however, it was satisfied by a request that did not provide
 		// the same blacklistedServerID we have currently. We must ignore this entry because it could be
 		// stale and end up routing us back to the blacklisted server ID.
-		(blacklistedServerID != "" && aceI.(activationCacheEntry).blacklistedServerID != blacklistedServerID) {
-		var cachedReferences []types.ActorReference
-		if ok {
-			cachedReferences = aceI.(activationCacheEntry).references
-		}
+		currentBlacklistedIDsAreInvalid {
+		// Force cache update and ignore the existing entry to prevent routing to blacklisted server ID.
 		return a.ensureActivationAndUpdateCache(
-			ctx, namespace, moduleID, actorID, cachedReferences, blacklistedServerID)
+			ctx, namespace, moduleID, actorID, extraReplicas, cachedReferences, isServerIDBlacklisted, blacklistedServerIDs)
 	}
 
 	// Cache hit, return result from cache but check if we should proactively refresh
 	// the cache also.
-
 	ace := aceI.(activationCacheEntry)
 	// TODO: Jitter here.
 	if time.Since(ace.cachedAt) > a.idealCacheStaleness {
@@ -126,7 +163,7 @@ func (a *activationsCache) ensureActivation(
 		go func() {
 			defer cc()
 			_, err := a.ensureActivationAndUpdateCache(
-				ctx, namespace, moduleID, actorID, ace.references, blacklistedServerID)
+				ctx, namespace, moduleID, actorID, extraReplicas, ace.references, isServerIDBlacklisted, blacklistedServerIDs)
 			if err != nil {
 				a.logger.Error(
 					"error refreshing activation cache in background",
@@ -135,7 +172,14 @@ func (a *activationsCache) ensureActivation(
 		}()
 	}
 
-	return ace.references, nil
+	return limit(nonBlacklistedCachedReferences, 1+extraReplicas), nil
+}
+
+func limit(slice []types.ActorReference, min uint64) []types.ActorReference {
+	if len(slice) > int(min) {
+		return slice[:min]
+	}
+	return slice
 }
 
 func (a *activationsCache) delete(
@@ -156,8 +200,10 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 	moduleID,
 	actorID string,
 
+	extraReplicas uint64,
 	cachedReferences []types.ActorReference,
-	blacklistedServerID string,
+	isServerIDBlacklisted map[string]bool,
+	blacklistedServerIDs []string,
 ) ([]types.ActorReference, error) {
 	// Since this method is less common (cache miss) we just allocate instead of messing
 	// around with unsafe object pooling.
@@ -166,11 +212,11 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 	// Include blacklistedServerID in the dedupeKey so that "force refreshes" due to a
 	// server blacklist / load-shedding an actor can be initiated *after* a regular
 	// refresh has already started, but *before* it has completed.
-	dedupeKey := fmt.Sprintf("%s::%s", cacheKey, blacklistedServerID)
+	dedupeKey := fmt.Sprintf("%s::%s", cacheKey, strings.Join(blacklistedServerIDs, ","))
 	referencesI, err, _ := a.deduper.Do(dedupeKey, func() (any, error) {
 		var cachedServerIDs []string
 		for _, ref := range cachedReferences {
-			cachedServerIDs = append(cachedServerIDs, ref.ServerID())
+			cachedServerIDs = append(cachedServerIDs, ref.Physical.ServerID)
 		}
 
 		// Acquire the semaphore before making the network call to avoid DDOSing the
@@ -185,7 +231,8 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			ModuleID:  moduleID,
 			ActorID:   actorID,
 
-			BlacklistedServerID:       blacklistedServerID,
+			ExtraReplicas:             extraReplicas,
+			BlacklistedServerIDs:      blacklistedServerIDs,
 			CachedActivationServerIDs: cachedServerIDs,
 		})
 		// Release the semaphore as soon as we're done with the network call since the purpose
@@ -209,10 +256,10 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 		}
 
 		for _, ref := range references.References {
-			if ref.ServerID() == blacklistedServerID {
+			if isServerIDBlacklisted[ref.Physical.ServerID] {
 				return nil, fmt.Errorf(
 					"[invariant violated] registry returned blacklisted server ID: %s in references",
-					blacklistedServerID)
+					ref.Physical.ServerID)
 			}
 		}
 
@@ -225,7 +272,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			references:           references.References,
 			cachedAt:             time.Now(),
 			registryVersionStamp: references.VersionStamp,
-			blacklistedServerID:  blacklistedServerID,
+			blacklistedServerIDs: blacklistedServerIDs,
 		}
 
 		// a.c is internally synchronized, but we use a lock here so we can do an atomic
@@ -264,5 +311,5 @@ type activationCacheEntry struct {
 	references           []types.ActorReference
 	cachedAt             time.Time
 	registryVersionStamp int64
-	blacklistedServerID  string
+	blacklistedServerIDs []string
 }

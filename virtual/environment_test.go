@@ -696,6 +696,104 @@ func testHeartbeatAndRebalancingWithMemory(
 	}
 }
 
+// TestReplicationRandomGoModule tests the random replication logic of the environment.
+// This test specifically examines how actors are replicated when the ExtraReplicas option is set to a value greater than 0.
+// The test verifies that the actor is replicated across multiple environments in a random manner.
+func TestReplicationRandomGoModule(t *testing.T) {
+	var (
+		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
+			RebalanceMemoryThreshold: 1 << 24,
+		})
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
+	)
+	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+	// needs its own port so it looks unique.
+	opts1 := defaultOptsWASM
+	opts1.Discovery.Port = 1
+	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
+	opts2 := defaultOptsWASM
+	opts2.Discovery.Port = 2
+	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
+	opts3 := defaultOptsWASM
+	opts3.Discovery.Port = 3
+	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+	require.NoError(t, err)
+	defer env3.Close(context.Background())
+
+	testReplicationRandom(t, env1, env2, env3)
+}
+
+func TestReplicationRandomWASMModule(t *testing.T) {
+	var (
+		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
+			RebalanceMemoryThreshold: 1 << 24,
+		})
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
+	)
+	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+	// needs its own port so it looks unique.
+	opts1 := defaultOptsWASM
+	opts1.Discovery.Port = 1
+	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
+	opts2 := defaultOptsWASM
+	opts2.Discovery.Port = 2
+	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
+	opts3 := defaultOptsWASM
+	opts3.Discovery.Port = 3
+	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+	require.NoError(t, err)
+	defer env3.Close(context.Background())
+
+	testReplicationRandom(t, env1, env2, env3)
+}
+
+// testReplicationRandom is a test function that verifies the random replication of actors across multiple environments.
+//
+// The test logic is as follows:
+// - Invoke an actor with the ExtraReplicas option set to 2.
+// - Continuously check if the actor has been replicated in all three environments.
+// - If the actor is not activated in all three environments, invoke the actor again.
+// - Repeat the check until the actor is activated in all three environments or until a certain timeout is reached.
+// - If the actor is not activated in all three environments within the specified time, the test fails.
+func testReplicationRandom(
+	t *testing.T,
+	env1, env2, env3 Environment,
+) {
+	ctx := context.Background()
+
+	require.Eventually(t, func() bool {
+		numActivatedActors := env1.NumActivatedActors() + env2.NumActivatedActors() + env3.NumActivatedActors()
+		if numActivatedActors == 3 {
+			return true
+		}
+
+		_, err := env1.InvokeActor(ctx, "ns-1", "actor-0", "test-module", "inc", nil, types.CreateIfNotExist{Options: types.ActorOptions{ExtraReplicas: 2}})
+		require.NoError(t, err)
+
+		return false
+	}, time.Minute, time.Microsecond, "actor is not replicated")
+}
+
 // TestVersionStampIsHonored ensures that the interaction between the client and server
 // around versionstamp coordination works by preventing the server from updating its
 // internal versionstamp and ensuring that eventually RPCs start to fail because the

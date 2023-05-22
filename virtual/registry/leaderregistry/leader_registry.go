@@ -293,7 +293,7 @@ func (a *leaderActor) handleEnsureActivation(
 
 	activations := make([][]byte, 0, len(result.References))
 	for _, a := range result.References {
-		marshaled, err := a.MarshalJSON()
+		marshaled, err := json.Marshal(a)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling JSON for activation: %w", err)
 		}

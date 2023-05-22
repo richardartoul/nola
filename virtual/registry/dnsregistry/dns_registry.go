@@ -133,8 +133,8 @@ func (d *dnsRegistry) EnsureActivation(
 
 	serverIP := ring.Get(fmt.Sprintf("%s::%s", req.ActorID, req.ModuleID))
 	ref, err := types.NewActorReference(
-		DNSServerID, DNSServerVersion, serverIP, req.Namespace,
-		req.ModuleID, req.ActorID, DNS_ACTOR_GENERATION)
+		DNSServerID, DNSServerVersion, req.Namespace,
+		req.ModuleID, req.ActorID, DNS_ACTOR_GENERATION, types.ServerState{Address: serverIP})
 	if err != nil {
 		return registry.EnsureActivationResult{}, fmt.Errorf(
 			"error creating actor reference: %w", err)

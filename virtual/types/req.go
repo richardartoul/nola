@@ -29,4 +29,9 @@ type CreateIfNotExist struct {
 
 // ActorOptions contains the options for a given actor.
 type ActorOptions struct {
+	// ExtraReplicas represents the number of additional replicas requested for an actor.
+	// It specifies the desired number of replicas, in addition to the primary replica,
+	// that should be created during actor activation.
+	// The value of ExtraReplicas should be a non-negative integer.
+	ExtraReplicas uint64 `json:"extra_replicas"`
 }

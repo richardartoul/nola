@@ -28,12 +28,12 @@ func (h *httpClient) InvokeActorRemote(
 ) (io.ReadCloser, error) {
 	ir := invokeActorDirectRequest{
 		VersionStamp:     versionStamp,
-		ServerID:         reference.ServerID(),
-		ServerVersion:    reference.ServerVersion(),
-		Namespace:        reference.Namespace(),
-		ModuleID:         reference.ModuleID().ID,
-		ActorID:          reference.ActorID().ID,
-		Generation:       reference.Generation(),
+		ServerID:         reference.Physical.ServerID,
+		ServerVersion:    reference.Physical.ServerVersion,
+		Namespace:        reference.Virtual.Namespace,
+		ModuleID:         reference.Virtual.ModuleID,
+		ActorID:          reference.Virtual.ActorID,
+		Generation:       reference.Virtual.Generation,
 		Operation:        operation,
 		Payload:          payload,
 		CreateIfNotExist: create,
@@ -45,7 +45,7 @@ func (h *httpClient) InvokeActorRemote(
 
 	req, err := http.NewRequestWithContext(
 		ctx, "POST",
-		fmt.Sprintf("http://%s/api/v1/invoke-actor-direct", reference.Address()),
+		fmt.Sprintf("http://%s/api/v1/invoke-actor-direct", reference.Physical.ServerState.Address),
 		bytes.NewReader(marshaled))
 	if err != nil {
 		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error constructing request: %w", err)
@@ -69,7 +69,7 @@ func (h *httpClient) InvokeActorRemote(
 		// in statusCodeToErrorWrapper will be converted back to the proper in memory
 		// error type if sent by a server to a client.
 		if wrapper, ok := statusCodeToErrorWrapper[resp.StatusCode]; ok {
-			err = wrapper(err, reference.ServerID())
+			err = wrapper(err, []string{reference.Physical.ServerID})
 		}
 		return nil, err
 	}
@@ -125,5 +125,5 @@ func (n *noopClient) InvokeActorRemote(
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
 	return nil, fmt.Errorf(
-		"noopClient: tried to invoke actor(%s) remotely using noop client. Instantiate Environment with a real client instead", reference.ActorID())
+		"noopClient: tried to invoke actor(%s) remotely using noop client. Instantiate Environment with a real client instead", reference.Virtual.ActorID)
 }

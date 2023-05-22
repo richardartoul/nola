@@ -118,13 +118,13 @@ func (a *activations) invoke(
 	invokePayload []byte,
 	isTimer bool,
 ) (io.ReadCloser, error) {
-	if err := a.isBlacklisted(reference); err != nil {
+	if err := a.isServerIDBlacklisted(reference); err != nil {
 		return nil, err
 	}
 
 	// First check if the actor is already activated.
 	a.Lock()
-	actorF, ok := a._actors[reference.ActorID()]
+	actorF, ok := a._actors[reference.ActorIDWithNamespace()]
 	if !ok {
 		if isTimer {
 			// Timers should invoke already activated actors, but not instantiate them
@@ -172,7 +172,7 @@ func (a *activations) invoke(
 
 	// The actor is/was activated without error, but we still need to check the generation
 	// count before we're allowed to invoke it.
-	if actor.reference().Generation() >= reference.Generation() {
+	if actor.reference().Generation >= reference.Generation {
 		// The activated actor's generation count is high enough, we can just invoke now.
 		return a.invokeActivatedActor(ctx, actor, operation, invokePayload)
 	}
@@ -184,7 +184,7 @@ func (a *activations) invoke(
 
 	// Next, we check if the actor is still in the map (since we released and re-acquired
 	// the lock, anything could have happened in the meantime).
-	actorF2, ok := a._actors[reference.ActorID()]
+	actorF2, ok := a._actors[reference.ActorIDWithNamespace()]
 	if !ok {
 		// Actor is no longer in the map. We can just proceed with a normal activation then.
 		return a.invokeNotExistWithLock(
@@ -205,7 +205,7 @@ func (a *activations) invoke(
 	// The future has changed, the generation count should be high enough now and
 	// we can just ignore the old actor (whichever Goroutine increased the generation
 	// count will have closed it already)
-	if actor.reference().Generation() >= reference.Generation() {
+	if actor.reference().Generation >= reference.Generation {
 		return a.invokeActivatedActor(ctx, actor, operation, invokePayload)
 	}
 
@@ -223,7 +223,7 @@ func (a *activations) invokeNotExistWithLock(
 	prevActor *activatedActor,
 ) (io.ReadCloser, error) {
 	fut := futures.New[*activatedActor]()
-	a._actors[reference.ActorID()] = fut
+	a._actors[reference.ActorIDWithNamespace()] = fut
 	a.Unlock()
 
 	// GoSync since this goroutine needs to wait anyways.
@@ -232,7 +232,7 @@ func (a *activations) invokeNotExistWithLock(
 			if err := prevActor.close(ctx); err != nil {
 				a.log.Error("error closing previous instance of actor", slog.Any("actor", reference), slog.Any("error", err))
 			}
-			a._actorResourceTracker.track(reference.ActorID(), 0)
+			a._actorResourceTracker.track(reference.ActorIDWithNamespace(), 0)
 		}
 
 		defer func() {
@@ -241,11 +241,11 @@ func (a *activations) invokeNotExistWithLock(
 				// the future gets cleared from the map so that subsequent
 				// invocations will try to recreate the actor instead of
 				// receiving the same hard-coded over and over again.
-				delete(a._actors, reference.ActorID())
+				delete(a._actors, reference.ActorIDWithNamespace())
 			}
 		}()
 
-		module, err := a.ensureModule(ctx, reference.ModuleID())
+		module, err := a.ensureModule(ctx, reference.ModuleIDWithNamespace())
 		if err != nil {
 			return nil, fmt.Errorf(
 				"error ensuring module for reference: %v, err: %w",
@@ -258,19 +258,19 @@ func (a *activations) invokeNotExistWithLock(
 		if err != nil {
 			return nil, fmt.Errorf(
 				"error instantiating actor: %s from module: %s, err: %w",
-				reference.ActorID(), reference.ModuleID(), err)
+				reference.ActorID, reference.ModuleID, err)
 		}
 		if err := assertActorIface(iActor); err != nil {
 			return nil, fmt.Errorf(
 				"error instantiating actor: %s from module: %s, err: %w",
-				reference.ActorID(), reference.ModuleID(), err)
+				reference.ActorID, reference.ModuleID, err)
 		}
 
 		onGc := func() {
 			a.Lock()
 			defer a.Unlock()
 
-			existing, ok := a._actors[reference.ActorID()]
+			existing, ok := a._actors[reference.ActorIDWithNamespace()]
 			if !ok {
 				// Actor has already been removed from the map, nothing else to do.
 				return
@@ -285,8 +285,8 @@ func (a *activations) invokeNotExistWithLock(
 
 			// The actor is in the map and the future pointers match so we know its the same
 			// instance of the actor that created this onGc function so we should remove it.
-			delete(a._actors, reference.ActorID())
-			a._actorResourceTracker.track(reference.ActorID(), 0)
+			delete(a._actors, reference.ActorIDWithNamespace())
+			a._actorResourceTracker.track(reference.ActorIDWithNamespace(), 0)
 		}
 
 		var currMemUsage int
@@ -295,7 +295,7 @@ func (a *activations) invokeNotExistWithLock(
 		if err != nil {
 			return nil, fmt.Errorf("error activating actor: %w", err)
 		}
-		a._actorResourceTracker.track(reference.ActorID(), currMemUsage)
+		a._actorResourceTracker.track(reference.ActorIDWithNamespace(), currMemUsage)
 
 		return actor, nil
 	})
@@ -318,7 +318,9 @@ func (a *activations) invokeActivatedActor(
 	if err != nil {
 		return nil, err
 	}
-	a._actorResourceTracker.track(actor.reference().ActorID(), currMemUsage)
+
+	ref := actor.reference()
+	a._actorResourceTracker.track(ref.ActorIDWithNamespace(), currMemUsage)
 	return stream, nil
 }
 
@@ -607,19 +609,19 @@ func (a *activations) close(ctx context.Context, numWorkers int) error {
 	return nil
 }
 
-func (a *activations) isBlacklisted(
+func (a *activations) isServerIDBlacklisted(
 	reference types.ActorReferenceVirtual,
 ) error {
 	bufIface, cacheKey := actorCacheKeyUnsafePooled(
-		reference.Namespace(), reference.ModuleID().ID, reference.ActorID().ID)
+		reference.Namespace, reference.ModuleID, reference.ActorID)
 	_, ok := a._blacklist.Get(cacheKey)
 	// Immediately return to the pool cause we're done with it now regardless.
 	bufPool.Put(bufIface)
 	if ok {
 		err := fmt.Errorf(
-			"actor %s is blacklisted on this server", reference.ActorID())
+			"actor %s is blacklisted on this server", reference.ActorID)
 		serverID, _ := a.getServerState()
-		return NewBlacklistedActivationError(err, serverID)
+		return NewBlacklistedActivationError(err, []string{serverID})
 	}
 
 	return nil
@@ -711,7 +713,7 @@ func (a *activatedActor) invoke(
 
 	if a._closed {
 		return 0, nil, fmt.Errorf(
-			"tried to invoke actor: %s which has already been closed", a._reference.ActorID())
+			"tried to invoke actor: %s which has already been closed", a._reference.ActorID)
 	}
 
 	// Set a._lastInvoke to now so that if the timer function runs after we release the lock it will
