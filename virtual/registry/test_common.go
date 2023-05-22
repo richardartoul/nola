@@ -119,6 +119,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		require.Equal(t, "ns1", activations.References[0].Virtual.Namespace)
 		require.Equal(t, "test-module1", activations.References[0].Virtual.ModuleID)
 		require.Equal(t, "a", activations.References[0].Virtual.ActorID)
+		require.Equal(t, "test-registry-server-id", activations.LeaderServerID)
 	}
 
 	// Reuse the same actor ID, but with a different module. The registry should consider
@@ -136,6 +137,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, "test-module2", activations.References[0].Virtual.ModuleID)
 	require.Equal(t, "a", activations.References[0].Virtual.ActorID)
 	require.True(t, activations.VersionStamp > prevVS)
+	require.Equal(t, "test-registry-server-id", activations.LeaderServerID)
 
 	// Next 10 activations should all go to server2 for balancing purposes.
 	for i := 0; i < 10; i++ {
@@ -148,6 +150,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
 		require.Equal(t, "server2", activations.References[0].Physical.ServerID)
+		require.Equal(t, "test-registry-server-id", activations.LeaderServerID)
 
 		_, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
 			NumActivatedActors: i + 1,
@@ -207,6 +210,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		require.NoError(t, err)
 		require.Equal(t, 1, len(activations.References))
 		require.Equal(t, "server2", activations.References[0].Physical.ServerID)
+		require.Equal(t, "test-registry-server-id", activations.LeaderServerID)
 	}
 }
 

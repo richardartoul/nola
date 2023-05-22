@@ -15,7 +15,7 @@ import (
 
 func TestFDBRegistry(t *testing.T) {
 	registry.TestAllCommon(t, func() registry.Registry {
-		registry, err := NewFoundationDBRegistry("testServerID", "")
+		registry, err := NewFoundationDBRegistry("test-registry-server-id", "")
 		require.NoError(t, err)
 
 		registry.UnsafeWipeAll()
@@ -36,7 +36,7 @@ func testBenchFoundationDBKVGetVersionStamp(
 	// Uncomment to run.
 	t.Skip()
 
-	reg, err := NewFoundationDBRegistry("testServerID", "")
+	reg, err := NewFoundationDBRegistry("test-registry-server-id", "")
 	require.NoError(t, err)
 	require.NoError(t, reg.UnsafeWipeAll())
 

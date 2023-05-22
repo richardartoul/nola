@@ -28,7 +28,7 @@ func TestLeaderRegistry(t *testing.T) {
 			Port:          9093,
 		}}
 
-		reg, err := NewLeaderRegistry(context.Background(), lp, "server1", envOpts)
+		reg, err := NewLeaderRegistry(context.Background(), lp, "test-registry-server-id", envOpts)
 		require.NoError(t, err)
 
 		return reg
