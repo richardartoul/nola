@@ -83,7 +83,9 @@ func NewLeaderRegistry(
 		return nil, fmt.Errorf("NewLeaderRegistry: error creating new virtual environment: %w", err)
 	}
 
-	env.RegisterGoModule(types.NewNamespacedIDNoType(leaderNamespace, leaderModuleName), newLeaderActorModule())
+	env.RegisterGoModule(
+		types.NewNamespacedIDNoType(leaderNamespace, leaderModuleName),
+		newLeaderActorModule(serverID))
 
 	var server *virtual.Server
 	if envOpts.Discovery.DiscoveryType != virtual.DiscoveryTypeLocalHost {
@@ -210,10 +212,13 @@ func (l *leaderRegistry) UnsafeWipeAll() error {
 }
 
 type leaderActorModule struct {
+	serverID string
 }
 
-func newLeaderActorModule() virtual.Module {
-	return &leaderActorModule{}
+func newLeaderActorModule(serverID string) virtual.Module {
+	return &leaderActorModule{
+		serverID: serverID,
+	}
 }
 
 func (m *leaderActorModule) Instantiate(
@@ -222,7 +227,7 @@ func (m *leaderActorModule) Instantiate(
 	payload []byte,
 	host virtual.HostCapabilities,
 ) (virtual.Actor, error) {
-	return newLeaderActor(), nil
+	return newLeaderActor(m.serverID), nil
 }
 
 func (m *leaderActorModule) Close(ctx context.Context) error {
@@ -233,15 +238,17 @@ type leaderActor struct {
 	registry registry.Registry
 }
 
-func newLeaderActor() virtual.ActorBytes {
+func newLeaderActor(serverID string) virtual.ActorBytes {
 	return &leaderActor{
-		registry: localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
-			// Require at least one server to heartbeat three times before allowing any
-			// EnsureActivation() calls to succeed so that new registries get a
-			// complete view of the cluster before making any placement decisions
-			// following a leader transition.
-			MinSuccessiveHeartbeatsBeforeAllowActivations: 4,
-		}),
+		registry: localregistry.NewLocalRegistryWithOptions(
+			serverID,
+			registry.KVRegistryOptions{
+				// Require at least one server to heartbeat three times before allowing any
+				// EnsureActivation() calls to succeed so that new registries get a
+				// complete view of the cluster before making any placement decisions
+				// following a leader transition.
+				MinSuccessiveHeartbeatsBeforeAllowActivations: 4,
+			}),
 	}
 }
 

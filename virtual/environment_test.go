@@ -422,7 +422,7 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 // and that the activation/routing system can accomodate all of this.
 func TestHeartbeatAndSelfHealing(t *testing.T) {
 	var (
-		reg         = localregistry.NewLocalRegistry()
+		reg         = localregistry.NewLocalRegistry("test-server-id")
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
@@ -554,9 +554,11 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 // rebalance actors across the available nodes based on memory usage.
 func TestHeartbeatAndRebalancingWithMemoryGoModule(t *testing.T) {
 	var (
-		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
-			RebalanceMemoryThreshold: 1 << 24,
-		})
+		reg = localregistry.NewLocalRegistryWithOptions(
+			"test-server-id",
+			registry.KVRegistryOptions{
+				RebalanceMemoryThreshold: 1 << 24,
+			})
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
@@ -595,9 +597,11 @@ func TestHeartbeatAndRebalancingWithMemoryGoModule(t *testing.T) {
 // TestHeartbeatAndRebalancingWithMemoryGoModule, but for WASM modules.
 func TestHeartbeatAndRebalancingWithMemoryWASMModule(t *testing.T) {
 	var (
-		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
-			RebalanceMemoryThreshold: 1 << 24,
-		})
+		reg = localregistry.NewLocalRegistryWithOptions(
+			"test-server-id",
+			registry.KVRegistryOptions{
+				RebalanceMemoryThreshold: 1 << 24,
+			})
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
@@ -701,9 +705,11 @@ func testHeartbeatAndRebalancingWithMemory(
 // The test verifies that the actor is replicated across multiple environments in a random manner.
 func TestReplicationRandomGoModule(t *testing.T) {
 	var (
-		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
-			RebalanceMemoryThreshold: 1 << 24,
-		})
+		reg = localregistry.NewLocalRegistryWithOptions(
+			"test-server-id",
+			registry.KVRegistryOptions{
+				RebalanceMemoryThreshold: 1 << 24,
+			})
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
@@ -735,9 +741,11 @@ func TestReplicationRandomGoModule(t *testing.T) {
 
 func TestReplicationRandomWASMModule(t *testing.T) {
 	var (
-		reg = localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
-			RebalanceMemoryThreshold: 1 << 24,
-		})
+		reg = localregistry.NewLocalRegistryWithOptions(
+			"test-server-id",
+			registry.KVRegistryOptions{
+				RebalanceMemoryThreshold: 1 << 24,
+			})
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
@@ -844,7 +852,7 @@ func TestCustomHostFns(t *testing.T) {
 func TestGoModulesRegisterTwice(t *testing.T) {
 	// Create environment and register modules.
 	var (
-		reg         = localregistry.NewLocalRegistry()
+		reg         = localregistry.NewLocalRegistry("test-server-id")
 		moduleStore = newTestModuleStore()
 	)
 	env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsGoByte)
@@ -863,7 +871,7 @@ func TestGoModulesRegisterTwice(t *testing.T) {
 // https://github.com/richardartoul/nola/blob/master/proofs/stateright/activation-cache/README.md
 func TestServerVersionIsHonored(t *testing.T) {
 	var (
-		reg         = localregistry.NewLocalRegistry()
+		reg         = localregistry.NewLocalRegistry("test-server-id")
 		moduleStore = newTestModuleStore()
 		ctx         = context.Background()
 	)
@@ -950,7 +958,7 @@ func runWithDifferentConfigs(
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
 		var (
-			reg         = localregistry.NewLocalRegistry()
+			reg         = localregistry.NewLocalRegistry("test-server-id")
 			moduleStore = newTestModuleStore()
 		)
 		env, err := NewEnvironment(context.Background(), "serverID1", reg, moduleStore, nil, defaultOptsWASM)
@@ -980,7 +988,7 @@ func runWithDifferentConfigs(
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
 		var (
-			reg         = localregistry.NewLocalRegistry()
+			reg         = localregistry.NewLocalRegistry("test-server-id")
 			moduleStore = newTestModuleStore()
 		)
 		defer reg.Close(context.Background())
@@ -1017,7 +1025,7 @@ func runWithDifferentConfigs(
 		opts.GCActorsAfterDurationWithNoInvocations = gcDurationOverride
 
 		var (
-			reg         = localregistry.NewLocalRegistry()
+			reg         = localregistry.NewLocalRegistry("test-server-id")
 			moduleStore = newTestModuleStore()
 		)
 		defer reg.Close(context.Background())
@@ -1078,7 +1086,7 @@ type testModule struct {
 }
 
 func newTestModuleStore() registry.ModuleStore {
-	return localregistry.NewLocalRegistry().(registry.ModuleStore)
+	return localregistry.NewLocalRegistry("test-server-id").(registry.ModuleStore)
 }
 
 func (tm testModule) Instantiate(

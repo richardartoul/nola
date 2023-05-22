@@ -82,10 +82,16 @@ type KVRegistryOptions struct {
 }
 
 // NewKVRegistry creates a new KV-backed registry.
-func NewKVRegistry(kv kv.Store, opts KVRegistryOptions) Registry {
+func NewKVRegistry(
+	serverID string,
+	kv kv.Store,
+	opts KVRegistryOptions,
+) Registry {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
+	opts.Logger = opts.Logger.With(slog.String("server_id", serverID))
+
 	if opts.RebalanceMemoryThreshold <= 0 {
 		opts.RebalanceMemoryThreshold = DefaultRebalanceMemoryThreshold
 	}

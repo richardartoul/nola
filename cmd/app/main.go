@@ -56,12 +56,12 @@ func main() {
 	)
 	switch *registryType {
 	case "memory":
-		reg = localregistry.NewLocalRegistry()
+		reg = localregistry.NewLocalRegistry("test-server-id")
 		// Local registry also implements ModuleStore for convenience.
 		moduleStore = reg.(registry.ModuleStore)
 	case "foundationdb":
 		var err error
-		reg, err = fdbregistry.NewFoundationDBRegistry(*foundationDBClusterFilePath)
+		reg, err = fdbregistry.NewFoundationDBRegistry("test-server-id", *foundationDBClusterFilePath)
 		if err != nil {
 			log.Error("error creating FoundationDB registry", slog.Any("error", err))
 			os.Exit(1)

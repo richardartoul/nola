@@ -35,7 +35,7 @@ func TestFileCacheBenchmark(t *testing.T) {
 		getRangeSize  = 1 << 20
 		fetcher       = newTestFetcher(fileSize, false)
 		cache         = newTestCache()
-		reg           = localregistry.NewLocalRegistry()
+		reg           = localregistry.NewLocalRegistry("test-server-id")
 		moduleStore   = registry.NewNoopModuleStore()
 	)
 	env, err := virtual.NewEnvironment(

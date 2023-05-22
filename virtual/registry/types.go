@@ -135,8 +135,9 @@ type EnsureActivationRequest struct {
 
 // EnsureActivationResult contains the result of invoking the EnsureActivation method.
 type EnsureActivationResult struct {
-	References   []types.ActorReference
-	VersionStamp int64
+	References     []types.ActorReference `json:"references"`
+	VersionStamp   int64                  `json:"versionstamp"`
+	LeaderServerID string                 `json:"leader_server_id"`
 }
 
 // Address is a tuple of net.IP and port so that the implementation can
