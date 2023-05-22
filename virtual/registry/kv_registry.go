@@ -751,10 +751,11 @@ func pickServersForActivation(
 		panic("[invariant violated] pickServerForActivation should not be called with empty slice")
 	}
 
-	// These variables are initialized as boolean values to indicate if the selection
-	// is derived from the cache (fromCache) or from heartbeat messages (fromHeartbeat).
 	var (
-		fromCache, fromHeartbeat bool
+		// These variables are initialized as boolean values to indicate if the selection
+		// is derived from the cache (fromCache) or from heartbeat messages (fromHeartbeat).
+		fromCache     bool
+		fromHeartbeat bool
 	)
 
 	// If the caller told us which server the actor was previously activated on *and* that server
