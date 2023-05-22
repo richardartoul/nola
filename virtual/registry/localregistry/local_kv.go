@@ -15,6 +15,7 @@ import (
 // localKV is an implementation of kv backed by local memory.
 type localKV struct {
 	sync.Mutex
+	t time.Time
 	b *btree.BTreeG[btreeKV]
 	// clone of b for current transaction, if any.
 	trClone *btree.BTreeG[btreeKV]

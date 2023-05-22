@@ -140,6 +140,26 @@ type EnsureActivationResult struct {
 	LeaderServerID string                 `json:"leader_server_id"`
 }
 
+// NewEnsureActivationResult creates a new EnsureActivationResult.
+func NewEnsureActivationResult(
+	references []types.ActorReference,
+	versionStamp int64,
+	leaderServerID string,
+) EnsureActivationResult {
+	if versionStamp == 0 {
+		panic("VersionStamp cant be 0")
+	}
+	if leaderServerID == "" {
+		panic("LeaderServerID cant be empty")
+	}
+
+	return EnsureActivationResult{
+		References:     references,
+		VersionStamp:   versionStamp,
+		LeaderServerID: leaderServerID,
+	}
+}
+
 // Address is a tuple of net.IP and port so that the implementation can
 // be used without assuming every server is running on the same port.
 type Address struct {

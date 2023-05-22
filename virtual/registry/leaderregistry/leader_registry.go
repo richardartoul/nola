@@ -33,8 +33,9 @@ type leaderRegistry struct {
 	// clients/servers manually by implementing the leader as a singleton
 	// virtual actor that runs on whatever host happens to be the elected
 	// leader currently.
-	env    virtual.Environment
-	server *virtual.Server
+	env      virtual.Environment
+	server   *virtual.Server
+	serverID string
 }
 
 // LeaderRegistry creates a new leader-backed registry. The idea with the LeaderRegistry is
@@ -100,8 +101,9 @@ func NewLeaderRegistry(
 	}
 
 	return registry.NewValidatedRegistry(&leaderRegistry{
-		env:    env,
-		server: server,
+		env:      env,
+		server:   server,
+		serverID: serverID,
 	}), nil
 }
 
@@ -128,10 +130,8 @@ func (l *leaderRegistry) EnsureActivation(
 		references = append(references, ref)
 	}
 
-	return registry.EnsureActivationResult{
-		References:   references,
-		VersionStamp: ensureActivationResponse.VersionStamp,
-	}, nil
+	return registry.NewEnsureActivationResult(
+		references, ensureActivationResponse.VersionStamp, l.serverID), nil
 }
 
 func (l *leaderRegistry) GetVersionStamp(
