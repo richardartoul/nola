@@ -143,7 +143,9 @@ func (l *localKV) IterPrefix(
 func (l *localKV) GetVersionStamp() (int64, error) {
 	// Return microseconds since l.t since that will automatically increase at
 	// a rate of ~ 1 million/s just like FDB's versionstamp.
-	return time.Since(l.t).Microseconds(), nil
+	//
+	// Add 1 so we can always treat a versionstamp of 0 as invalid.
+	return time.Since(l.t).Microseconds() + 1, nil
 }
 
 type btreeKV struct {
