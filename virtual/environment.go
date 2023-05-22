@@ -35,9 +35,6 @@ var (
 	// Var so can be modified by tests.
 	defaultActivationsCacheTTL                    = heartbeatTimeout
 	DefaultGCActorsAfterDurationWithNoInvocations = time.Minute
-
-	randEnv = rand.New(rand.NewSource(time.Now().UnixNano()))
-	muRand  = sync.Mutex{}
 )
 
 type environment struct {
@@ -74,6 +71,11 @@ type environment struct {
 	registry registry.Registry
 	client   RemoteClient
 	opts     EnvironmentOptions
+
+	randState struct {
+		sync.Mutex
+		rng *rand.Rand
+	}
 }
 
 const (
@@ -277,6 +279,7 @@ func NewEnvironment(
 		serverID: serverID,
 		opts:     opts,
 	}
+	env.randState.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 	activations := newActivations(
 		opts.Logger, reg, moduleStore, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
 	env.activations = activations
@@ -768,10 +771,11 @@ func (r *environment) invokeReferences(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
-	ref, ok := pickServerForInvocation(references, create)
-	if !ok {
-		return nil, errors.New("failed to pick server")
+	ref, err := r.pickServerForInvocation(references, create)
+	if err != nil {
+		return nil, fmt.Errorf("error picking server for activation: %w", err)
 	}
+
 	if !r.opts.ForceRemoteProcedureCalls {
 		// First check the global localEnvironmentsRouter map for scenarios where we're
 		// potentially trying to communicate between multiple different in-memory
@@ -843,6 +847,20 @@ func (r *environment) isClosed() bool {
 	return r.shutdownState.closed
 }
 
+func (r *environment) pickServerForInvocation(
+	references []types.ActorReference,
+	create types.CreateIfNotExist,
+) (types.ActorReference, error) {
+	// TODO: implement invokation strategies in 'create' e.g. region-based, multi-invoke...
+	if len(references) == 0 {
+		return types.ActorReference{}, fmt.Errorf("no references available")
+	}
+
+	r.randState.Lock()
+	defer r.randState.Unlock()
+	return references[r.randState.rng.Intn(len(references))], nil
+}
+
 func getSelfIP() (net.IP, error) {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -904,15 +922,4 @@ func formatActorCacheKey(
 	dst = append(dst, []byte(moduleID)...)
 	dst = append(dst, []byte(actorID)...)
 	return dst
-}
-
-func pickServerForInvocation(references []types.ActorReference, create types.CreateIfNotExist) (types.ActorReference, bool) {
-	// TODO: implement invokation strategies in 'create' e.g. region-based, multi-invoke...
-	if len(references) == 0 {
-		return types.ActorReference{}, false
-	}
-
-	muRand.Lock()
-	defer muRand.Unlock()
-	return references[randEnv.Intn(len(references))], true
 }
