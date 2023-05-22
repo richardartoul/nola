@@ -135,28 +135,28 @@ type EnsureActivationRequest struct {
 
 // EnsureActivationResult contains the result of invoking the EnsureActivation method.
 type EnsureActivationResult struct {
-	References     []types.ActorReference `json:"references"`
-	VersionStamp   int64                  `json:"versionstamp"`
-	LeaderServerID string                 `json:"leader_server_id"`
+	References       []types.ActorReference `json:"references"`
+	VersionStamp     int64                  `json:"versionstamp"`
+	RegistryServerID string                 `json:"registry_server_id"`
 }
 
 // NewEnsureActivationResult creates a new EnsureActivationResult.
 func NewEnsureActivationResult(
 	references []types.ActorReference,
 	versionStamp int64,
-	leaderServerID string,
+	registryServerID string,
 ) EnsureActivationResult {
 	if versionStamp == 0 {
 		panic("VersionStamp cant be 0")
 	}
-	if leaderServerID == "" {
-		panic("LeaderServerID cant be empty")
+	if registryServerID == "" {
+		panic("RegistryServerID cant be empty")
 	}
 
 	return EnsureActivationResult{
-		References:     references,
-		VersionStamp:   versionStamp,
-		LeaderServerID: leaderServerID,
+		References:       references,
+		VersionStamp:     versionStamp,
+		RegistryServerID: registryServerID,
 	}
 }
 
