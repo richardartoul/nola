@@ -272,6 +272,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			references:           references.References,
 			cachedAt:             time.Now(),
 			registryVersionStamp: references.VersionStamp,
+			registryServerID:     references.RegistryServerID,
 			blacklistedServerIDs: blacklistedServerIDs,
 		}
 
@@ -290,7 +291,15 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			// some registry implementations like dnsregistry (in the current implementation at
 			// least) always return the exact same constant value for the versionstamp so we need
 			// to ensure that the cache will still eventually update in that case.
-			if existingAce.registryVersionStamp > ace.registryVersionStamp {
+			//
+			// Note that we can only retain the version with the highest versionstamp if the
+			// registry server ID has not changed since a registry's versionstamp is only
+			// guaranteed to be monotonically increasing for a given "instantiation". If the
+			// registry server ID is no longer the same, then we must accept the new value to
+			// avoid retaining stale values for extremely long periods of time after regsitry
+			// leader transitions.
+			if existingAce.registryServerID == ace.registryServerID &&
+				existingAce.registryVersionStamp > ace.registryVersionStamp {
 				return existingAce.references, nil
 			}
 		}
@@ -311,5 +320,6 @@ type activationCacheEntry struct {
 	references           []types.ActorReference
 	cachedAt             time.Time
 	registryVersionStamp int64
+	registryServerID     string
 	blacklistedServerIDs []string
 }

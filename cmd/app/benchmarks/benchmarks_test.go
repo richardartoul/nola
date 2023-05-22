@@ -42,17 +42,17 @@ func init() {
 }
 
 func BenchmarkLocalInvokeActor(b *testing.B) {
-	reg := localregistry.NewLocalRegistry()
+	reg := localregistry.NewLocalRegistry("test-server-id")
 	benchmarkInvokeActor(b, reg)
 }
 
 func BenchmarkLocalInvokeWorker(b *testing.B) {
-	reg := localregistry.NewLocalRegistry()
+	reg := localregistry.NewLocalRegistry("test-server-id")
 	benchmarkInvokeWorker(b, reg)
 }
 
 func BenchmarkFoundationDBRegistryInvokeActor(b *testing.B) {
-	reg, err := fdbregistry.NewFoundationDBRegistry("")
+	reg, err := fdbregistry.NewFoundationDBRegistry("test-server-id", "")
 	require.NoError(b, err)
 	require.NoError(b, reg.UnsafeWipeAll())
 
@@ -60,7 +60,7 @@ func BenchmarkFoundationDBRegistryInvokeActor(b *testing.B) {
 }
 
 func BenchmarkFoundationDBRegistryInvokeWorker(b *testing.B) {
-	reg, err := fdbregistry.NewFoundationDBRegistry("")
+	reg, err := fdbregistry.NewFoundationDBRegistry("test-server-id", "")
 	require.NoError(b, err)
 	require.NoError(b, reg.UnsafeWipeAll())
 
@@ -117,7 +117,7 @@ func benchmarkInvokeWorker(b *testing.B, reg registry.Registry) {
 
 func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 	var (
-		reg         = localregistry.NewLocalRegistry()
+		reg         = localregistry.NewLocalRegistry("test-server-id")
 		moduleStore = reg.(registry.ModuleStore)
 	)
 	env, err := virtual.NewEnvironment(
@@ -143,7 +143,7 @@ func BenchmarkLocalCreateThenInvokeActor(b *testing.B) {
 
 func BenchmarkLocalActorToActorCommunication(b *testing.B) {
 	var (
-		reg         = localregistry.NewLocalRegistry()
+		reg         = localregistry.NewLocalRegistry("test-server-id")
 		moduleStore = reg.(registry.ModuleStore)
 	)
 	env, err := virtual.NewEnvironment(
@@ -202,7 +202,7 @@ func testSimpleBench(
 	// Uncomment to run.
 	t.Skip()
 
-	reg, err := fdbregistry.NewFoundationDBRegistry("")
+	reg, err := fdbregistry.NewFoundationDBRegistry("test-server-id", "")
 	require.NoError(t, err)
 	require.NoError(t, reg.UnsafeWipeAll())
 

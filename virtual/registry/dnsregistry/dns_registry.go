@@ -140,10 +140,8 @@ func (d *dnsRegistry) EnsureActivation(
 			"error creating actor reference: %w", err)
 	}
 
-	return registry.EnsureActivationResult{
-		References:   []types.ActorReference{ref},
-		VersionStamp: DNSVersionStamp,
-	}, nil
+	return registry.NewEnsureActivationResult(
+		[]types.ActorReference{ref}, DNSVersionStamp, DNSServerID), nil
 }
 
 func (d *dnsRegistry) GetVersionStamp(

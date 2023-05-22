@@ -8,6 +8,6 @@ import (
 
 func TestLocalRegistry(t *testing.T) {
 	registry.TestAllCommon(t, func() registry.Registry {
-		return NewLocalRegistry()
+		return NewLocalRegistry("test-registry-server-id")
 	})
 }

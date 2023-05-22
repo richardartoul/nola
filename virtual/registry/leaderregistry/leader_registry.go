@@ -33,8 +33,9 @@ type leaderRegistry struct {
 	// clients/servers manually by implementing the leader as a singleton
 	// virtual actor that runs on whatever host happens to be the elected
 	// leader currently.
-	env    virtual.Environment
-	server *virtual.Server
+	env      virtual.Environment
+	server   *virtual.Server
+	serverID string
 }
 
 // LeaderRegistry creates a new leader-backed registry. The idea with the LeaderRegistry is
@@ -83,7 +84,9 @@ func NewLeaderRegistry(
 		return nil, fmt.Errorf("NewLeaderRegistry: error creating new virtual environment: %w", err)
 	}
 
-	env.RegisterGoModule(types.NewNamespacedIDNoType(leaderNamespace, leaderModuleName), newLeaderActorModule())
+	env.RegisterGoModule(
+		types.NewNamespacedIDNoType(leaderNamespace, leaderModuleName),
+		newLeaderActorModule(serverID))
 
 	var server *virtual.Server
 	if envOpts.Discovery.DiscoveryType != virtual.DiscoveryTypeLocalHost {
@@ -98,8 +101,9 @@ func NewLeaderRegistry(
 	}
 
 	return registry.NewValidatedRegistry(&leaderRegistry{
-		env:    env,
-		server: server,
+		env:      env,
+		server:   server,
+		serverID: serverID,
 	}), nil
 }
 
@@ -126,10 +130,8 @@ func (l *leaderRegistry) EnsureActivation(
 		references = append(references, ref)
 	}
 
-	return registry.EnsureActivationResult{
-		References:   references,
-		VersionStamp: ensureActivationResponse.VersionStamp,
-	}, nil
+	return registry.NewEnsureActivationResult(
+		references, ensureActivationResponse.VersionStamp, l.serverID), nil
 }
 
 func (l *leaderRegistry) GetVersionStamp(
@@ -210,10 +212,13 @@ func (l *leaderRegistry) UnsafeWipeAll() error {
 }
 
 type leaderActorModule struct {
+	serverID string
 }
 
-func newLeaderActorModule() virtual.Module {
-	return &leaderActorModule{}
+func newLeaderActorModule(serverID string) virtual.Module {
+	return &leaderActorModule{
+		serverID: serverID,
+	}
 }
 
 func (m *leaderActorModule) Instantiate(
@@ -222,7 +227,7 @@ func (m *leaderActorModule) Instantiate(
 	payload []byte,
 	host virtual.HostCapabilities,
 ) (virtual.Actor, error) {
-	return newLeaderActor(), nil
+	return newLeaderActor(m.serverID), nil
 }
 
 func (m *leaderActorModule) Close(ctx context.Context) error {
@@ -233,15 +238,17 @@ type leaderActor struct {
 	registry registry.Registry
 }
 
-func newLeaderActor() virtual.ActorBytes {
+func newLeaderActor(serverID string) virtual.ActorBytes {
 	return &leaderActor{
-		registry: localregistry.NewLocalRegistryWithOptions(registry.KVRegistryOptions{
-			// Require at least one server to heartbeat three times before allowing any
-			// EnsureActivation() calls to succeed so that new registries get a
-			// complete view of the cluster before making any placement decisions
-			// following a leader transition.
-			MinSuccessiveHeartbeatsBeforeAllowActivations: 4,
-		}),
+		registry: localregistry.NewLocalRegistryWithOptions(
+			serverID,
+			registry.KVRegistryOptions{
+				// Require at least one server to heartbeat three times before allowing any
+				// EnsureActivation() calls to succeed so that new registries get a
+				// complete view of the cluster before making any placement decisions
+				// following a leader transition.
+				MinSuccessiveHeartbeatsBeforeAllowActivations: 4,
+			}),
 	}
 }
 

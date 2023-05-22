@@ -44,6 +44,7 @@ type kvRegistry struct {
 	versionStampBatcher singleflight.Group
 	kv                  kv.Store
 	opts                KVRegistryOptions
+	serverID            string
 }
 
 // KVRegistryOptions contains the options for the KVRegistry.
@@ -82,17 +83,24 @@ type KVRegistryOptions struct {
 }
 
 // NewKVRegistry creates a new KV-backed registry.
-func NewKVRegistry(kv kv.Store, opts KVRegistryOptions) Registry {
+func NewKVRegistry(
+	serverID string,
+	kv kv.Store,
+	opts KVRegistryOptions,
+) Registry {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
+	opts.Logger = opts.Logger.With(slog.String("server_id", serverID))
+
 	if opts.RebalanceMemoryThreshold <= 0 {
 		opts.RebalanceMemoryThreshold = DefaultRebalanceMemoryThreshold
 	}
 
 	return NewValidatedRegistry(&kvRegistry{
-		kv:   kv,
-		opts: opts,
+		kv:       kv,
+		opts:     opts,
+		serverID: serverID,
 	})
 }
 
@@ -253,10 +261,7 @@ func (k *kvRegistry) EnsureActivation(
 
 		// If we already have enough replicas, return the references.
 		if uint64(len(refs)) >= 1+req.ExtraReplicas {
-			return EnsureActivationResult{
-				References:   refs,
-				VersionStamp: vs,
-			}, nil
+			return NewEnsureActivationResult(refs, vs, k.serverID), nil
 		}
 
 		// We need to create a new activation because we don't have the desired number of replicas.
@@ -330,10 +335,7 @@ func (k *kvRegistry) EnsureActivation(
 		}
 		tr.Put(ctx, actorKey, marshaled)
 
-		return EnsureActivationResult{
-			References:   refs,
-			VersionStamp: vs,
-		}, nil
+		return NewEnsureActivationResult(refs, vs, k.serverID), nil
 	})
 	if err != nil {
 		return EnsureActivationResult{}, fmt.Errorf("EnsureActivation: error: %w", err)

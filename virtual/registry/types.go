@@ -135,8 +135,29 @@ type EnsureActivationRequest struct {
 
 // EnsureActivationResult contains the result of invoking the EnsureActivation method.
 type EnsureActivationResult struct {
-	References   []types.ActorReference
-	VersionStamp int64
+	References       []types.ActorReference `json:"references"`
+	VersionStamp     int64                  `json:"versionstamp"`
+	RegistryServerID string                 `json:"registry_server_id"`
+}
+
+// NewEnsureActivationResult creates a new EnsureActivationResult.
+func NewEnsureActivationResult(
+	references []types.ActorReference,
+	versionStamp int64,
+	registryServerID string,
+) EnsureActivationResult {
+	if versionStamp == 0 {
+		panic("VersionStamp cant be 0")
+	}
+	if registryServerID == "" {
+		panic("RegistryServerID cant be empty")
+	}
+
+	return EnsureActivationResult{
+		References:       references,
+		VersionStamp:     versionStamp,
+		RegistryServerID: registryServerID,
+	}
 }
 
 // Address is a tuple of net.IP and port so that the implementation can
