@@ -197,6 +197,78 @@ func TestSurviveLeaderFailure(t *testing.T) {
 	}
 }
 
+// TestSurviveLeaderFailureKillActors is the same as TestSurviveLeaderFailure, except we kill
+// a server that is both the leader *and* running actors and then assert that by the end of the
+// test the actors are live and reachable again.
+func TestSurviveLeaderFailureKillActors(t *testing.T) {
+	lp := &leaderProvider{}
+	lp.setLeader(registry.Address{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: baseRegistryPort,
+	})
+
+	var (
+		server1, reg1, cleanupFn1 = newServer(t, lp, 0)
+		server2, _, cleanupFn2    = newServer(t, lp, 1)
+		server3, _, cleanupFn3    = newServer(t, lp, 2)
+	)
+	defer cleanupFn1()
+	defer cleanupFn2()
+	defer cleanupFn3()
+
+	// Sleep for a few seconds to let the server heartbeat a few times otherwise actor
+	// invocations will fail due to MinSuccessiveHeartbeatsBeforeAllowActivations.
+	time.Sleep(5 * time.Second)
+
+	for i := 0; i < numActors; i++ {
+		_, err := server2.InvokeActor(
+			context.Background(), namespace, actorID(i), module, "keep-alive", nil, types.CreateIfNotExist{})
+		require.NoError(t, err)
+	}
+
+	require.True(t, server1.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
+	require.True(t, server2.NumActivatedActors() == numActors/3 || server2.NumActivatedActors() == numActors/3+1)
+	require.True(t, server3.NumActivatedActors() == numActors/3 || server3.NumActivatedActors() == numActors/3+1)
+
+	require.NoError(t, server1.Close(context.Background()))
+	require.NoError(t, reg1.Close(context.Background()))
+	// Perform the leader transition since server 1 is dead.
+	lp.setLeader(registry.Address{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: baseRegistryPort + 1,
+	})
+
+	start := time.Now()
+	for i := 0; ; i++ {
+		time.Sleep(10 * time.Millisecond)
+
+		for j := 0; j < numActors; j++ {
+			// Errors here are ok because we killed one of the servers.
+			_, err := server2.InvokeActor(
+				context.Background(), namespace, actorID(j), module, "inc-memory-usage", nil, types.CreateIfNotExist{})
+			if err != nil {
+				continue
+			}
+			_, err = server2.InvokeActor(
+				context.Background(), namespace, actorID(j), module, "keep-alive", nil, types.CreateIfNotExist{})
+			if err != nil {
+				continue
+			}
+		}
+
+		if time.Since(start) > time.Minute {
+			// However, once we reach the end of the test we need to ensure that the cluster has restored the
+			// availability of every actor so we don't tolerate errors anymore.
+			for j := 0; j < numActors; j++ {
+				_, err := server2.InvokeActor(
+					context.Background(), namespace, actorID(j), module, "keep-alive", nil, types.CreateIfNotExist{})
+				require.NoError(t, err)
+			}
+			break
+		}
+	}
+}
+
 // TestHandleLeaderTransitionGracefully tests that the implementation handles leader failures gracefully by ensuring
 // we don't relocate any actors in the general case of a leader transition.
 func TestHandleLeaderTransitionGracefully(t *testing.T) {

@@ -300,9 +300,16 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			// leader transitions.
 			if existingAce.registryServerID == ace.registryServerID &&
 				existingAce.registryVersionStamp > ace.registryVersionStamp {
+				a.logger.Warn(
+					"skipping activation cache update due to new entry being more stale than existing",
+					slog.String("existing_registry_server_id", existingAce.registryServerID),
+					slog.String("new_registry_server_id", ace.registryServerID),
+					slog.Int64("existing_registry_version_Stamp", existingAce.registryVersionStamp),
+					slog.Int64("new_registry_version_stamp", ace.registryVersionStamp))
 				return existingAce.references, nil
 			}
 		}
+
 		// Otherwise, the current cache fill was initiated *after* whatever is currently cached
 		// (or nothing is currently cached) therefore its safe to overwrite it.
 		a.c.Set(cacheKey, ace, 1)
