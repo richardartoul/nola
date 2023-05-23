@@ -128,7 +128,7 @@ func (l *leaderRegistry) EnsureActivation(
 	if result.VersionStamp == 0 || result.RegistryServerID == "" {
 		// Basic sanity check we didn't just parse some empty JSON.
 		return registry.EnsureActivationResult{}, fmt.Errorf(
-			"illegal EnsureActivationResult received from leader: %w", err)
+			"illegal EnsureActivationResult received from leader: %v", result)
 	}
 
 	return result, nil
