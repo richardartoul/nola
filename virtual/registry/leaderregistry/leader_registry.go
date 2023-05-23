@@ -99,7 +99,8 @@ func NewLeaderRegistry(
 		go func() {
 			err := server.Start(envOpts.Discovery.Port)
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				slog.Default().Error("error shutting down leader registry virtual environment server")
+				slog.Default().
+					Error(fmt.Sprintf("error shutting down leader registry virtual environment server: %v", err))
 			}
 		}()
 	}
