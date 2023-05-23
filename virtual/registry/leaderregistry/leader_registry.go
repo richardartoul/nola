@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
@@ -12,6 +13,8 @@ import (
 	"github.com/richardartoul/nola/virtual/registry/localregistry"
 	"github.com/richardartoul/nola/virtual/types"
 	"github.com/richardartoul/nola/wapcutils"
+
+	"golang.org/x/exp/slog"
 )
 
 const (
@@ -94,8 +97,9 @@ func NewLeaderRegistry(
 		// a test environment where we don't actually want to physically bind ports.
 		server = virtual.NewServer(registry.NewNoopModuleStore(), env)
 		go func() {
-			if err := server.Start(envOpts.Discovery.Port); err != nil {
-				panic(err)
+			err := server.Start(envOpts.Discovery.Port)
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				slog.Default().Error("error shutting down leader registry virtual environment server")
 			}
 		}()
 	}
