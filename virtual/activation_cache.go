@@ -286,6 +286,7 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			// versionstamp which ensures that we never overwrite the cache with a more
 			// stale result due to async non-determinism.
 			existingAce := existingAceI.(activationCacheEntry)
+			fmt.Println("wtf", actorID, ace.registryServerID, existingAce.registryServerID, ace.registryVersionStamp, existingAce.registryVersionStamp)
 			// Note that it is important that we allow the cache to be overwritten in the
 			// case where existingAce.registryVersionStamp == ace.registryVersionStamp because
 			// some registry implementations like dnsregistry (in the current implementation at

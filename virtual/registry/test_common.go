@@ -77,6 +77,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, "a", activations.References[0].Virtual.ActorID)
 	require.Equal(t, uint64(1), activations.References[0].Virtual.Generation)
 	require.True(t, activations.VersionStamp > 0)
+	require.Equal(t, "test-registry-server-id", activations.RegistryServerID)
 	prevVS := activations.VersionStamp
 
 	activations, err = registry.EnsureActivation(ctx, EnsureActivationRequest{
@@ -92,6 +93,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	require.Equal(t, "test-module1", activations.References[0].Virtual.ModuleID)
 	require.Equal(t, "a", activations.References[0].Virtual.ActorID)
 	require.Equal(t, uint64(1), activations.References[0].Virtual.Generation)
+	require.Equal(t, "test-registry-server-id", activations.RegistryServerID)
 	require.True(t, activations.VersionStamp > prevVS)
 	prevVS = activations.VersionStamp
 

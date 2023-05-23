@@ -116,27 +116,22 @@ func (l *leaderRegistry) EnsureActivation(
 	ctx context.Context,
 	req registry.EnsureActivationRequest,
 ) (registry.EnsureActivationResult, error) {
-	var ensureActivationResponse ensureActivationResponse
+	var result registry.EnsureActivationResult
 	err := l.env.InvokeActorJSON(
 		ctx, leaderNamespace, leaderActorName, leaderModuleName,
-		"ensureActivation", &req, types.CreateIfNotExist{}, &ensureActivationResponse)
+		"ensureActivation", &req, types.CreateIfNotExist{}, &result)
 	if err != nil {
 		return registry.EnsureActivationResult{}, fmt.Errorf(
 			"error invoking ensureActivation on leader: %w", err)
 	}
 
-	references := make([]types.ActorReference, 0, len(ensureActivationResponse.Activations))
-	for _, a := range ensureActivationResponse.Activations {
-		ref, err := types.NewActorReferenceFromJSON(a)
-		if err != nil {
-			return registry.EnsureActivationResult{}, fmt.Errorf(
-				"error unmarshaling actor reference from JSON: %w", err)
-		}
-		references = append(references, ref)
+	if result.VersionStamp == 0 || result.RegistryServerID == "" {
+		// Basic sanity check we didn't just parse some empty JSON.
+		return registry.EnsureActivationResult{}, fmt.Errorf(
+			"illegal EnsureActivationResult received from leader: %w", err)
 	}
 
-	return registry.NewEnsureActivationResult(
-		references, ensureActivationResponse.VersionStamp, l.serverID), nil
+	return result, nil
 }
 
 func (l *leaderRegistry) GetVersionStamp(
@@ -303,18 +298,7 @@ func (a *leaderActor) handleEnsureActivation(
 		return nil, fmt.Errorf("error ensuring activation: %w", err)
 	}
 
-	activations := make([][]byte, 0, len(result.References))
-	for _, a := range result.References {
-		marshaled, err := json.Marshal(a)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling JSON for activation: %w", err)
-		}
-		activations = append(activations, marshaled)
-	}
-	marshaled, err := json.Marshal(&ensureActivationResponse{
-		Activations:  activations,
-		VersionStamp: result.VersionStamp,
-	})
+	marshaled, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling ensureActivation result: %w", err)
 	}
@@ -374,9 +358,4 @@ func (lp *leaderProviderToDNSResolver) LookupIP(host string) ([]registry.Address
 type heartbeatRequest struct {
 	ServerID       string                  `json:"server_id"`
 	HeartbeatState registry.HeartbeatState `json:"heartbeat_state"`
-}
-
-type ensureActivationResponse struct {
-	Activations  [][]byte
-	VersionStamp int64
 }
