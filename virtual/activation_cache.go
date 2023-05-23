@@ -286,7 +286,6 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			// versionstamp which ensures that we never overwrite the cache with a more
 			// stale result due to async non-determinism.
 			existingAce := existingAceI.(activationCacheEntry)
-			fmt.Println("wtf", actorID, ace.registryServerID, existingAce.registryServerID, ace.registryVersionStamp, existingAce.registryVersionStamp)
 			// Note that it is important that we allow the cache to be overwritten in the
 			// case where existingAce.registryVersionStamp == ace.registryVersionStamp because
 			// some registry implementations like dnsregistry (in the current implementation at
@@ -301,9 +300,16 @@ func (a *activationsCache) ensureActivationAndUpdateCache(
 			// leader transitions.
 			if existingAce.registryServerID == ace.registryServerID &&
 				existingAce.registryVersionStamp > ace.registryVersionStamp {
+				a.logger.Warn(
+					"skipping activation cache update due to new entry being more stale than existing",
+					slog.String("existing_registry_server_id", existingAce.registryServerID),
+					slog.String("new_registry_server_id", ace.registryServerID),
+					slog.Int64("existing_registry_version_Stamp", existingAce.registryVersionStamp),
+					slog.Int64("new_registry_version_stamp", ace.registryVersionStamp))
 				return existingAce.references, nil
 			}
 		}
+
 		// Otherwise, the current cache fill was initiated *after* whatever is currently cached
 		// (or nothing is currently cached) therefore its safe to overwrite it.
 		a.c.Set(cacheKey, ace, 1)
