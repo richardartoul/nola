@@ -39,7 +39,7 @@ type ActorOptions struct {
 	// Possible values are:
 	// - "retry_never": The invocation will not be retried.
 	// - "retry_if_replica_available": The invocation will be retried on other available replicas.
-	RetryPolicy string `json:"retry_policy"`
+	RetryPolicy RetryPolicy `json:"retry_policy"`
 }
 
 // RetryPolicy defines the retry policies for actor invocations.
