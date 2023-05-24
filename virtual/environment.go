@@ -485,12 +485,13 @@ func (r *environment) invokeActorStreamHelper(
 	}
 
 	idx, resp, err := r.invokeReferences(ctx, vs, references, operation, payload, create)
-	// If there is an error and it's not that the server is blacklisted, then retry.
-	// If it's an error because of blacklisting, then let the error propagate,
-	// because that logic handles the main InvokeActor function.
+	// If there is an error and it's not due to server blacklisting, retry the invocation.
+	// If the error is due to blacklisting, let the error propagate as it will be handled
+	// by the main InvokeActor function.
 	if err != nil && !IsBlacklistedActivationError(err) {
 		switch policy := create.Options.RetryPolicy; policy {
 		case types.RetryIfReplicaAvailable:
+			// Retry the invocation if the retry policy allows it and there are more than one reference available.
 			if len(references) > 1 {
 				references = removeItem(references, idx)
 				_, resp, err = r.invokeReferences(ctx, vs, references, operation, payload, create)

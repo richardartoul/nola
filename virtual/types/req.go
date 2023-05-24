@@ -42,9 +42,13 @@ type ActorOptions struct {
 	RetryPolicy string `json:"retry_policy"`
 }
 
+// RetryPolicy defines the retry policies for actor invocations.
 type RetryPolicy string
 
 const (
-	RetryIfReplicaAvailable = "if_replica_available"
-	RetryNever              = "never"
+	// RetryIfReplicaAvailable specifies that an invocation should be retried on other available replicas if it fails.
+	RetryIfReplicaAvailable RetryPolicy = "if_replica_available"
+
+	// RetryNever specifies that an invocation should not be retried.
+	RetryNever RetryPolicy = "never"
 )
