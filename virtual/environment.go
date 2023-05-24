@@ -484,7 +484,24 @@ func (r *environment) invokeActorStreamHelper(
 			"ensureActivation() success with 0 references for actor ID: %s", actorID)
 	}
 
-	return r.invokeReferences(ctx, vs, references, operation, payload, create)
+	idx, resp, err := r.invokeReferences(ctx, vs, references, operation, payload, create)
+	// If there is an error and it's not that the server is blacklisted, then retry.
+	// If it's an error because of blacklisting, then let the error propagate,
+	// because that logic handles the main InvokeActor function.
+	if err != nil && !IsBlacklistedActivationError(err) {
+		switch policy := create.Options.RetryPolicy; policy {
+		case types.RetryIfReplicaAvailable:
+			if len(references) > 1 {
+				references = removeItem(references, idx)
+				_, resp, err = r.invokeReferences(ctx, vs, references, operation, payload, create)
+			}
+		case types.RetryNever:
+			fallthrough
+		case "":
+			// Do nothing, so that the error is propagated without a retry.
+		}
+	}
+	return resp, err
 }
 
 func (r *environment) InvokeActorDirect(
@@ -763,6 +780,10 @@ var (
 	localEnvironmentsRouterLock sync.RWMutex
 )
 
+// invokeReferences invokes the specified operation on the given references.
+// It selects a server for invocation based on the provided references and the create flag.
+// The method returns the index of the reference that was invoked, the response as an io.ReadCloser,
+// and an error if any occurred during the invocation process.
 func (r *environment) invokeReferences(
 	ctx context.Context,
 	versionStamp int64,
@@ -770,10 +791,10 @@ func (r *environment) invokeReferences(
 	operation string,
 	payload []byte,
 	create types.CreateIfNotExist,
-) (io.ReadCloser, error) {
-	ref, err := r.pickServerForInvocation(references, create)
+) (int, io.ReadCloser, error) {
+	ref, idx, err := r.pickServerForInvocation(references, create)
 	if err != nil {
-		return nil, fmt.Errorf("error picking server for activation: %w", err)
+		return idx, nil, fmt.Errorf("error picking server for activation: %w", err)
 	}
 
 	if !r.opts.ForceRemoteProcedureCalls {
@@ -784,9 +805,10 @@ func (r *environment) invokeReferences(
 		localEnv, ok := localEnvironmentsRouter[ref.Physical.ServerState.Address]
 		localEnvironmentsRouterLock.RUnlock()
 		if ok {
-			return localEnv.InvokeActorDirectStream(
+			resp, err := localEnv.InvokeActorDirectStream(
 				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
 				operation, payload, create)
+			return idx, resp, err
 		}
 
 		// Separately, if the registry returned an address that looks like localhost for any
@@ -806,13 +828,15 @@ func (r *environment) invokeReferences(
 		// thus ensure that tests can be written without having to also ensure that a NOLA
 		// server is running on the appropriate port, among other things.
 		if ref.Physical.ServerState.Address == Localhost || ref.Physical.ServerState.Address == dnsregistry.Localhost {
-			return localEnv.InvokeActorDirectStream(
+			resp, err := localEnv.InvokeActorDirectStream(
 				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
 				operation, payload, create)
+			return idx, resp, err
 		}
 	}
 
-	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
+	resp, err := r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
+	return idx, resp, err
 }
 
 func (r *environment) freezeHeartbeatState() {
@@ -850,15 +874,16 @@ func (r *environment) isClosed() bool {
 func (r *environment) pickServerForInvocation(
 	references []types.ActorReference,
 	create types.CreateIfNotExist,
-) (types.ActorReference, error) {
+) (types.ActorReference, int, error) {
 	// TODO: implement invokation strategies in 'create' e.g. region-based, multi-invoke...
 	if len(references) == 0 {
-		return types.ActorReference{}, fmt.Errorf("no references available")
+		return types.ActorReference{}, 0, fmt.Errorf("no references available")
 	}
 
 	r.randState.Lock()
 	defer r.randState.Unlock()
-	return references[r.randState.rng.Intn(len(references))], nil
+	idx := r.randState.rng.Intn(len(references))
+	return references[idx], idx, nil
 }
 
 func getSelfIP() (net.IP, error) {
@@ -922,4 +947,9 @@ func formatActorCacheKey(
 	dst = append(dst, []byte(moduleID)...)
 	dst = append(dst, []byte(actorID)...)
 	return dst
+}
+
+// removeItem removes the item at the specified index from the slice.
+func removeItem[T any](slice []T, index int) []T {
+	return append(slice[:index], slice[index+1:]...)
 }

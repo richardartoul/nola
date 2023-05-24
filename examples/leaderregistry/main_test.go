@@ -350,6 +350,70 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 	}
 }
 
+// TestSurviveReplicaFailure tests high availability and fault tolerance in the event of a server failure.
+// It validates that actor invocations can still succeed despite the loss of a server replica.
+// The test spawns actors with multiple replicas, simulates a server failure by killing one of the servers,
+// and ensures that requests continue to succeed.
+//
+// Test Steps:
+// 1. Spawn actors with multiple replicas.
+// 2. Simulate a server failure by killing one of the servers.
+// 3. Validate that requests can still succeed if we set a retry policy that retries on replicas.
+// 4. Validate that all requests fail if we set a retry policy that never retries.
+//
+// This test provides insights into the system's resilience, identifies areas for optimization, and ensures comprehensive coverage
+// of server failure scenarios and request handling.
+func TestSurviveReplicaFailure(t *testing.T) {
+	lp := &leaderProvider{}
+	lp.setLeader(registry.Address{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: baseRegistryPort,
+	})
+
+	var (
+		server1, _, cleanupFn1 = newServer(t, lp, 0)
+		server2, _, cleanupFn2 = newServer(t, lp, 1)
+		server3, _, cleanupFn3 = newServer(t, lp, 2)
+	)
+	defer cleanupFn1()
+	defer cleanupFn2()
+	defer cleanupFn3()
+
+	// Sleep for a few seconds to let the servers heartbeat multiple times,
+	// allowing actor invocations to succeed.
+	time.Sleep(5 * time.Second)
+
+	options := types.CreateIfNotExist{Options: types.ActorOptions{
+		ExtraReplicas: 2,
+	}}
+	require.Eventually(t, func() bool {
+		_, err := server1.InvokeActor(
+			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
+		require.NoError(t, err)
+		return server1.NumActivatedActors()+server2.NumActivatedActors()+server3.NumActivatedActors() == 3
+	}, 5*time.Second, time.Microsecond, "actor is not replicated")
+
+	// Close one of the servers to trigger invocation failures and test the retry policy.
+	server3.Close(context.Background())
+
+	// Set the RetryNever policy, so we expect the actor invocation to eventually fail.
+	options.Options.RetryPolicy = types.RetryNever
+	require.Eventually(t, func() bool {
+		_, err := server1.InvokeActor(
+			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
+		return err != nil
+	}, time.Second, time.Microsecond, "actor should eventually fail to invoke, because it never retries.")
+
+	// Set the RetryIfReplicaAvailable policy, so we expect the actor invocation to never fail.
+	options.Options.RetryPolicy = types.RetryIfReplicaAvailable
+	options.Options.ExtraReplicas = 2
+	require.Never(t, func() bool {
+		_, err := server1.InvokeActor(
+			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
+		return err != nil
+	}, time.Second, time.Microsecond, "actor should never fail to invoke, because it retries on replicas.")
+}
+
 func newServer(
 	t *testing.T,
 	lp leaderregistry.LeaderProvider,

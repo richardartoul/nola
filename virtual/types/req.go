@@ -34,4 +34,17 @@ type ActorOptions struct {
 	// that should be created during actor activation.
 	// The value of ExtraReplicas should be a non-negative integer.
 	ExtraReplicas uint64 `json:"extra_replicas"`
+	// RetryPolicy specifies the retry policy for actor invocations.
+	// It defines the behavior when an invocation fails.
+	// Possible values are:
+	// - "retry_never": The invocation will not be retried.
+	// - "retry_if_replica_available": The invocation will be retried on other available replicas.
+	RetryPolicy string `json:"retry_policy"`
 }
+
+type RetryPolicy string
+
+const (
+	RetryIfReplicaAvailable = "if_replica_available"
+	RetryNever              = "never"
+)
