@@ -298,8 +298,6 @@ func testRegistryReplication(t *testing.T, registry Registry) {
 // the server is blacklisted or goes down. It assumes that if activations are persisted, the EnsureActivation function will consistently return
 // the same reference, unless exceptional circumstances such as server blacklisting or failure occur, which are not expected during the test.
 func testEnsureActivationPersistence(t *testing.T, registry Registry) {
-	const testDuration = 5 * time.Second
-
 	ctx, cc := context.WithCancel(context.Background())
 	defer cc()
 	defer registry.Close(ctx)
