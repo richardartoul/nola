@@ -373,8 +373,6 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 		server1, _, cleanupFn1 = newServer(t, lp, 0)
 		server2, _, cleanupFn2 = newServer(t, lp, 1)
 		server3, _, cleanupFn3 = newServer(t, lp, 2)
-		wg                     sync.WaitGroup // It is necessary because require.Never is not synchronous,
-		// and we need to wait until it finishes to avoid data races and ensure proper closure of services.
 	)
 	defer cleanupFn1()
 	defer cleanupFn2()
@@ -420,25 +418,19 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 	// Set the MaxNumRetries set to 1, which allows for one retry attempt.
 	// We expect the actor invocation to be retried once on other available replicas and succeed without any failures.
 	options.Options.RetryPolicy.MaxNumRetries = 1
-	require.Never(t, func() bool {
-		wg.Add(1)
-		defer wg.Done()
+	for i := 0; i < 10; i++ {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
-		return err != nil
-	}, time.Second, time.Microsecond, "actor should never fail to invoke with enough retries and alive replicas.")
-	wg.Wait()
+		require.NoError(t, err, "actor should never fail to invoke with enough retries and alive replicas.")
+	}
 
 	// Test that if we set the timeout to an extremely low value, the actor invocation never succeeds.
 	options.Options.RetryPolicy.PerAttemptTimeout = time.Nanosecond
-	require.Never(t, func() bool {
-		wg.Add(1)
-		defer wg.Done()
+	for i := 0; i < 10; i++ {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
-		return err == nil
-	}, time.Second, time.Microsecond, "actor invocation should never succeed with extremely low timeout.")
-	wg.Wait()
+		require.Error(t, err, "actor invocation should never succeed with extremely low timeout.")
+	}
 }
 
 // TestSurviveReplicaFailureWithSortedStrategy tests the ability to survive replica failure with a sorted strategy (biased towards a single replica).
@@ -467,8 +459,6 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 		server1, _, cleanupFn1 = newServer(t, lp, 0)
 		server2, _, cleanupFn2 = newServer(t, lp, 1)
 		server3, _, cleanupFn3 = newServer(t, lp, 2)
-		wg                     sync.WaitGroup // It is necessary because require.Never is not synchronous,
-		// and we need to wait until it finishes to avoid data races and ensure proper closure of services.
 	)
 	defer cleanupFn1()
 	defer cleanupFn2()
@@ -499,9 +489,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	}, 5*time.Second, time.Microsecond, "actor should be replicated on one server.")
 
 	// Ensure that the actor is replicated only on the server that is biased towards.
-	require.Never(t, func() bool {
-		wg.Add(1)
-		defer wg.Done()
+	for i := 0; i < 10; i++ {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		require.NoError(t, err)
@@ -509,9 +497,8 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 		// Check if the total number of activated actors in the biased server is never greater than 1,
 		// indicating that the actor has successfully activated one replica on a server.
 		numActivatedActors := server1.NumActivatedActors() + server2.NumActivatedActors() + server3.NumActivatedActors()
-		return numActivatedActors > 1
-	}, time.Second, time.Microsecond, "actor should only be replicated on the biased server.")
-	wg.Wait()
+		require.LessOrEqual(t, numActivatedActors, 1, "actor should only be replicated on the biased server.")
+	}
 
 	// Select a biased server and a non-biased server.
 	// The biased server is used to simulate a replica failure by closing it, while the non-biased server is used for performing invocations.
@@ -544,27 +531,19 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	// Set the MaxNumRetries set to 1, which allows for one retry attempt.
 	// We expect the actor invocation to be retried once on other available replicas and succeed without any failures.
 	options.Options.RetryPolicy.MaxNumRetries = 1
-	// We copy the options to avoid data race conditions. There is a possibility of encountering a race
-	// if the options are being read while they are simultaneously being updated or written in the following lines. This is because the last execution of Never is not sycnrhonous.
-	require.Never(t, func() bool {
-		wg.Add(1)
-		defer wg.Done()
+	for i := 0; i < 10; i++ {
 		_, err := nonBiasedServer.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
-		return err != nil
-	}, time.Second, time.Microsecond, "actor should never fail to invoke with enough retries and alive replicas.")
-	wg.Wait()
+		require.NoError(t, err, "actor should never fail to invoke with enough retries and alive replicas.")
+	}
 
 	// Test that if we set the timeout to an extremely low value, the actor invocation never succeeds.
 	options.Options.RetryPolicy.PerAttemptTimeout = time.Nanosecond
-	require.Never(t, func() bool {
-		wg.Add(1)
-		defer wg.Done()
+	for i := 0; i < 10; i++ {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
-		return err == nil
-	}, time.Second, time.Microsecond, "actor invocation should never succeed with extremely low timeout.")
-	wg.Wait()
+		require.Error(t, err, "actor invocation should never succeed with extremely low timeout.")
+	}
 }
 
 func newServer(

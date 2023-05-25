@@ -3,7 +3,6 @@ package registry
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -350,13 +349,8 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		}
 	}()
 
-	var wg sync.WaitGroup // It is necessary because require.Never is not synchronous,
-	// and we need to wait until it finishes to avoid data races and ensure proper closure of services.
-
 	var ref types.ActorReference
-	require.Never(t, func() bool {
-		wg.Add(1)
-		defer wg.Done()
+	for i := 0; i < 10; i++ {
 		activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
 			Namespace: "ns1",
 			ActorID:   "a",
@@ -366,7 +360,6 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		require.Equal(t, 1, len(activations.References))
 		differentActivation := !(ref == types.ActorReference{} || ref == activations.References[0])
 		ref = activations.References[0]
-		return differentActivation
-	}, testDuration, time.Microsecond, "actor has been activated in more than one server")
-	wg.Wait()
+		require.False(t, differentActivation, "actor has been activated in more than one server.")
+	}
 }
