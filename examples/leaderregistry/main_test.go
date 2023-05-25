@@ -401,7 +401,7 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 		// so that across all servers is equal to 3, indicating that each server
 		// has successfully activated one replica of the actor.
 		return server1.NumActivatedActors() == 1 && server2.NumActivatedActors() == 1 && server3.NumActivatedActors() == 1
-	}, 10*time.Second, time.Microsecond, "actor should be eventually replicated in all replicas.")
+	}, 10*time.Second, time.Microsecond, "actor should be eventually be replicated in all replicas.")
 
 	// Close one of the servers to trigger invocation failures and test the retry policy.
 	server3.Close(context.Background())
@@ -430,7 +430,7 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err == nil
-	}, time.Second, time.Microsecond, "actor invocation should never succeed with extremely low timeout")
+	}, time.Second, time.Microsecond, "actor invocation should never succeed with extremely low timeout.")
 }
 
 // TestSurviveReplicaFailureWithSortedStrategy tests the ability to survive replica failure with a sorted strategy (biased towards a single replica).
@@ -486,7 +486,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 		// indicating that the actor has successfully activated one replica on a server.
 		numActivatedActors := server1.NumActivatedActors() + server2.NumActivatedActors() + server3.NumActivatedActors()
 		return numActivatedActors == 1
-	}, 5*time.Second, time.Microsecond, "actor should only be replicated on the biased server")
+	}, 5*time.Second, time.Microsecond, "actor should be replicated on one server.")
 
 	// Ensure that the actor is replicated only on the server that is biased towards.
 	require.Never(t, func() bool {
@@ -498,7 +498,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 		// indicating that the actor has successfully activated one replica on a server.
 		numActivatedActors := server1.NumActivatedActors() + server2.NumActivatedActors() + server3.NumActivatedActors()
 		return numActivatedActors > 1
-	}, 5*time.Second, time.Microsecond, "actor should only be replicated on the biased server")
+	}, 5*time.Second, time.Microsecond, "actor should only be replicated on the biased server.")
 
 	// Select a biased server and a non-biased server.
 	// The biased server is used to simulate a replica failure by closing it, while the non-biased server is used for performing invocations.
@@ -523,7 +523,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	options.Options.RetryPolicy.MaxNumRetries = 0
 	_, err := nonBiasedServer.InvokeActor(
 		context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
-	require.Error(t, err, "actor invocation should fail with RetryNever policy")
+	require.Error(t, err, "actor invocation should fail in the first attempt, with no retries and biased server down.")
 
 	// Set the MaxNumRetries set to 1, which allows for one retry attempt.
 	// We expect the actor invocation to be retried once on other available replicas and succeed without any failures.
@@ -532,7 +532,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 		_, err := nonBiasedServer.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err != nil
-	}, time.Second, time.Microsecond, "actor invocation should never fail with RetryIfReplicaAvailable policy")
+	}, time.Second, time.Microsecond, "actor should never fail to invoke with enough retries and alive replicas.")
 
 	// Test that if we set the timeout to an extremely low value, the actor invocation never succeeds.
 	options.Options.RetryPolicy.PerAttemptTimeout = time.Nanosecond
@@ -540,7 +540,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err == nil
-	}, time.Second, time.Microsecond, "actor invocation should never succeed with RetryIfReplicaAvailable policy")
+	}, time.Second, time.Microsecond, "actor invocation should never succeed with extremely low timeout.")
 }
 
 func newServer(
