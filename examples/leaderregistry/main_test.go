@@ -74,8 +74,8 @@ func TestMemoryBalancing(t *testing.T) {
 	}
 
 	require.True(t, server1.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
-	require.True(t, server2.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
-	require.True(t, server3.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
+	require.True(t, server2.NumActivatedActors() == numActors/3 || server2.NumActivatedActors() == numActors/3+1)
+	require.True(t, server3.NumActivatedActors() == numActors/3 || server3.NumActivatedActors() == numActors/3+1)
 
 	// Now, make one of the processes use way more memory than the others.
 	for i := 0; ; i++ {
@@ -248,8 +248,8 @@ func TestSurviveLeaderFailureKillActors(t *testing.T) {
 	}
 
 	require.True(t, server1.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
-	require.True(t, server2.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
-	require.True(t, server3.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
+	require.True(t, server2.NumActivatedActors() == numActors/3 || server2.NumActivatedActors() == numActors/3+1)
+	require.True(t, server3.NumActivatedActors() == numActors/3 || server3.NumActivatedActors() == numActors/3+1)
 
 	require.NoError(t, server1.Close(context.Background()))
 	require.NoError(t, reg1.Close(context.Background()))
