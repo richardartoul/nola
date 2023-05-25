@@ -350,16 +350,18 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 	}
 }
 
-// TestSurviveReplicaFailureWithRandomStrategy tests high availability and fault tolerance in the event of a server failure
-// using the replica selection strategy of "random". It validates that actor invocations can still succeed despite the loss of a server replica.
-// The test spawns actors with multiple replicas, simulates a server failure by killing one of the servers,
-// and ensures that requests continue to succeed with the specified retry policy.
+// TestSurviveReplicaFailureWithRandomStrategy tests the ability to survive replica failure using the random strategy.
+// It validates that actor invocations can still succeed despite the loss of a server replica when using the random replica selection strategy.
+// The test spawns actors with multiple replicas, simulates a server failure by closing one of the servers,
+// and ensures that requests can still succeed using the retry policy.
 //
 // Test Steps:
-// 1. Spawn actors with multiple replicas.
-// 2. Simulate a server failure by closing one of the servers.
-// 3. Validate that requests can still succeed if the retry policy is set to "RetryIfReplicaAvailable".
-// 4. Validate that all requests fail if the retry policy is set to "RetryNever".
+// 1. Spawn actors with multiple replicas using the random replica selection strategy.
+// 2. Ensure that the desired replication is achieved by repeatedly invoking the same actor creation operation.
+// 3. Simulate a server failure by closing one of the servers.
+// 4. Set the MaxNumRetries to 0 and verify that the actor invocation fails eventually.
+// 5. Set the MaxNumRetries to 1 and verify that the actor invocation is retried once on other available replicas and succeeds.
+// 6. Test the behavior when the per-attempt timeout is set to an extremely low value.
 func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 	lp := &leaderProvider{}
 	lp.setLeader(registry.Address{
@@ -381,10 +383,8 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	options := types.CreateIfNotExist{Options: types.ActorOptions{
-		ExtraReplicas: 2,
-		RetryPolicy: types.RetryPolicy{
-			Strategy: types.ReplicaSelectionStrategyRandom,
-		},
+		ExtraReplicas:       2,
+		ReplicationStrategy: types.ReplicaSelectionStrategyRandom,
 	}}
 
 	// Use the require.Eventually function to repeatedly invoke the same actor creation operation
@@ -398,7 +398,7 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 		// so that across all servers is equal to 3, indicating that each server
 		// has successfully activated one replica of the actor.
 		return server1.NumActivatedActors() == 1 && server2.NumActivatedActors() == 1 && server3.NumActivatedActors() == 1
-	}, 10*time.Second, time.Microsecond, "actor is not replicated")
+	}, 10*time.Second, time.Microsecond, "actor should be eventually replicated in all replicas.")
 
 	// Close one of the servers to trigger invocation failures and test the retry policy.
 	server3.Close(context.Background())
@@ -410,7 +410,7 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err != nil
-	}, time.Second, time.Microsecond, "actor should eventually fail to invoke, because it never retries.")
+	}, time.Second, time.Microsecond, "actor should eventually fail to invoke, with no retries and one of the replicas down.")
 
 	// Set the MaxNumRetries set to 1, which allows for one retry attempt.
 	// We expect the actor invocation to be retried once on other available replicas and succeed without any failures.
@@ -419,16 +419,32 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err != nil
-	}, time.Second, time.Microsecond, "actor should never fail to invoke, because it retries on replicas.")
+	}, time.Second, time.Microsecond, "actor should never fail to invoke with enough retries and alive replicas.")
 
+	// Test that if we set the timeout to an extremely low value, the actor invocation never succeeds.
 	options.Options.RetryPolicy.PerAttemptTimeout = time.Nanosecond
 	require.Never(t, func() bool {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err == nil
-	}, time.Second, time.Microsecond, "actor invocation should never fail with RetryIfReplicaAvailable policy")
+	}, time.Second, time.Microsecond, "actor invocation should never succeed with extremely low timeout")
 }
 
+// TestSurviveReplicaFailureWithSortedStrategy tests the ability to survive replica failure with a sorted strategy (biased towards a single replica).
+// It validates that the actor can handle replica failures and still maintain high availability.
+// The test creates an actor with multiple replicas, ensures that the actor is replicated only on the server that is biased towards,
+// simulates a server failure by closing the biased server, and verifies the behavior of different retry policies.
+//
+// Test Steps:
+// 1. Create multiple server instances.
+// 2. Sleep for a few seconds to let the servers heartbeat multiple times, allowing actor invocations to succeed.
+// 3. Create an actor with extra replicas and a sorted replication strategy.
+// 4. Ensure that the actor is replicated only on one of the servers that is biased towards.
+// 5. Select a biased server and a non-biased server. The biased server is used to close it, and the non-biased server is used for performing invocations.
+// 6. Close the server that the replication is biased towards.
+// 7. Set the MaxNumRetries to 0 and verify that the actor invocation fails without retries.
+// 8. Set the MaxNumRetries to 1 and verify that the actor invocation is retried once on other available replicas and succeeds.
+// 9. Test that if we set the PerAttemptTimeout to an extremely low value, the actor invocation never succeeds.
 func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	lp := &leaderProvider{}
 	lp.setLeader(registry.Address{
@@ -450,11 +466,21 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	options := types.CreateIfNotExist{Options: types.ActorOptions{
-		ExtraReplicas: 2,
-		RetryPolicy: types.RetryPolicy{
-			Strategy: types.ReplicaSelectionStrategySorted,
-		},
+		ExtraReplicas:       2,
+		ReplicationStrategy: types.ReplicaSelectionStrategySorted,
 	}}
+
+	// Ensure that the actor is replicated on one of the servers.
+	require.Eventually(t, func() bool {
+		_, err := server1.InvokeActor(
+			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
+		require.NoError(t, err)
+
+		// Check if the total number of activated actors in the biased server is never greater than 1,
+		// indicating that the actor has successfully activated one replica on a server.
+		numActivatedActors := server1.NumActivatedActors() + server2.NumActivatedActors() + server3.NumActivatedActors()
+		return numActivatedActors == 1
+	}, 5*time.Second, time.Microsecond, "actor should only be replicated on the biased server")
 
 	// Ensure that the actor is replicated only on the server that is biased towards.
 	require.Never(t, func() bool {
@@ -468,23 +494,28 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 		return numActivatedActors > 1
 	}, 5*time.Second, time.Microsecond, "actor should only be replicated on the biased server")
 
-	// Select the server that has the actor activated.
-	var server virtual.Environment
+	// Select a biased server and a non-biased server.
+	// The biased server is used to simulate a replica failure by closing it, while the non-biased server is used for performing invocations.
+	// We choose the non-biased server for invocations because it is expected to remain available, allowing us to test the retry behavior and resilience.
+	var biasedServer, nonBiasedServer virtual.Environment
 	if server1.NumActivatedActors() > 0 {
-		server = server1
+		biasedServer = server1
+		nonBiasedServer = server2
 	} else if server2.NumActivatedActors() > 0 {
-		server = server2
+		biasedServer = server2
+		nonBiasedServer = server3
 	} else {
-		server = server3
+		biasedServer = server3
+		nonBiasedServer = server1
 	}
 
 	// Close the server that the replication is biased towards.
-	server.Close(context.Background())
+	biasedServer.Close(context.Background())
 
 	// Set the MaxNumRetries to 0, which means no retries will be attempted.
-	// We expect the actor invocation to fail without any retry attempts.
+	// We expect the actor invocation to fail without any retry attempts, because it will try to invoke on the biased actor.
 	options.Options.RetryPolicy.MaxNumRetries = 0
-	_, err := server1.InvokeActor(
+	_, err := nonBiasedServer.InvokeActor(
 		context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 	require.Error(t, err, "actor invocation should fail with RetryNever policy")
 
@@ -492,17 +523,18 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	// We expect the actor invocation to be retried once on other available replicas and succeed without any failures.
 	options.Options.RetryPolicy.MaxNumRetries = 1
 	require.Never(t, func() bool {
-		_, err := server1.InvokeActor(
+		_, err := nonBiasedServer.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err != nil
 	}, time.Second, time.Microsecond, "actor invocation should never fail with RetryIfReplicaAvailable policy")
 
+	// Test that if we set the timeout to an extremely low value, the actor invocation never succeeds.
 	options.Options.RetryPolicy.PerAttemptTimeout = time.Nanosecond
 	require.Never(t, func() bool {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err == nil
-	}, time.Second, time.Microsecond, "actor invocation should never fail with RetryIfReplicaAvailable policy")
+	}, time.Second, time.Microsecond, "actor invocation should never succeed with RetryIfReplicaAvailable policy")
 }
 
 func newServer(

@@ -902,7 +902,7 @@ func (r *environment) pickServerForInvocation(
 		return types.ActorReference{}, 0, fmt.Errorf("no references available")
 	}
 
-	switch create.Options.RetryPolicy.Strategy {
+	switch create.Options.ReplicationStrategy {
 	case types.ReplicaSelectionStrategySorted:
 		// Sort the references slice based on the server ID in descending order.
 		// This way, the retry selection is biased towards the replica with the highest server ID over time.
