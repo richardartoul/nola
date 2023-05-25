@@ -356,6 +356,7 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 	var ref types.ActorReference
 	require.Never(t, func() bool {
 		wg.Add(1)
+		defer wg.Done()
 		activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
 			Namespace: "ns1",
 			ActorID:   "a",

@@ -422,6 +422,7 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 	options.Options.RetryPolicy.MaxNumRetries = 1
 	require.Never(t, func() bool {
 		wg.Add(1)
+		defer wg.Done()
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err != nil
@@ -432,6 +433,7 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 	options.Options.RetryPolicy.PerAttemptTimeout = time.Nanosecond
 	require.Never(t, func() bool {
 		wg.Add(1)
+		defer wg.Done()
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err == nil
@@ -499,6 +501,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	// Ensure that the actor is replicated only on the server that is biased towards.
 	require.Never(t, func() bool {
 		wg.Add(1)
+		defer wg.Done()
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		require.NoError(t, err)
@@ -545,6 +548,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	// if the options are being read while they are simultaneously being updated or written in the following lines. This is because the last execution of Never is not sycnrhonous.
 	require.Never(t, func() bool {
 		wg.Add(1)
+		defer wg.Done()
 		_, err := nonBiasedServer.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err != nil
@@ -555,6 +559,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	options.Options.RetryPolicy.PerAttemptTimeout = time.Nanosecond
 	require.Never(t, func() bool {
 		wg.Add(1)
+		defer wg.Done()
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(0), module, "keep-alive", nil, options)
 		return err == nil
