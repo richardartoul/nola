@@ -385,6 +385,9 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 	options := types.CreateIfNotExist{Options: types.ActorOptions{
 		ExtraReplicas:       2,
 		ReplicationStrategy: types.ReplicaSelectionStrategyRandom,
+		RetryPolicy: types.RetryPolicy{
+			PerAttemptTimeout: 0, // Set it to 0, to disable the timeouts.
+		},
 	}}
 
 	// Use the require.Eventually function to repeatedly invoke the same actor creation operation
@@ -468,6 +471,9 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 	options := types.CreateIfNotExist{Options: types.ActorOptions{
 		ExtraReplicas:       2,
 		ReplicationStrategy: types.ReplicaSelectionStrategySorted,
+		RetryPolicy: types.RetryPolicy{
+			PerAttemptTimeout: 0, // Set it to 0, to disable the timeouts.
+		},
 	}}
 
 	// Ensure that the actor is replicated on one of the servers.
