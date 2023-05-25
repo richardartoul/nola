@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -349,8 +350,12 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		}
 	}()
 
+	var wg sync.WaitGroup // It is necessary because require.Never is not synchronous,
+	// and we need to wait until it finishes to avoid data races and ensure proper closure of services.
+
 	var ref types.ActorReference
 	require.Never(t, func() bool {
+		wg.Add(1)
 		activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
 			Namespace: "ns1",
 			ActorID:   "a",
@@ -362,10 +367,5 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		ref = activations.References[0]
 		return differentActivation
 	}, testDuration, time.Microsecond, "actor has been activated in more than one server")
-
-	// Sleeping for a second is necessary to ensure that the last call to registry.EnsureActivation
-	// finishes executing. This is important because the condition is called asynchronously, and
-	// there is a possibility of encountering an error if the registry has been closed before
-	// completion.
-	time.Sleep(time.Second)
+	wg.Wait()
 }
