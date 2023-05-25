@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/richardartoul/nola/virtual/registry"
@@ -21,6 +22,7 @@ type Server struct {
 	environment Environment
 
 	server *http.Server
+	mu     sync.Mutex
 }
 
 // NewServer creates a new server for the actor virtual environment.
@@ -42,10 +44,12 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("/api/v1/invoke-actor-direct", s.invokeDirect)
 	mux.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
 
+	s.mu.Lock()
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
 	}
+	s.mu.Unlock()
 
 	if err := s.server.ListenAndServe(); err != nil {
 		return err
@@ -56,9 +60,12 @@ func (s *Server) Start(port int) error {
 
 func (s *Server) Stop(ctx context.Context) error {
 	log.Print("shutting down http server")
+	s.mu.Lock()
 	if err := s.server.Shutdown(ctx); err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("failed to shut down http server: %w", err)
 	}
+	s.mu.Unlock()
 	log.Print("successfully shut down HTTP server")
 
 	log.Print("closing environment")

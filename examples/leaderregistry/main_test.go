@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,10 @@ const (
 	numActors = 10
 )
 
+var (
+	nextServerPort = int64(0)
+)
+
 // TestMemoryBalancing is an integration test / example that tests/demonstrates how
 // NOLA can be leveraged to load balance actors in a cluster automatically based on
 // their memory usage. The test creates 3 different servers running on different ports
@@ -38,16 +43,21 @@ const (
 // of memory is eventually isolated alone on 1 server with all other actors evenly
 // balanced between the two other servers.
 func TestMemoryBalancing(t *testing.T) {
-	lp := &leaderProvider{}
+	t.Parallel()
+
+	var (
+		lp          = &leaderProvider{}
+		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: baseRegistryPort,
+		Port: baseRegistryPort + portServer1,
 	})
 
 	var (
-		server1, _, cleaupFn1 = newServer(t, lp, 0)
-		server2, _, cleaupFn2 = newServer(t, lp, 1)
-		server3, _, cleaupFn3 = newServer(t, lp, 2)
+		server1, _, cleaupFn1 = newServer(t, lp, portServer1)
+		server2, _, cleaupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server3, _, cleaupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 	)
 	defer cleaupFn1()
 	defer cleaupFn2()
@@ -63,7 +73,9 @@ func TestMemoryBalancing(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.True(t, server1.NumActivatedActors()+server2.NumActivatedActors()+server3.NumActivatedActors() == numActors)
+	require.True(t, server1.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
+	require.True(t, server2.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
+	require.True(t, server3.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
 
 	// Now, make one of the processes use way more memory than the others.
 	for i := 0; ; i++ {
@@ -124,10 +136,15 @@ func TestMemoryBalancing(t *testing.T) {
 // and whose activation is cached in-memory even if new actors cannot be activated
 // in the meantime.
 func TestSurviveLeaderFailure(t *testing.T) {
-	lp := &leaderProvider{}
+	t.Parallel()
+
+	var (
+		lp          = &leaderProvider{}
+		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: baseRegistryPort,
+		Port: baseRegistryPort + portServer1,
 	})
 
 	var (
@@ -136,9 +153,9 @@ func TestSurviveLeaderFailure(t *testing.T) {
 		// TODO: We should add this as a setting to the leaderregistry to make it so
 		//       the leader never assigns itself any actors and if it has any once
 		//       it becomes the leader, it will drain them.
-		reg1                   = newRegistry(t, lp, 0)
-		server2, _, cleanupFn2 = newServer(t, lp, 1)
-		server3, _, cleanupFn3 = newServer(t, lp, 2)
+		reg1                   = newRegistry(t, lp, portServer1)
+		server2, _, cleanupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 	)
 	defer reg1.Close(context.Background())
 	defer cleanupFn2()
@@ -154,7 +171,8 @@ func TestSurviveLeaderFailure(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.True(t, server2.NumActivatedActors()+server3.NumActivatedActors() == numActors)
+	require.True(t, server2.NumActivatedActors() == numActors/2 || server2.NumActivatedActors() == numActors/2+1)
+	require.True(t, server3.NumActivatedActors() == numActors/2 || server3.NumActivatedActors() == numActors/2+1)
 
 	require.NoError(t, reg1.Close(context.Background()))
 
@@ -198,16 +216,22 @@ func TestSurviveLeaderFailure(t *testing.T) {
 // a server that is both the leader *and* running actors and then assert that by the end of the
 // test the actors are live and reachable again.
 func TestSurviveLeaderFailureKillActors(t *testing.T) {
-	lp := &leaderProvider{}
+	t.Parallel()
+
+	var (
+		lp          = &leaderProvider{}
+		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: baseRegistryPort,
+		Port: baseRegistryPort + portServer1,
 	})
 
 	var (
-		server1, reg1, cleanupFn1 = newServer(t, lp, 0)
-		server2, _, cleanupFn2    = newServer(t, lp, 1)
-		server3, _, cleanupFn3    = newServer(t, lp, 2)
+		server1, reg1, cleanupFn1 = newServer(t, lp, portServer1)
+		portServer2               = int(atomic.AddInt64(&nextServerPort, 1))
+		server2, _, cleanupFn2    = newServer(t, lp, portServer2)
+		server3, _, cleanupFn3    = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 	)
 	defer cleanupFn1()
 	defer cleanupFn2()
@@ -223,14 +247,16 @@ func TestSurviveLeaderFailureKillActors(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.True(t, server1.NumActivatedActors()+server2.NumActivatedActors()+server3.NumActivatedActors() == numActors)
+	require.True(t, server1.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
+	require.True(t, server2.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
+	require.True(t, server3.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
 
 	require.NoError(t, server1.Close(context.Background()))
 	require.NoError(t, reg1.Close(context.Background()))
 	// Perform the leader transition since server 1 is dead.
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: baseRegistryPort + 1,
+		Port: baseRegistryPort + portServer2,
 	})
 
 	start := time.Now()
@@ -267,10 +293,15 @@ func TestSurviveLeaderFailureKillActors(t *testing.T) {
 // TestHandleLeaderTransitionGracefully tests that the implementation handles leader failures gracefully by ensuring
 // we don't relocate any actors in the general case of a leader transition.
 func TestHandleLeaderTransitionGracefully(t *testing.T) {
-	lp := &leaderProvider{}
+	t.Parallel()
+
+	var (
+		lp          = &leaderProvider{}
+		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: baseRegistryPort,
+		Port: baseRegistryPort + portServer1,
 	})
 
 	var (
@@ -279,10 +310,10 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 		// TODO: We should add this as a setting to the leaderregistry to make it so
 		//       the leader never assigns itself any actors and if it has any once
 		//       it becomes the leader, it will drain them.
-		reg1                   = newRegistry(t, lp, 0)
-		server2, _, cleanupFn2 = newServer(t, lp, 1)
-		server3, _, cleanupFn3 = newServer(t, lp, 2)
-		server4, _, cleanupFn4 = newServer(t, lp, 3)
+		reg1                   = newRegistry(t, lp, portServer1)
+		server2, _, cleanupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server4, _, cleanupFn4 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 	)
 	defer reg1.Close(context.Background())
 	defer cleanupFn2()
@@ -299,7 +330,9 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.True(t, server2.NumActivatedActors()+server3.NumActivatedActors()+server4.NumActivatedActors() == numActors)
+	require.True(t, server2.NumActivatedActors() == numActors/3 || server2.NumActivatedActors() == numActors/3+1)
+	require.True(t, server3.NumActivatedActors() == numActors/3 || server3.NumActivatedActors() == numActors/3+1)
+	require.True(t, server4.NumActivatedActors() == numActors/3 || server4.NumActivatedActors() == numActors/3+1)
 
 	// Kill the old leader and make a different node the new leader.
 	require.NoError(t, reg1.Close(context.Background()))
@@ -356,16 +389,21 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 // 5. Set the MaxNumRetries to 1 and verify that the actor invocation is retried once on other available replicas and succeeds.
 // 6. Test that if we set the PerAttemptTimeout to an extremely low value, the actor invocation never succeeds.
 func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
-	lp := &leaderProvider{}
+	t.Parallel()
+
+	var (
+		lp          = &leaderProvider{}
+		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: baseRegistryPort,
+		Port: baseRegistryPort + portServer1,
 	})
 
 	var (
-		server1, _, cleanupFn1 = newServer(t, lp, 0)
-		server2, _, cleanupFn2 = newServer(t, lp, 1)
-		server3, _, cleanupFn3 = newServer(t, lp, 2)
+		server1, _, cleanupFn1 = newServer(t, lp, portServer1)
+		server2, _, cleanupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 	)
 	defer cleanupFn1()
 	defer cleanupFn2()
@@ -442,16 +480,21 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 // 8. Set the MaxNumRetries to 1 and verify that the actor invocation is retried once on other available replicas and succeeds.
 // 9. Test that if we set the PerAttemptTimeout to an extremely low value, the actor invocation never succeeds.
 func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
-	lp := &leaderProvider{}
+	t.Parallel()
+
+	var (
+		lp          = &leaderProvider{}
+		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: baseRegistryPort,
+		Port: baseRegistryPort + portServer1,
 	})
 
 	var (
-		server1, _, cleanupFn1 = newServer(t, lp, 0)
-		server2, _, cleanupFn2 = newServer(t, lp, 1)
-		server3, _, cleanupFn3 = newServer(t, lp, 2)
+		server1, _, cleanupFn1 = newServer(t, lp, portServer1)
+		server2, _, cleanupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 	)
 	defer cleanupFn1()
 	defer cleanupFn2()

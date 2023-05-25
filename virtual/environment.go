@@ -10,7 +10,6 @@ import (
 	"math/rand"
 	"net"
 	"runtime"
-	"sort"
 	"sync"
 	"time"
 
@@ -906,11 +905,10 @@ func (r *environment) pickServerForInvocation(
 	case types.ReplicaSelectionStrategySorted:
 		// Sort the references slice based on the server ID in descending order.
 		// This way, the retry selection is biased towards the replica with the highest server ID over time.
-		sort.Slice(references, func(i, j int) bool {
+		result, idx := findExtreme(references, func(i, j int) bool {
 			return references[i].Physical.ServerID > references[j].Physical.ServerID
-		})
-		// Return the reference with the highest server ID as the selected reference.
-		return references[0], 0, nil
+		}, true)
+		return result, idx, nil
 	case types.ReplicaSelectionStrategyRandom:
 		fallthrough
 	default:
@@ -921,6 +919,23 @@ func (r *environment) pickServerForInvocation(
 		idx := r.randState.rng.Intn(len(references))
 		return references[idx], idx, nil
 	}
+}
+
+// findExtreme finds the extreme element (min or max) in the slice based on the provided comparator function.
+// The comparator function should return true if the element at index i is considered less than the element at index j.
+// If findMin is true, the function finds the minimum element; otherwise, it finds the maximum element.
+func findExtreme[T any](slice []T, comparator func(i, j int) bool, findMin bool) (T, int) {
+	var (
+		extreme T
+		idx     int
+	)
+	for idx = 0; idx < len(slice); idx++ {
+		if idx == 0 || (findMin && comparator(idx, idx-1)) || (!findMin && !comparator(idx, idx-1)) {
+			extreme = slice[idx]
+		}
+	}
+
+	return extreme, idx - 1
 }
 
 func getSelfIP() (net.IP, error) {
@@ -988,5 +1003,8 @@ func formatActorCacheKey(
 
 // removeItem removes the item at the specified index from the slice.
 func removeItem[T any](slice []T, index int) []T {
+	if index == len(slice)-1 {
+		return slice[:index]
+	}
 	return append(slice[:index], slice[index+1:]...)
 }
