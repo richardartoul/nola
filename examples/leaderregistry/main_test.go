@@ -311,7 +311,8 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 		//       the leader never assigns itself any actors and if it has any once
 		//       it becomes the leader, it will drain them.
 		reg1                   = newRegistry(t, lp, portServer1)
-		server2, _, cleanupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		portServer2 = int(atomic.AddInt64(&nextServerPort, 1))
+		server2, _, cleanupFn2 = newServer(t, lp, portServer2)
 		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 		server4, _, cleanupFn4 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 	)
@@ -338,7 +339,7 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 	require.NoError(t, reg1.Close(context.Background()))
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: baseRegistryPort + 1,
+		Port: baseRegistryPort + portServer2,
 	})
 
 	start := time.Now()

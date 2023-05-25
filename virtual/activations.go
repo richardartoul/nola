@@ -638,6 +638,7 @@ type activatedActor struct {
 	_reference  types.ActorReferenceVirtual
 	_host       HostCapabilities
 	_closed     bool
+	_mu_closed  sync.Mutex
 	_lastInvoke time.Time
 	_gcAfter    time.Duration
 	_gcTimer    *time.Timer
@@ -674,9 +675,12 @@ func newActivatedActor(
 
 		if time.Since(a._lastInvoke) > gcAfter {
 			// The actor has not been invoked recently, GC it.
-			err := a.closeWithLock(context.Background())
+			alreadyClosed, err := a.closeWithLock(context.Background())
 			if err != nil {
 				log.Error("error closing GC'd actor", slog.Any("error", err))
+			}
+			if alreadyClosed {
+				return
 			}
 			onGc()
 		} else {
@@ -752,17 +756,21 @@ func (a *activatedActor) invoke(
 func (a *activatedActor) close(ctx context.Context) error {
 	a.Lock()
 	defer a.Unlock()
-	return a.closeWithLock(ctx)
+	_, err := a.closeWithLock(ctx)
+	return err
 }
 
-func (a *activatedActor) closeWithLock(ctx context.Context) error {
+func (a *activatedActor) closeWithLock(ctx context.Context) (alreadyClosed bool, err error) {
+	a._mu_closed.Lock()
+	defer a._mu_closed.Unlock()
+
 	if a._closed {
-		return nil
+		return true, nil
 	}
 
 	// TODO: We should let a retry policy be specific for this before the actor is finally
 	// evicted, but we just evict regardless of failure for now.
-	_, _, err := a.invoke(ctx, wapcutils.ShutdownOperationName, nil, true, true)
+	_, _, err = a.invoke(ctx, wapcutils.ShutdownOperationName, nil, true, true)
 	if err != nil {
 		a._log.Error(
 			"error invoking shutdown operation for actor", slog.Any("actor", a._reference), slog.Any("error", err))
@@ -770,7 +778,7 @@ func (a *activatedActor) closeWithLock(ctx context.Context) error {
 
 	a._closed = true
 
-	return a._a.Close(ctx)
+	return false, a._a.Close(ctx)
 }
 
 func assertActorIface(actor Actor) error {
