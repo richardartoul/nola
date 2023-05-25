@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 // InvokeActorRequest is the JSON struct that represents a request from an existing
 // actor to invoke an operation on another one.
 type InvokeActorRequest struct {
@@ -36,19 +38,34 @@ type ActorOptions struct {
 	ExtraReplicas uint64 `json:"extra_replicas"`
 	// RetryPolicy specifies the retry policy for actor invocations.
 	// It defines the behavior when an invocation fails.
-	// Possible values are:
-	// - "retry_never": The invocation will not be retried.
-	// - "retry_if_replica_available": The invocation will be retried on other available replicas.
 	RetryPolicy RetryPolicy `json:"retry_policy"`
 }
 
 // RetryPolicy defines the retry policies for actor invocations.
-type RetryPolicy string
+// It specifies the strategy, per-attempt timeout, and maximum number of retries.
+type RetryPolicy struct {
+	// Strategy specifies the retry selection strategy for replica invocations.
+	// It determines how retry attempts are distributed among replicas.
+	// Note: Retries are only performed on available replicas.
+	Strategy RetrySelectionStrategy `json:"strategy"`
+
+	// PerAttemptTimeout defines the timeout duration for each retry attempt.
+	// If a single retry attempt exceeds this duration, it will be considered a failure.
+	PerAttemptTimeout time.Duration `json:"per_attempt_timeout"`
+
+	// MaxNumRetries sets the maximum number of retries allowed for the actor invocation.
+	// After reaching this limit, the invocation will fail if no successful response is received.
+	// Note: Retries are limited by the availability of replicas.
+	MaxNumRetries uint `json:"max_num_retries"`
+}
+
+// RetrySelectionStrategy defines the available retry selection strategies for actor invocations.
+type RetrySelectionStrategy string
 
 const (
-	// RetryIfReplicaAvailable specifies that an invocation should be retried on other available replicas if it fails.
-	RetryIfReplicaAvailable RetryPolicy = "if_replica_available"
+	// ReplicaSelectionStrategyRandom indicates that retry attempts will be distributed randomly across replicas.
+	ReplicaSelectionStrategyRandom RetrySelectionStrategy = "random"
 
-	// RetryNever specifies that an invocation should not be retried.
-	RetryNever RetryPolicy = "never"
+	// ReplicaSelectionStrategySorted indicates that retry attempts will be biased towards one replica until it breaks.
+	ReplicaSelectionStrategySorted RetrySelectionStrategy = "sorted"
 )

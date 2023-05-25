@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -484,25 +485,44 @@ func (r *environment) invokeActorStreamHelper(
 			"ensureActivation() success with 0 references for actor ID: %s", actorID)
 	}
 
-	idx, resp, err := r.invokeReferences(ctx, vs, references, operation, payload, create)
-	// If there is an error and it's not due to server blacklisting, retry the invocation.
-	// If the error is due to blacklisting, let the error propagate as it will be handled
-	// by the main InvokeActor function.
-	if err != nil && !IsBlacklistedActivationError(err) {
-		switch policy := create.Options.RetryPolicy; policy {
-		case types.RetryIfReplicaAvailable:
-			// Retry the invocation if the retry policy allows it and there are more than one reference available.
-			if len(references) > 1 {
-				references = removeItem(references, idx)
-				_, resp, err = r.invokeReferences(ctx, vs, references, operation, payload, create)
-			}
-		case types.RetryNever:
-			fallthrough
-		case "":
-			// Do nothing, so that the error is propagated without a retry.
+	policy := create.Options.RetryPolicy
+	var invocationErr error
+
+	// Perform the retry mechanism for invoking the actor using replicas.
+	var (
+		invokeCtx = ctx
+		cancel    = func() {}
+	)
+	for retryAttempt := uint(0); retryAttempt < 1+policy.MaxNumRetries; retryAttempt++ {
+		if len(references) < 1 {
+			// If there are no more replicas left, the invocation is considered failed.
+			// Return an error indicating the failure, including the number of attempts and the last encountered error.
+			return nil, fmt.Errorf("failed invocation because there are no more replicas left, after %d attempts, and with last error %w", retryAttempt, invocationErr)
 		}
+
+		// Create a new context with a timeout for each invocation attempt.
+		if policy.PerAttemptTimeout > 0 {
+			invokeCtx, cancel = context.WithTimeout(ctx, policy.PerAttemptTimeout)
+		}
+		idx, resp, err := r.invokeReferences(invokeCtx, vs, references, operation, payload, create)
+		cancel()
+
+		// If there is no error or the error is due to server blacklisting, consider the invocation successful.
+		// Return the response and error to exit the retry loop.
+		if err == nil || IsBlacklistedActivationError(err) {
+			return resp, err
+		}
+
+		// Store the error encountered during the current invocation attempt.
+		invocationErr = err
+
+		// Remove the server that failed to invoke the actor from the available references.
+		references = removeItem(references, idx)
 	}
-	return resp, err
+
+	// Return an error indicating that the maximum number of retries has been reached without success.
+	// Include the number of attempts and the last encountered error in the error message.
+	return nil, fmt.Errorf("failed invocation after maximum number of retries, after %d attempts, and with last error %w", 1+policy.MaxNumRetries, invocationErr)
 }
 
 func (r *environment) InvokeActorDirect(
@@ -872,19 +892,35 @@ func (r *environment) isClosed() bool {
 	return r.shutdownState.closed
 }
 
+// pickServerForInvocation selects a server for invocation based on the provided references and retry policy.
+// It returns the selected actor reference, its index in the references slice, and an error if no references are available.
 func (r *environment) pickServerForInvocation(
 	references []types.ActorReference,
 	create types.CreateIfNotExist,
 ) (types.ActorReference, int, error) {
-	// TODO: implement invokation strategies in 'create' e.g. region-based, multi-invoke...
 	if len(references) == 0 {
 		return types.ActorReference{}, 0, fmt.Errorf("no references available")
 	}
 
-	r.randState.Lock()
-	defer r.randState.Unlock()
-	idx := r.randState.rng.Intn(len(references))
-	return references[idx], idx, nil
+	switch create.Options.RetryPolicy.Strategy {
+	case types.ReplicaSelectionStrategySorted:
+		// Sort the references slice based on the server ID in descending order.
+		// This way, the retry selection is biased towards the replica with the highest server ID over time.
+		sort.Slice(references, func(i, j int) bool {
+			return references[i].Physical.ServerID > references[j].Physical.ServerID
+		})
+		// Return the reference with the highest server ID as the selected reference.
+		return references[0], 0, nil
+	case types.ReplicaSelectionStrategyRandom:
+		fallthrough
+	default:
+		// Use a random selection strategy by generating a random index within the range of available references.
+		// This evenly distributes the retry selection among the available replicas.
+		r.randState.Lock()
+		defer r.randState.Unlock()
+		idx := r.randState.rng.Intn(len(references))
+		return references[idx], idx, nil
+	}
 }
 
 func getSelfIP() (net.IP, error) {
