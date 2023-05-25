@@ -485,15 +485,14 @@ func (r *environment) invokeActorStreamHelper(
 			"ensureActivation() success with 0 references for actor ID: %s", actorID)
 	}
 
-	policy := create.Options.RetryPolicy
-	var invocationErr error
-
-	// Perform the retry mechanism for invoking the actor using replicas.
 	var (
-		invokeCtx = ctx
-		cancel    = func() {}
+		retryPolicy   = create.Options.RetryPolicy // Retry policy for controlling the retry behavior.
+		invokeCtx     = ctx                        // Context used for invoking the actor.
+		cancel        = func() {}                  // Function for canceling the invocation context.
+		invocationErr error                        // Error encountered during the last invocation attempt.
 	)
-	for retryAttempt := uint(0); retryAttempt < 1+policy.MaxNumRetries; retryAttempt++ {
+	// Perform the retry mechanism for invoking the actor using replicas.
+	for retryAttempt := uint(0); retryAttempt < 1+retryPolicy.MaxNumRetries; retryAttempt++ {
 		if len(references) < 1 {
 			// If there are no more replicas left, the invocation is considered failed.
 			// Return an error indicating the failure, including the number of attempts and the last encountered error.
@@ -501,8 +500,8 @@ func (r *environment) invokeActorStreamHelper(
 		}
 
 		// Create a new context with a timeout for each invocation attempt.
-		if policy.PerAttemptTimeout > 0 {
-			invokeCtx, cancel = context.WithTimeout(ctx, policy.PerAttemptTimeout)
+		if retryPolicy.PerAttemptTimeout > 0 {
+			invokeCtx, cancel = context.WithTimeout(ctx, retryPolicy.PerAttemptTimeout)
 		}
 		idx, resp, err := r.invokeReferences(invokeCtx, vs, references, operation, payload, create)
 		cancel()
@@ -522,7 +521,7 @@ func (r *environment) invokeActorStreamHelper(
 
 	// Return an error indicating that the maximum number of retries has been reached without success.
 	// Include the number of attempts and the last encountered error in the error message.
-	return nil, fmt.Errorf("failed invocation after maximum number of retries, after %d attempts, and with last error %w", 1+policy.MaxNumRetries, invocationErr)
+	return nil, fmt.Errorf("failed invocation after maximum number of retries, after %d attempts, and with last error %w", 1+retryPolicy.MaxNumRetries, invocationErr)
 }
 
 func (r *environment) InvokeActorDirect(
