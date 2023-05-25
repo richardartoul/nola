@@ -893,6 +893,7 @@ func (r *environment) isClosed() bool {
 
 // pickServerForInvocation selects a server for invocation based on the provided references and retry policy.
 // It returns the selected actor reference, its index in the references slice, and an error if no references are available.
+// Note: The function may change the order of items in the references slice for efficiency and avoiding unnecessary copies.
 func (r *environment) pickServerForInvocation(
 	references []types.ActorReference,
 	create types.CreateIfNotExist,
