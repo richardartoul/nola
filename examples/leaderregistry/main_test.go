@@ -498,7 +498,13 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 		// indicating that the actor has successfully activated one replica on a server.
 		numActivatedActors := server1.NumActivatedActors() + server2.NumActivatedActors() + server3.NumActivatedActors()
 		return numActivatedActors > 1
-	}, 5*time.Second, time.Microsecond, "actor should only be replicated on the biased server.")
+	}, time.Second, time.Microsecond, "actor should only be replicated on the biased server.")
+
+	// Sleeping for a second is necessary to ensure that the last call to InvokeActor
+	// finishes executing. This is important because the condition is called asynchronously, and
+	// there is a possibility of encountering an error if the registry has been closed before
+	// completion.
+	time.Sleep(time.Second)
 
 	// Select a biased server and a non-biased server.
 	// The biased server is used to simulate a replica failure by closing it, while the non-biased server is used for performing invocations.
