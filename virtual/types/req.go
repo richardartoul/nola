@@ -50,11 +50,11 @@ type ActorOptions struct {
 type ReplicaSelectionStrategy string
 
 const (
-	// ReplicaSelectionStrategyRandom indicates that replication attempts will be distributed 
+	// ReplicaSelectionStrategyRandom indicates that replication attempts will be distributed
 	// randomly across replicas.
 	ReplicaSelectionStrategyRandom ReplicaSelectionStrategy = "random"
 
-	// ReplicaSelectionStrategySorted indicates that replication attempts will be 
+	// ReplicaSelectionStrategySorted indicates that replication attempts will be
 	// biased towards one replica until it breaks.
 	ReplicaSelectionStrategySorted ReplicaSelectionStrategy = "sorted"
 )
@@ -64,7 +64,7 @@ const (
 type RetryPolicy struct {
 	// PerAttemptTimeout defines the timeout duration for each retry attempt.
 	// If a single retry attempt exceeds this duration, it will be considered a failure.
-	// Note: If the `PerAttemptTimeout` is set to 0, 
+	// Note: If the `PerAttemptTimeout` is set to 0,
 	// it uses the parent context timeout and there is no specific per-attempt timeout.
 	PerAttemptTimeout time.Duration `json:"per_attempt_timeout"`
 
