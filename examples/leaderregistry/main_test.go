@@ -171,7 +171,9 @@ func TestSurviveLeaderFailure(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	fmt.Printf("server2.NumActivatedActors: %d\n", server2.NumActivatedActors())
 	require.True(t, server2.NumActivatedActors() == numActors/2 || server2.NumActivatedActors() == numActors/2+1)
+	fmt.Printf("server3.NumActivatedActors: %d\n", server3.NumActivatedActors())
 	require.True(t, server3.NumActivatedActors() == numActors/2 || server3.NumActivatedActors() == numActors/2+1)
 
 	require.NoError(t, reg1.Close(context.Background()))
@@ -311,7 +313,7 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 		//       the leader never assigns itself any actors and if it has any once
 		//       it becomes the leader, it will drain them.
 		reg1                   = newRegistry(t, lp, portServer1)
-		portServer2 = int(atomic.AddInt64(&nextServerPort, 1))
+		portServer2            = int(atomic.AddInt64(&nextServerPort, 1))
 		server2, _, cleanupFn2 = newServer(t, lp, portServer2)
 		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 		server4, _, cleanupFn4 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
