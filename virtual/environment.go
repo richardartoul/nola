@@ -762,10 +762,13 @@ func (r *environment) maybeLogHeartbeatState(
 	numActors int,
 	usedMemory int,
 ) {
+	r.heartbeatState.Lock()
 	if time.Since(r.lastHearbeatLog) < 10*time.Second {
+		r.heartbeatState.Unlock()
 		return
 	}
 	r.lastHearbeatLog = time.Now()
+	r.heartbeatState.Unlock()
 
 	attrs := make([]slog.Attr, 0, 8)
 	attrs = append(attrs, slog.Int("num_actors", numActors))
