@@ -291,7 +291,7 @@ func NewEnvironment(
 	}
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
-	err := env.heartbeat()
+	err := env.Heartbeat()
 	if err != nil {
 		if opts.Discovery.AllowFailedInitialHeartbeat {
 			opts.Logger.Error(
@@ -319,7 +319,7 @@ func NewEnvironment(
 				if env.isHeartbeatPaused() {
 					return
 				}
-				if err := env.heartbeat(); err != nil {
+				if err := env.Heartbeat(); err != nil {
 					opts.Logger.Error("error performing background heartbeat", slog.Any("error", err))
 				}
 			case <-env.closeCh:
@@ -717,7 +717,7 @@ func (r *environment) NumActivatedActors() int {
 	return r.activations.numActivatedActors()
 }
 
-func (r *environment) heartbeat() error {
+func (r *environment) Heartbeat() error {
 	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
 	defer cc()
 

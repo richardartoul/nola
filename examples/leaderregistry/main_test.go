@@ -58,6 +58,7 @@ func TestMemoryBalancing(t *testing.T) {
 		server1, _, cleaupFn1 = newServer(t, lp, portServer1)
 		server2, _, cleaupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 		server3, _, cleaupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		servers               = []virtual.Debug{server1, server2, server3}
 	)
 	defer cleaupFn1()
 	defer cleaupFn2()
@@ -71,6 +72,12 @@ func TestMemoryBalancing(t *testing.T) {
 		_, err := server1.InvokeActor(
 			context.Background(), namespace, actorID(i), module, "keep-alive", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
+
+		// Perform manual heartbeats to make sure the actors will be evenly distributed based on latest updates.
+		for _, server := range servers {
+			err = server.Heartbeat()
+			require.NoError(t, err)
+		}
 	}
 
 	require.True(t, server1.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
@@ -156,6 +163,7 @@ func TestSurviveLeaderFailure(t *testing.T) {
 		reg1                   = newRegistry(t, lp, portServer1)
 		server2, _, cleanupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		servers                = []virtual.Debug{server2, server3}
 	)
 	defer reg1.Close(context.Background())
 	defer cleanupFn2()
@@ -169,6 +177,12 @@ func TestSurviveLeaderFailure(t *testing.T) {
 		_, err := server2.InvokeActor(
 			context.Background(), namespace, actorID(i), module, "keep-alive", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
+
+		// Perform manual heartbeats to make sure the actors will be evenly distributed based on latest updates.
+		for _, server := range servers {
+			err = server.Heartbeat()
+			require.NoError(t, err)
+		}
 	}
 
 	fmt.Printf("server2.NumActivatedActors: %d\n", server2.NumActivatedActors())
@@ -234,6 +248,7 @@ func TestSurviveLeaderFailureKillActors(t *testing.T) {
 		portServer2               = int(atomic.AddInt64(&nextServerPort, 1))
 		server2, _, cleanupFn2    = newServer(t, lp, portServer2)
 		server3, _, cleanupFn3    = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		servers                   = []virtual.Debug{server1, server2, server3}
 	)
 	defer cleanupFn1()
 	defer cleanupFn2()
@@ -247,6 +262,12 @@ func TestSurviveLeaderFailureKillActors(t *testing.T) {
 		_, err := server2.InvokeActor(
 			context.Background(), namespace, actorID(i), module, "keep-alive", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
+
+		// Perform manual heartbeats to make sure the actors will be evenly distributed based on latest updates.
+		for _, server := range servers {
+			err = server.Heartbeat()
+			require.NoError(t, err)
+		}
 	}
 
 	require.True(t, server1.NumActivatedActors() == numActors/3 || server1.NumActivatedActors() == numActors/3+1)
@@ -317,6 +338,7 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 		server2, _, cleanupFn2 = newServer(t, lp, portServer2)
 		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
 		server4, _, cleanupFn4 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		servers                = []virtual.Debug{server2, server3, server4}
 	)
 	defer reg1.Close(context.Background())
 	defer cleanupFn2()
@@ -352,6 +374,12 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 			_, err := server2.InvokeActor(
 				context.Background(), namespace, actorID(j), module, "keep-alive", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
+			
+			// Perform manual heartbeats to make sure the actors will be evenly distributed based on latest updates.
+			for _, server := range servers {
+				err = server.Heartbeat()
+				require.NoError(t, err)
+			}
 		}
 
 		// A bit hacky, but if the number of actors on each server remains exactly the same for long enough then
