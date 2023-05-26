@@ -12,7 +12,7 @@ import (
 // actor. If the actor is not currently activated in the environment, it will take
 // care of activating it.
 type Environment interface {
-	debug
+	Debug
 
 	// RegisterGoModule registers a new Go module in the environment so it can be used in
 	// subsequent calls. RegisterGoModule can be called at any time, even once the
@@ -130,15 +130,15 @@ type Environment interface {
 	Close(context.Context) error
 }
 
-// debug contains private methods that are only used for debugging / tests.
-type debug interface {
+// Debug contains private methods that are only used for debugging / tests.
+type Debug interface {
 	// NumActivatedActors returns the number of activated actors in the environment. It is
 	// primarily used for tests.
 	NumActivatedActors() int
 
-	// heartbeat forces the environment to heartbeat the Registry immediately. It is primarily
+	// Heartbeat forces the environment to heartbeat the Registry immediately. It is primarily
 	// used for tests.
-	heartbeat() error
+	Heartbeat() error
 
 	// freezeHeartbeatState allows the environment to keep heartbeating the registry, but
 	// prevents it from updating its internal heartbeat state. This keeps the server registered

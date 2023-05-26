@@ -298,8 +298,6 @@ func testRegistryReplication(t *testing.T, registry Registry) {
 // the server is blacklisted or goes down. It assumes that if activations are persisted, the EnsureActivation function will consistently return
 // the same reference, unless exceptional circumstances such as server blacklisting or failure occur, which are not expected during the test.
 func testEnsureActivationPersistence(t *testing.T, registry Registry) {
-	const testDuration = 5 * time.Second
-
 	ctx, cc := context.WithCancel(context.Background())
 	defer cc()
 	defer registry.Close(ctx)
@@ -350,7 +348,7 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 	}()
 
 	var ref types.ActorReference
-	require.Never(t, func() bool {
+	for i := 0; i < 10; i++ {
 		activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
 			Namespace: "ns1",
 			ActorID:   "a",
@@ -360,12 +358,6 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		require.Equal(t, 1, len(activations.References))
 		differentActivation := !(ref == types.ActorReference{} || ref == activations.References[0])
 		ref = activations.References[0]
-		return differentActivation
-	}, testDuration, time.Microsecond, "actor has been activated in more than one server")
-
-	// Sleeping for a second is necessary to ensure that the last call to registry.EnsureActivation
-	// finishes executing. This is important because the condition is called asynchronously, and
-	// there is a possibility of encountering an error if the registry has been closed before
-	// completion.
-	time.Sleep(time.Second)
+		require.False(t, differentActivation, "actor has been activated in more than one server.")
+	}
 }

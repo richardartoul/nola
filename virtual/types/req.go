@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 // InvokeActorRequest is the JSON struct that represents a request from an existing
 // actor to invoke an operation on another one.
 type InvokeActorRequest struct {
@@ -34,4 +36,40 @@ type ActorOptions struct {
 	// that should be created during actor activation.
 	// The value of ExtraReplicas should be a non-negative integer.
 	ExtraReplicas uint64 `json:"extra_replicas"`
+
+	// ReplicationStrategy specifies the retry selection strategy for replica invocations.
+	// It determines how retry attempts are distributed among replicas.
+	// Note: Retries are only performed on available replicas.
+	ReplicationStrategy ReplicaSelectionStrategy `json:"replica_selection_strategy"`
+	// RetryPolicy specifies the retry policy for actor invocations.
+	// It defines the behavior when an invocation fails.
+	RetryPolicy RetryPolicy `json:"retry_policy"`
+}
+
+// ReplicaSelectionStrategy defines the available replica selection strategies for actor invocations.
+type ReplicaSelectionStrategy string
+
+const (
+	// ReplicaSelectionStrategyRandom indicates that replication attempts will be distributed
+	// randomly across replicas.
+	ReplicaSelectionStrategyRandom ReplicaSelectionStrategy = "random"
+
+	// ReplicaSelectionStrategySorted indicates that replication attempts will be
+	// biased towards one replica until it breaks.
+	ReplicaSelectionStrategySorted ReplicaSelectionStrategy = "sorted"
+)
+
+// RetryPolicy defines the retry policies for actor invocations.
+// It specifies the strategy, per-attempt timeout, and maximum number of retries.
+type RetryPolicy struct {
+	// PerAttemptTimeout defines the timeout duration for each retry attempt.
+	// If a single retry attempt exceeds this duration, it will be considered a failure.
+	// Note: If the `PerAttemptTimeout` is set to 0,
+	// it uses the parent context timeout and there is no specific per-attempt timeout.
+	PerAttemptTimeout time.Duration `json:"per_attempt_timeout"`
+
+	// MaxNumRetries sets the maximum number of retries allowed for the actor invocation.
+	// After reaching this limit, the invocation will fail if no successful response is received.
+	// Note: Retries are limited by the availability of replicas.
+	MaxNumRetries uint `json:"max_num_retries"`
 }

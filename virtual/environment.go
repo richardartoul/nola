@@ -291,7 +291,7 @@ func NewEnvironment(
 	}
 
 	// Do one heartbeat right off the bat so the environment is immediately useable.
-	err := env.heartbeat()
+	err := env.Heartbeat()
 	if err != nil {
 		if opts.Discovery.AllowFailedInitialHeartbeat {
 			opts.Logger.Error(
@@ -319,7 +319,7 @@ func NewEnvironment(
 				if env.isHeartbeatPaused() {
 					return
 				}
-				if err := env.heartbeat(); err != nil {
+				if err := env.Heartbeat(); err != nil {
 					opts.Logger.Error("error performing background heartbeat", slog.Any("error", err))
 				}
 			case <-env.closeCh:
@@ -484,7 +484,43 @@ func (r *environment) invokeActorStreamHelper(
 			"ensureActivation() success with 0 references for actor ID: %s", actorID)
 	}
 
-	return r.invokeReferences(ctx, vs, references, operation, payload, create)
+	var (
+		retryPolicy   = create.Options.RetryPolicy // Retry policy for controlling the retry behavior.
+		invokeCtx     = ctx                        // Context used for invoking the actor.
+		cc            = func() {}                  // Function for canceling the invocation context.
+		invocationErr error                        // Error encountered during the last invocation attempt.
+	)
+	// Perform the retry mechanism for invoking the actor using replicas.
+	for retryAttempt := uint(0); retryAttempt < 1+retryPolicy.MaxNumRetries; retryAttempt++ {
+		if len(references) < 1 {
+			// If there are no more replicas left, the invocation is considered failed.
+			// Return an error indicating the failure, including the number of attempts and the last encountered error.
+			return nil, fmt.Errorf("failed invocation because there are no more replicas left, after %d attempts, and with last error %w", retryAttempt, invocationErr)
+		}
+
+		// Create a new context with a timeout for each invocation attempt.
+		if retryPolicy.PerAttemptTimeout > 0 {
+			invokeCtx, cc = context.WithTimeout(ctx, retryPolicy.PerAttemptTimeout)
+		}
+		idx, resp, err := r.invokeReferences(invokeCtx, vs, references, operation, payload, create)
+		cc()
+
+		// If there is no error or the error is due to server blacklisting, consider the invocation successful.
+		// Return the response and error to exit the retry loop.
+		if err == nil || IsBlacklistedActivationError(err) {
+			return resp, err
+		}
+
+		// Store the error encountered during the current invocation attempt.
+		invocationErr = err
+
+		// Remove the server that failed to invoke the actor from the available references.
+		references = removeItem(references, idx)
+	}
+
+	// Return an error indicating that the maximum number of retries has been reached without success.
+	// Include the number of attempts and the last encountered error in the error message.
+	return nil, fmt.Errorf("failed invocation after maximum number of retries, after %d attempts, and with last error %w", 1+retryPolicy.MaxNumRetries, invocationErr)
 }
 
 func (r *environment) InvokeActorDirect(
@@ -681,7 +717,7 @@ func (r *environment) NumActivatedActors() int {
 	return r.activations.numActivatedActors()
 }
 
-func (r *environment) heartbeat() error {
+func (r *environment) Heartbeat() error {
 	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
 	defer cc()
 
@@ -726,10 +762,16 @@ func (r *environment) maybeLogHeartbeatState(
 	numActors int,
 	usedMemory int,
 ) {
+	// Normally, this synchronization is not required because this function is
+	// called in a single-threaded loop. However, we have added additional synchronization
+	// here because some integration tests force manual heartbeats to occur, which can introduce concurrent access.
+	r.heartbeatState.Lock()
 	if time.Since(r.lastHearbeatLog) < 10*time.Second {
+		r.heartbeatState.Unlock()
 		return
 	}
 	r.lastHearbeatLog = time.Now()
+	r.heartbeatState.Unlock()
 
 	attrs := make([]slog.Attr, 0, 8)
 	attrs = append(attrs, slog.Int("num_actors", numActors))
@@ -763,6 +805,10 @@ var (
 	localEnvironmentsRouterLock sync.RWMutex
 )
 
+// invokeReferences invokes the specified operation on the given references.
+// It selects a server for invocation based on the provided references and the create flag.
+// The method returns the index of the reference that was invoked, the response as an io.ReadCloser,
+// and an error if any occurred during the invocation process.
 func (r *environment) invokeReferences(
 	ctx context.Context,
 	versionStamp int64,
@@ -770,10 +816,10 @@ func (r *environment) invokeReferences(
 	operation string,
 	payload []byte,
 	create types.CreateIfNotExist,
-) (io.ReadCloser, error) {
-	ref, err := r.pickServerForInvocation(references, create)
+) (int, io.ReadCloser, error) {
+	ref, idx, err := r.pickServerForInvocation(references, create)
 	if err != nil {
-		return nil, fmt.Errorf("error picking server for activation: %w", err)
+		return idx, nil, fmt.Errorf("error picking server for activation: %w", err)
 	}
 
 	if !r.opts.ForceRemoteProcedureCalls {
@@ -784,9 +830,10 @@ func (r *environment) invokeReferences(
 		localEnv, ok := localEnvironmentsRouter[ref.Physical.ServerState.Address]
 		localEnvironmentsRouterLock.RUnlock()
 		if ok {
-			return localEnv.InvokeActorDirectStream(
+			resp, err := localEnv.InvokeActorDirectStream(
 				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
 				operation, payload, create)
+			return idx, resp, err
 		}
 
 		// Separately, if the registry returned an address that looks like localhost for any
@@ -806,13 +853,15 @@ func (r *environment) invokeReferences(
 		// thus ensure that tests can be written without having to also ensure that a NOLA
 		// server is running on the appropriate port, among other things.
 		if ref.Physical.ServerState.Address == Localhost || ref.Physical.ServerState.Address == dnsregistry.Localhost {
-			return localEnv.InvokeActorDirectStream(
+			resp, err := localEnv.InvokeActorDirectStream(
 				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
 				operation, payload, create)
+			return idx, resp, err
 		}
 	}
 
-	return r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
+	resp, err := r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
+	return idx, resp, err
 }
 
 func (r *environment) freezeHeartbeatState() {
@@ -847,18 +896,51 @@ func (r *environment) isClosed() bool {
 	return r.shutdownState.closed
 }
 
+// pickServerForInvocation selects a server for invocation based on the provided references and retry policy.
+// It returns the selected actor reference, its index in the references slice, and an error if no references are available.
+// Note: The function may change the order of items in the references slice for efficiency and avoiding unnecessary copies.
 func (r *environment) pickServerForInvocation(
 	references []types.ActorReference,
 	create types.CreateIfNotExist,
-) (types.ActorReference, error) {
-	// TODO: implement invokation strategies in 'create' e.g. region-based, multi-invoke...
+) (types.ActorReference, int, error) {
 	if len(references) == 0 {
-		return types.ActorReference{}, fmt.Errorf("no references available")
+		return types.ActorReference{}, 0, fmt.Errorf("no references available")
 	}
 
-	r.randState.Lock()
-	defer r.randState.Unlock()
-	return references[r.randState.rng.Intn(len(references))], nil
+	switch create.Options.ReplicationStrategy {
+	case types.ReplicaSelectionStrategySorted:
+		// Sort the references slice based on the server ID in descending order.
+		// This way, the retry selection is biased towards the replica with the highest server ID over time.
+		result, idx := findMax(references, func(i, j int) bool {
+			return references[i].Physical.ServerID > references[j].Physical.ServerID
+		})
+		return result, idx, nil
+	case types.ReplicaSelectionStrategyRandom:
+		fallthrough
+	default:
+		// Use a random selection strategy by generating a random index within the range of available references.
+		// This evenly distributes the retry selection among the available replicas.
+		r.randState.Lock()
+		defer r.randState.Unlock()
+		idx := r.randState.rng.Intn(len(references))
+		return references[idx], idx, nil
+	}
+}
+
+// findMax finds the max element in the slice based on the provided comparator function.
+// The comparator function should return true if the element at index i is considered greater than the element at index j.
+func findMax[T any](slice []T, comparator func(i, j int) bool) (T, int) {
+	var (
+		extreme T
+		idx     int
+	)
+	for idx = 0; idx < len(slice); idx++ {
+		if idx == 0 || comparator(idx, idx-1) {
+			extreme = slice[idx]
+		}
+	}
+
+	return extreme, idx - 1
 }
 
 func getSelfIP() (net.IP, error) {
@@ -922,4 +1004,16 @@ func formatActorCacheKey(
 	dst = append(dst, []byte(moduleID)...)
 	dst = append(dst, []byte(actorID)...)
 	return dst
+}
+
+// removeItem removes the item at the specified index from the slice.
+func removeItem[T any](slice []T, index int) []T {
+	if index == len(slice)-1 {
+		return slice[:index]
+	}
+
+	newSlice := make([]T, len(slice)-1)
+	copy(newSlice, slice[:index])
+	copy(newSlice[index:], slice[index+1:])
+	return newSlice
 }
