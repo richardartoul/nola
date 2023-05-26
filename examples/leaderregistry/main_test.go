@@ -366,6 +366,9 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 		Port: baseRegistryPort + portServer2,
 	})
 
+	// Sleep for 6 seconds for the new leader heartbeat to be propagated.
+	time.Sleep(6 * time.Second)
+
 	start := time.Now()
 	for i := 0; ; i++ {
 		time.Sleep(1 * time.Millisecond)
@@ -374,7 +377,7 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 			_, err := server2.InvokeActor(
 				context.Background(), namespace, actorID(j), module, "keep-alive", nil, types.CreateIfNotExist{})
 			require.NoError(t, err)
-			
+
 			// Perform manual heartbeats to make sure the actors will be evenly distributed based on latest updates.
 			for _, server := range servers {
 				err = server.Heartbeat()
