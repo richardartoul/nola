@@ -638,7 +638,6 @@ type activatedActor struct {
 	_reference  types.ActorReferenceVirtual
 	_host       HostCapabilities
 	_closed     bool
-	_mu_closed  sync.Mutex
 	_lastInvoke time.Time
 	_gcAfter    time.Duration
 	_gcTimer    *time.Timer
@@ -761,9 +760,6 @@ func (a *activatedActor) close(ctx context.Context) error {
 }
 
 func (a *activatedActor) closeWithLock(ctx context.Context) (alreadyClosed bool, err error) {
-	a._mu_closed.Lock()
-	defer a._mu_closed.Unlock()
-
 	if a._closed {
 		return true, nil
 	}
