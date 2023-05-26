@@ -469,27 +469,27 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 		require.NoError(t, err)
 		_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		require.NoError(t, env1.heartbeat())
-		require.NoError(t, env2.heartbeat())
-		require.NoError(t, env3.heartbeat())
+		require.NoError(t, env1.Heartbeat())
+		require.NoError(t, env2.Heartbeat())
+		require.NoError(t, env3.Heartbeat())
 		_, err = env1.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		_, err = env2.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		require.NoError(t, env1.heartbeat())
-		require.NoError(t, env2.heartbeat())
-		require.NoError(t, env3.heartbeat())
+		require.NoError(t, env1.Heartbeat())
+		require.NoError(t, env2.Heartbeat())
+		require.NoError(t, env3.Heartbeat())
 		_, err = env1.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		_, err = env2.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 		_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		require.NoError(t, env1.heartbeat())
-		require.NoError(t, env2.heartbeat())
-		require.NoError(t, env3.heartbeat())
+		require.NoError(t, env1.Heartbeat())
+		require.NoError(t, env2.Heartbeat())
+		require.NoError(t, env3.Heartbeat())
 	}
 
 	// Registry load-balancing should ensure that we ended up with 1 actor in each environment
@@ -533,13 +533,13 @@ func TestHeartbeatAndSelfHealing(t *testing.T) {
 
 		_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		require.NoError(t, env3.heartbeat())
+		require.NoError(t, env3.Heartbeat())
 		_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		require.NoError(t, env3.heartbeat())
+		require.NoError(t, env3.Heartbeat())
 		_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
-		require.NoError(t, env3.heartbeat())
+		require.NoError(t, env3.Heartbeat())
 	}
 
 	// Ensure that all of our invocations above were actually served by environment3.
@@ -894,7 +894,7 @@ func TestServerVersionIsHonored(t *testing.T) {
 
 	env.resumeHeartbeat()
 
-	require.NoError(t, env.heartbeat())
+	require.NoError(t, env.Heartbeat())
 
 	_, err = env.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 	require.True(
