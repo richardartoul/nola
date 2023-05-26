@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -762,5 +763,5 @@ func actorID(idx int) string {
 }
 
 func nextPort() int {
-	return nextPort()
+	return int(atomic.AddInt64(&nextServerPort, 1))
 }
