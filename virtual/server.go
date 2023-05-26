@@ -17,12 +17,13 @@ import (
 )
 
 type Server struct {
+	sync.Mutex
+
 	// Dependencies.
 	moduleStore registry.ModuleStore
 	environment Environment
 
 	server *http.Server
-	mu     sync.Mutex
 }
 
 // NewServer creates a new server for the actor virtual environment.
@@ -44,12 +45,12 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("/api/v1/invoke-actor-direct", s.invokeDirect)
 	mux.HandleFunc("/api/v1/invoke-worker", s.invokeWorker)
 
-	s.mu.Lock()
+	s.Lock()
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
 	}
-	s.mu.Unlock()
+	s.Unlock()
 
 	if err := s.server.ListenAndServe(); err != nil {
 		return err
@@ -60,12 +61,15 @@ func (s *Server) Start(port int) error {
 
 func (s *Server) Stop(ctx context.Context) error {
 	log.Print("shutting down http server")
-	s.mu.Lock()
+	s.Lock()
+	if s.server == nil {
+		return nil
+	}
 	if err := s.server.Shutdown(ctx); err != nil {
-		s.mu.Unlock()
+		s.Unlock()
 		return fmt.Errorf("failed to shut down http server: %w", err)
 	}
-	s.mu.Unlock()
+	s.Unlock()
 	log.Print("successfully shut down HTTP server")
 
 	log.Print("closing environment")

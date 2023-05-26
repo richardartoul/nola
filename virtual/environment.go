@@ -487,7 +487,7 @@ func (r *environment) invokeActorStreamHelper(
 	var (
 		retryPolicy   = create.Options.RetryPolicy // Retry policy for controlling the retry behavior.
 		invokeCtx     = ctx                        // Context used for invoking the actor.
-		cancel        = func() {}                  // Function for canceling the invocation context.
+		cc            = func() {}                  // Function for canceling the invocation context.
 		invocationErr error                        // Error encountered during the last invocation attempt.
 	)
 	// Perform the retry mechanism for invoking the actor using replicas.
@@ -500,10 +500,10 @@ func (r *environment) invokeActorStreamHelper(
 
 		// Create a new context with a timeout for each invocation attempt.
 		if retryPolicy.PerAttemptTimeout > 0 {
-			invokeCtx, cancel = context.WithTimeout(ctx, retryPolicy.PerAttemptTimeout)
+			invokeCtx, cc = context.WithTimeout(ctx, retryPolicy.PerAttemptTimeout)
 		}
 		idx, resp, err := r.invokeReferences(invokeCtx, vs, references, operation, payload, create)
-		cancel()
+		cc()
 
 		// If there is no error or the error is due to server blacklisting, consider the invocation successful.
 		// Return the response and error to exit the retry loop.
@@ -762,6 +762,9 @@ func (r *environment) maybeLogHeartbeatState(
 	numActors int,
 	usedMemory int,
 ) {
+	// Normally, this synchronization is not required because this function is
+	// called in a single-threaded loop. However, we have added additional synchronization
+	// here because some integration tests force manual heartbeats to occur, which can introduce concurrent access.
 	r.heartbeatState.Lock()
 	if time.Since(r.lastHearbeatLog) < 10*time.Second {
 		r.heartbeatState.Unlock()
@@ -908,9 +911,9 @@ func (r *environment) pickServerForInvocation(
 	case types.ReplicaSelectionStrategySorted:
 		// Sort the references slice based on the server ID in descending order.
 		// This way, the retry selection is biased towards the replica with the highest server ID over time.
-		result, idx := findExtreme(references, func(i, j int) bool {
+		result, idx := findMax(references, func(i, j int) bool {
 			return references[i].Physical.ServerID > references[j].Physical.ServerID
-		}, true)
+		})
 		return result, idx, nil
 	case types.ReplicaSelectionStrategyRandom:
 		fallthrough
@@ -924,16 +927,15 @@ func (r *environment) pickServerForInvocation(
 	}
 }
 
-// findExtreme finds the extreme element (min or max) in the slice based on the provided comparator function.
-// The comparator function should return true if the element at index i is considered less than the element at index j.
-// If findMin is true, the function finds the minimum element; otherwise, it finds the maximum element.
-func findExtreme[T any](slice []T, comparator func(i, j int) bool, findMin bool) (T, int) {
+// findMax finds the max element in the slice based on the provided comparator function.
+// The comparator function should return true if the element at index i is considered greater than the element at index j.
+func findMax[T any](slice []T, comparator func(i, j int) bool) (T, int) {
 	var (
 		extreme T
 		idx     int
 	)
 	for idx = 0; idx < len(slice); idx++ {
-		if idx == 0 || (findMin && comparator(idx, idx-1)) || (!findMin && !comparator(idx, idx-1)) {
+		if idx == 0 || comparator(idx, idx-1) {
 			extreme = slice[idx]
 		}
 	}
@@ -1009,5 +1011,9 @@ func removeItem[T any](slice []T, index int) []T {
 	if index == len(slice)-1 {
 		return slice[:index]
 	}
-	return append(slice[:index], slice[index+1:]...)
+
+	newSlice := make([]T, len(slice)-1)
+	copy(newSlice, slice[:index])
+	copy(newSlice[index:], slice[index+1:])
+	return newSlice
 }

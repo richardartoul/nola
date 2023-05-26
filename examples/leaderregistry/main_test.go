@@ -7,7 +7,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,7 +46,7 @@ func TestMemoryBalancing(t *testing.T) {
 
 	var (
 		lp          = &leaderProvider{}
-		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+		portServer1 = nextPort()
 	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
@@ -56,8 +55,8 @@ func TestMemoryBalancing(t *testing.T) {
 
 	var (
 		server1, _, cleaupFn1 = newServer(t, lp, portServer1)
-		server2, _, cleaupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
-		server3, _, cleaupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server2, _, cleaupFn2 = newServer(t, lp, nextPort())
+		server3, _, cleaupFn3 = newServer(t, lp, nextPort())
 		servers               = []virtual.Debug{server1, server2, server3}
 	)
 	defer cleaupFn1()
@@ -147,7 +146,7 @@ func TestSurviveLeaderFailure(t *testing.T) {
 
 	var (
 		lp          = &leaderProvider{}
-		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+		portServer1 = nextPort()
 	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
@@ -161,8 +160,8 @@ func TestSurviveLeaderFailure(t *testing.T) {
 		//       the leader never assigns itself any actors and if it has any once
 		//       it becomes the leader, it will drain them.
 		reg1                   = newRegistry(t, lp, portServer1)
-		server2, _, cleanupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
-		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server2, _, cleanupFn2 = newServer(t, lp, nextPort())
+		server3, _, cleanupFn3 = newServer(t, lp, nextPort())
 		servers                = []virtual.Debug{server2, server3}
 	)
 	defer reg1.Close(context.Background())
@@ -236,7 +235,7 @@ func TestSurviveLeaderFailureKillActors(t *testing.T) {
 
 	var (
 		lp          = &leaderProvider{}
-		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+		portServer1 = nextPort()
 	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
@@ -245,9 +244,9 @@ func TestSurviveLeaderFailureKillActors(t *testing.T) {
 
 	var (
 		server1, reg1, cleanupFn1 = newServer(t, lp, portServer1)
-		portServer2               = int(atomic.AddInt64(&nextServerPort, 1))
+		portServer2               = nextPort()
 		server2, _, cleanupFn2    = newServer(t, lp, portServer2)
-		server3, _, cleanupFn3    = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server3, _, cleanupFn3    = newServer(t, lp, nextPort())
 		servers                   = []virtual.Debug{server1, server2, server3}
 	)
 	defer cleanupFn1()
@@ -320,7 +319,7 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 
 	var (
 		lp          = &leaderProvider{}
-		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+		portServer1 = nextPort()
 	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
@@ -334,10 +333,10 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 		//       the leader never assigns itself any actors and if it has any once
 		//       it becomes the leader, it will drain them.
 		reg1                   = newRegistry(t, lp, portServer1)
-		portServer2            = int(atomic.AddInt64(&nextServerPort, 1))
+		portServer2            = nextPort()
 		server2, _, cleanupFn2 = newServer(t, lp, portServer2)
-		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
-		server4, _, cleanupFn4 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server3, _, cleanupFn3 = newServer(t, lp, nextPort())
+		server4, _, cleanupFn4 = newServer(t, lp, nextPort())
 		servers                = []virtual.Debug{server2, server3, server4}
 	)
 	defer reg1.Close(context.Background())
@@ -427,7 +426,7 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 
 	var (
 		lp          = &leaderProvider{}
-		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+		portServer1 = nextPort()
 	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
@@ -436,8 +435,8 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 
 	var (
 		server1, _, cleanupFn1 = newServer(t, lp, portServer1)
-		server2, _, cleanupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
-		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server2, _, cleanupFn2 = newServer(t, lp, nextPort())
+		server3, _, cleanupFn3 = newServer(t, lp, nextPort())
 	)
 	defer cleanupFn1()
 	defer cleanupFn2()
@@ -518,7 +517,7 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 
 	var (
 		lp          = &leaderProvider{}
-		portServer1 = int(atomic.AddInt64(&nextServerPort, 1))
+		portServer1 = nextPort()
 	)
 	lp.setLeader(registry.Address{
 		IP:   net.ParseIP("127.0.0.1"),
@@ -527,8 +526,8 @@ func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
 
 	var (
 		server1, _, cleanupFn1 = newServer(t, lp, portServer1)
-		server2, _, cleanupFn2 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
-		server3, _, cleanupFn3 = newServer(t, lp, int(atomic.AddInt64(&nextServerPort, 1)))
+		server2, _, cleanupFn2 = newServer(t, lp, nextPort())
+		server3, _, cleanupFn3 = newServer(t, lp, nextPort())
 	)
 	defer cleanupFn1()
 	defer cleanupFn2()
@@ -760,4 +759,8 @@ func (ta *testActor) Close(
 
 func actorID(idx int) string {
 	return fmt.Sprintf("actor-%d", idx)
+}
+
+func nextPort() int {
+	return nextPort()
 }
