@@ -667,7 +667,7 @@ func (r *environment) InvokeWorkerStream(
 
 	// TODO: The implementation of this function is nice because it just reusees a bunch of the
 	//       actor logic. However, it's also less performant than it could be because it still
-	//       effectively makes worker execution singlethreaded perserver. We should add the
+	//       effectively makes worker execution single-threaded perserver. We should add the
 	//       ability for multiple workers of the same module ID to execute in parallel on a
 	//       single server. This should be relatively straightforward to do with a few modications
 	//       to activations.go.
