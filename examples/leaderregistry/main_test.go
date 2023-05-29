@@ -500,7 +500,7 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 
 // TestRemoteServerTimeout tests the scenario where an actor is invoked with 2 replicas.
 // The invocation is done using a context with a deadline, and invoking a special operation that receives the expected
-// deadline as the payload. The actor operation checks whether the expected deadline matches the context deadline received by
+// timeout as the payload. The actor operation checks whether the expected deadline matches the context deadline received by
 // the server. Due to HTTP lag, the test verifies that the deadlines are no more than 1 second apart.
 func TestRemoteServerTimeout(t *testing.T) {
 	var (
