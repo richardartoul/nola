@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // InvokeActorRequest is the JSON struct that represents a request from an existing
 // actor to invoke an operation on another one.
@@ -29,6 +32,14 @@ type CreateIfNotExist struct {
 	InstantiatePayload []byte
 }
 
+// Validate validates that the CreateIfNotExist struct is valid.
+func (o *CreateIfNotExist) Validate() error {
+	if err := o.Options.Validate(); err != nil {
+		return fmt.Errorf("error validating CreateIfNotExist")
+	}
+	return nil
+}
+
 // ActorOptions contains the options for a given actor.
 type ActorOptions struct {
 	// ExtraReplicas represents the number of additional replicas requested for an actor.
@@ -46,6 +57,17 @@ type ActorOptions struct {
 	RetryPolicy RetryPolicy `json:"retry_policy"`
 }
 
+// Validate validates that the ActorOptions struct is valid.
+func (o *ActorOptions) Validate() error {
+	if o.ReplicationStrategy == ReplicaSelectionStrategyBroadcast &&
+		o.ExtraReplicas > 0 &&
+		o.RetryPolicy.PerAttemptTimeout <= 0 {
+		return fmt.Errorf("PerAttemptTimeout must be > 0 when using ReplicaSelectionStrategyBroadcast")
+	}
+
+	return nil
+}
+
 // ReplicaSelectionStrategy defines the available replica selection strategies for actor invocations.
 type ReplicaSelectionStrategy string
 
@@ -57,6 +79,10 @@ const (
 	// ReplicaSelectionStrategySorted indicates that replication attempts will be
 	// biased towards one replica until it breaks.
 	ReplicaSelectionStrategySorted ReplicaSelectionStrategy = "sorted"
+
+	// ReplicaSelectionStrategyBroadcast indicates that replication attempts will
+	// be broadcast concurrently to all replicas.
+	ReplicaSelectionStrategyBroadcast ReplicaSelectionStrategy = "broadcast"
 )
 
 // RetryPolicy defines the retry policies for actor invocations.

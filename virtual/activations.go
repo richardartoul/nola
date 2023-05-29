@@ -34,12 +34,21 @@ type activations struct {
 	log *slog.Logger
 
 	// State.
-	_modules              map[types.NamespacedID]Module
 	_actors               map[types.NamespacedActorID]futures.Future[*activatedActor]
 	_actorResourceTracker *actorResourceTracker
 	_blacklist            *ristretto.Cache
-	moduleFetchDeduper    singleflight.Group
-	_serverState          struct {
+
+	_moduleState struct {
+		// Give _moduleState its own lock because otherwise its really easy to have
+		// a deadlock between activations.Close() and a concurrent actor instantiation.
+		// In addition, the module state / cache is fairly isolated from the rest of
+		// the logic (it should probably be extracted into its own struct).
+		sync.Mutex
+		modules map[types.NamespacedID]Module
+		deduper singleflight.Group
+	}
+
+	_serverState struct {
 		sync.RWMutex
 		serverID      string
 		serverVersion int64
@@ -79,8 +88,7 @@ func newActivations(
 		panic(fmt.Sprintf("[invariant violated] unable to construct blacklist cache: %v", err))
 	}
 
-	return &activations{
-		_modules:              make(map[types.NamespacedID]Module),
+	a := &activations{
 		_actors:               make(map[types.NamespacedActorID]futures.Future[*activatedActor]),
 		_blacklist:            blacklist,
 		_actorResourceTracker: newActorResourceTracker(),
@@ -93,6 +101,8 @@ func newActivations(
 		customHostFns: customHostFns,
 		gcActorsAfter: gcActorsAfter,
 	}
+	a._moduleState.modules = make(map[types.NamespacedID]Module)
+	return a
 }
 
 func (a *activations) registerGoModule(id types.NamespacedIDNoType, module Module) error {
@@ -328,22 +338,22 @@ func (a *activations) ensureModule(
 	ctx context.Context,
 	moduleID types.NamespacedID,
 ) (Module, error) {
-	a.Lock()
-	module, ok := a._modules[moduleID]
-	a.Unlock()
+	a._moduleState.Lock()
+	module, ok := a._moduleState.modules[moduleID]
+	a._moduleState.Unlock()
 	if ok {
 		return module, nil
 	}
 
 	// Module wasn't cached already, we need to go fetch it.
 	dedupeBy := fmt.Sprintf("%s-%s", moduleID.Namespace, moduleID.ID)
-	moduleI, err, _ := a.moduleFetchDeduper.Do(dedupeBy, func() (any, error) {
+	moduleI, err, _ := a._moduleState.deduper.Do(dedupeBy, func() (any, error) {
 		// Need to check map again once we get into singleflight context in case
 		// the actor was instantiated since we released the lock above and entered
 		// the singleflight context.
-		a.Lock()
-		module, ok := a._modules[moduleID]
-		a.Unlock()
+		a._moduleState.Lock()
+		module, ok := a._moduleState.modules[moduleID]
+		a._moduleState.Unlock()
 		if ok {
 			return module, nil
 		}
@@ -389,9 +399,9 @@ func (a *activations) ensureModule(
 
 		// Can set unconditionally without checking if it already exists since we're in
 		// the singleflight context.
-		a.Lock()
-		a._modules[moduleID] = module
-		a.Unlock()
+		a._moduleState.Lock()
+		a._moduleState.modules[moduleID] = module
+		a._moduleState.Unlock()
 		return module, nil
 	})
 	if err != nil {

@@ -421,215 +421,119 @@ func TestInvokeActorHostFunctionDeadlockRegression(t *testing.T) {
 // that the registry will detect server's that are no longer heartbeating and reactivate the actors elsewhere,
 // and that the activation/routing system can accomodate all of this.
 func TestHeartbeatAndSelfHealing(t *testing.T) {
-	var (
-		reg         = localregistry.NewLocalRegistry("test-server-id")
-		moduleStore = newTestModuleStore()
-		ctx         = context.Background()
-	)
-	defer reg.Close(context.Background())
-
-	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
-	// needs its own port so it looks unique.
-	opts1 := defaultOptsWASM
-	opts1.Discovery.Port = 1
-	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
-	require.NoError(t, err)
-	defer env1.Close(context.Background())
-
-	opts2 := defaultOptsWASM
-	opts2.Discovery.Port = 2
-	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
-	require.NoError(t, err)
-	defer env2.Close(context.Background())
-
-	opts3 := defaultOptsWASM
-	opts3.Discovery.Port = 3
-	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
-	require.NoError(t, err)
-	defer env3.Close(context.Background())
-
-	_, err = moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(t, err)
-
-	for i := 0; i < 100; i++ {
-		// Ensure we can invoke each actor from each environment. Note that just because
-		// we invoke an actor on env1 first does not mean that the actor will be activated
-		// on env1. The actor will be activated on whichever environment/server the Registry
-		// decides and if we send the invocation to the "wrong" environment it will get
-		// re-routed automatically.
-		//
-		// Also note that we force each environment to heartbeat manually. This is important
-		// because the Registry load-balancing mechanism relies on the state provided to the
-		// Registry about the server from the server heartbeats. Therefore we need to
-		// heartbeat at least once after every actor is activated if we want to ensure the
-		// registry is able to actually load-balance the activations evenly.
-		_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env2.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env1.Heartbeat())
-		require.NoError(t, env2.Heartbeat())
-		require.NoError(t, env3.Heartbeat())
-		_, err = env1.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env2.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env1.Heartbeat())
-		require.NoError(t, env2.Heartbeat())
-		require.NoError(t, env3.Heartbeat())
-		_, err = env1.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env2.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env1.Heartbeat())
-		require.NoError(t, env2.Heartbeat())
-		require.NoError(t, env3.Heartbeat())
-	}
-
-	// Registry load-balancing should ensure that we ended up with 1 actor in each environment
-	// I.E "on each server".
-	require.Equal(t, 1, env1.NumActivatedActors())
-	require.Equal(t, 1, env2.NumActivatedActors())
-	require.Equal(t, 1, env3.NumActivatedActors())
-
-	require.NoError(t, env1.Close(context.Background()))
-	require.NoError(t, env2.Close(context.Background()))
-
-	// env1 and env2 have been closed (and not heartbeating) for longer than the maximum
-	// heartbeat delay which means that the registry should view them as "dead". Therefore, we
-	// expect that we should still be able to invoke all 3 of our actors, however, all of them
-	// should end up being activated on server3 now since it is the only remaining live actor.
-
-	for i := 0; i < 100; i++ {
-		if i == 0 {
-			for {
-				// Spin loop until there are no more errors as function calls will fail for
-				// a bit until heartbeat + activation cache expire.
-				_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-				if err != nil {
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-				_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-				if err != nil {
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-				_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
-				if err != nil {
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-				break
-			}
-			continue
+	testFn := func(t *testing.T, reg registry.Registry, env1, env2, env3 Environment) {
+		var (
+			ctx = context.Background()
+			err error
+		)
+		for i := 0; i < 100; i++ {
+			// Ensure we can invoke each actor from each environment. Note that just because
+			// we invoke an actor on env1 first does not mean that the actor will be activated
+			// on env1. The actor will be activated on whichever environment/server the Registry
+			// decides and if we send the invocation to the "wrong" environment it will get
+			// re-routed automatically.
+			//
+			// Also note that we force each environment to heartbeat manually. This is important
+			// because the Registry load-balancing mechanism relies on the state provided to the
+			// Registry about the server from the server heartbeats. Therefore we need to
+			// heartbeat at least once after every actor is activated if we want to ensure the
+			// registry is able to actually load-balance the activations evenly.
+			_, err = env1.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			_, err = env2.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			require.NoError(t, env1.Heartbeat())
+			require.NoError(t, env2.Heartbeat())
+			require.NoError(t, env3.Heartbeat())
+			_, err = env1.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			_, err = env2.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			require.NoError(t, env1.Heartbeat())
+			require.NoError(t, env2.Heartbeat())
+			require.NoError(t, env3.Heartbeat())
+			_, err = env1.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			_, err = env2.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			require.NoError(t, env1.Heartbeat())
+			require.NoError(t, env2.Heartbeat())
+			require.NoError(t, env3.Heartbeat())
 		}
 
-		_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env3.Heartbeat())
-		_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env3.Heartbeat())
-		_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
-		require.NoError(t, err)
-		require.NoError(t, env3.Heartbeat())
+		// Registry load-balancing should ensure that we ended up with 1 actor in each environment
+		// I.E "on each server".
+		require.Equal(t, 1, env1.NumActivatedActors())
+		require.Equal(t, 1, env2.NumActivatedActors())
+		require.Equal(t, 1, env3.NumActivatedActors())
+
+		require.NoError(t, env1.Close(context.Background()))
+		require.NoError(t, env2.Close(context.Background()))
+
+		// env1 and env2 have been closed (and not heartbeating) for longer than the maximum
+		// heartbeat delay which means that the registry should view them as "dead". Therefore, we
+		// expect that we should still be able to invoke all 3 of our actors, however, all of them
+		// should end up being activated on server3 now since it is the only remaining live actor.
+
+		for i := 0; i < 100; i++ {
+			if i == 0 {
+				for {
+					// Spin loop until there are no more errors as function calls will fail for
+					// a bit until heartbeat + activation cache expire.
+					_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+					if err != nil {
+						time.Sleep(100 * time.Millisecond)
+						continue
+					}
+					_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+					if err != nil {
+						time.Sleep(100 * time.Millisecond)
+						continue
+					}
+					_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+					if err != nil {
+						time.Sleep(100 * time.Millisecond)
+						continue
+					}
+					break
+				}
+				continue
+			}
+
+			_, err = env3.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			require.NoError(t, env3.Heartbeat())
+			_, err = env3.InvokeActor(ctx, "ns-1", "b", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			require.NoError(t, env3.Heartbeat())
+			_, err = env3.InvokeActor(ctx, "ns-1", "c", "test-module", "inc", nil, types.CreateIfNotExist{})
+			require.NoError(t, err)
+			require.NoError(t, env3.Heartbeat())
+		}
+
+		// Ensure that all of our invocations above were actually served by environment3.
+		require.Equal(t, 3, env3.NumActivatedActors())
+
+		// Finally, make sure environment 3 is closed.
+		require.NoError(t, env3.Close(context.Background()))
 	}
-
-	// Ensure that all of our invocations above were actually served by environment3.
-	require.Equal(t, 3, env3.NumActivatedActors())
-
-	// Finally, make sure environment 3 is closed.
-	require.NoError(t, env3.Close(context.Background()))
+	runThreeEnvironmentsWithDifferentConfigs(t, testFn)
 }
 
 // TestHeartbeatAndRebalancingWithMemory tests that the interaction between the environment
 // heartbeating mechanism and the registry load balancing mechanism is able to effectively
 // rebalance actors across the available nodes based on memory usage.
-func TestHeartbeatAndRebalancingWithMemoryGoModule(t *testing.T) {
-	var (
-		reg = localregistry.NewLocalRegistryWithOptions(
-			"test-server-id",
-			registry.KVRegistryOptions{
-				RebalanceMemoryThreshold: 1 << 24,
-			})
-		moduleStore = newTestModuleStore()
-		ctx         = context.Background()
-	)
-	defer reg.Close(context.Background())
-
-	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
-	// needs its own port so it looks unique.
-	opts1 := defaultOptsGoByte
-	opts1.Discovery.Port = 1
-	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
-	require.NoError(t, err)
-	defer env1.Close(context.Background())
-	env1.RegisterGoModule(
-		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
-
-	opts2 := defaultOptsGoByte
-	opts2.Discovery.Port = 2
-	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
-	require.NoError(t, err)
-	defer env2.Close(context.Background())
-	env2.RegisterGoModule(
-		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
-
-	opts3 := defaultOptsGoByte
-	opts3.Discovery.Port = 3
-	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
-	require.NoError(t, err)
-	defer env3.Close(context.Background())
-	env3.RegisterGoModule(
-		types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
-
-	testHeartbeatAndRebalancingWithMemory(t, env1, env2, env3)
-}
-
-// TestHeartbeatAndRebalancingWithMemoryWASMModule is the same as
-// TestHeartbeatAndRebalancingWithMemoryGoModule, but for WASM modules.
-func TestHeartbeatAndRebalancingWithMemoryWASMModule(t *testing.T) {
-	var (
-		reg = localregistry.NewLocalRegistryWithOptions(
-			"test-server-id",
-			registry.KVRegistryOptions{
-				RebalanceMemoryThreshold: 1 << 24,
-			})
-		moduleStore = newTestModuleStore()
-		ctx         = context.Background()
-	)
-	defer reg.Close(context.Background())
-	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(t, err)
-
-	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
-	// needs its own port so it looks unique.
-	opts1 := defaultOptsWASM
-	opts1.Discovery.Port = 1
-	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
-	require.NoError(t, err)
-	defer env1.Close(context.Background())
-
-	opts2 := defaultOptsWASM
-	opts2.Discovery.Port = 2
-	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
-	require.NoError(t, err)
-	defer env2.Close(context.Background())
-
-	opts3 := defaultOptsWASM
-	opts3.Discovery.Port = 3
-	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
-	require.NoError(t, err)
-	defer env3.Close(context.Background())
-
-	testHeartbeatAndRebalancingWithMemory(t, env1, env2, env3)
+func TestHeartbeatAndRebalancingWithMemory(t *testing.T) {
+	testFn := func(t *testing.T, reg registry.Registry, env1, env2, env3 Environment) {
+		testHeartbeatAndRebalancingWithMemory(t, env1, env2, env3)
+	}
+	runThreeEnvironmentsWithDifferentConfigs(t, testFn)
 }
 
 func testHeartbeatAndRebalancingWithMemory(
@@ -700,84 +604,23 @@ func testHeartbeatAndRebalancingWithMemory(
 	}
 }
 
-// TestReplicationRandomGoModule tests the random replication logic of the environment.
-// This test specifically examines how actors are replicated when the ExtraReplicas option is set to a value greater than 0.
-// The test verifies that the actor is replicated across multiple environments in a random manner.
-func TestReplicationRandomGoModule(t *testing.T) {
-	var (
-		reg = localregistry.NewLocalRegistryWithOptions(
-			"test-server-id",
-			registry.KVRegistryOptions{
-				RebalanceMemoryThreshold: 1 << 24,
-			})
-		moduleStore = newTestModuleStore()
-		ctx         = context.Background()
-	)
-	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(t, err)
-
-	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
-	// needs its own port so it looks unique.
-	opts1 := defaultOptsWASM
-	opts1.Discovery.Port = 1
-	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
-	require.NoError(t, err)
-	defer env1.Close(context.Background())
-
-	opts2 := defaultOptsWASM
-	opts2.Discovery.Port = 2
-	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
-	require.NoError(t, err)
-	defer env2.Close(context.Background())
-
-	opts3 := defaultOptsWASM
-	opts3.Discovery.Port = 3
-	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
-	require.NoError(t, err)
-	defer env3.Close(context.Background())
-
-	testReplicationRandom(t, env1, env2, env3)
+// TestReplicationRandom tests the random replication logic of the environment.
+//
+// This test specifically examines how actors are replicated when the ExtraReplicas
+// option is set to a value greater than 0. The test verifies that the actor is
+// replicated across multiple environments in a random manner.
+func TestReplicationRandom(t *testing.T) {
+	runThreeEnvironmentsWithDifferentConfigs(t,
+		func(t *testing.T, reg registry.Registry, env1, env2, env3 Environment) {
+			testReplicationRandom(t, env1, env2, env3)
+		})
 }
 
-func TestReplicationRandomWASMModule(t *testing.T) {
-	var (
-		reg = localregistry.NewLocalRegistryWithOptions(
-			"test-server-id",
-			registry.KVRegistryOptions{
-				RebalanceMemoryThreshold: 1 << 24,
-			})
-		moduleStore = newTestModuleStore()
-		ctx         = context.Background()
-	)
-	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
-	require.NoError(t, err)
-
-	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
-	// needs its own port so it looks unique.
-	opts1 := defaultOptsWASM
-	opts1.Discovery.Port = 1
-	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
-	require.NoError(t, err)
-	defer env1.Close(context.Background())
-
-	opts2 := defaultOptsWASM
-	opts2.Discovery.Port = 2
-	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
-	require.NoError(t, err)
-	defer env2.Close(context.Background())
-
-	opts3 := defaultOptsWASM
-	opts3.Discovery.Port = 3
-	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
-	require.NoError(t, err)
-	defer env3.Close(context.Background())
-
-	testReplicationRandom(t, env1, env2, env3)
-}
-
-// testReplicationRandom is a test function that verifies the random replication of actors across multiple environments.
+// testReplicationRandom is a test function that verifies the random replication of actors
+// across multiple environments.
 //
 // The test logic is as follows:
+//
 // - Invoke an actor with the ExtraReplicas option set to 2.
 // - Continuously check if the actor has been replicated in all three environments.
 // - If the actor is not activated in all three environments, invoke the actor again.
@@ -790,16 +633,63 @@ func testReplicationRandom(
 	ctx := context.Background()
 
 	require.Eventually(t, func() bool {
-		numActivatedActors := env1.NumActivatedActors() + env2.NumActivatedActors() + env3.NumActivatedActors()
-		if numActivatedActors == 3 {
+		if env1.NumActivatedActors() == 1 &&
+			env2.NumActivatedActors() == 1 &&
+			env3.NumActivatedActors() == 1 {
 			return true
 		}
 
-		_, err := env1.InvokeActor(ctx, "ns-1", "actor-0", "test-module", "inc", nil, types.CreateIfNotExist{Options: types.ActorOptions{ExtraReplicas: 2}})
+		_, err := env1.InvokeActor(
+			ctx, "ns-1", "actor-0", "test-module", "inc", nil,
+			types.CreateIfNotExist{Options: types.ActorOptions{
+				ReplicationStrategy: types.ReplicaSelectionStrategyRandom,
+				ExtraReplicas:       2,
+			}})
 		require.NoError(t, err)
 
 		return false
 	}, time.Minute, time.Microsecond, "actor is not replicated")
+}
+
+// TestReplicationBroadcast tests the broadast replication logic of the environment.
+func TestReplicationBroadcast(t *testing.T) {
+	runThreeEnvironmentsWithDifferentConfigs(t,
+		func(t *testing.T, reg registry.Registry, env1, env2, env3 Environment) {
+			testReplicationBroadcast(t, env1, env2, env3)
+		})
+}
+
+// testReplicationBroadcast is a test function that verifies the broadcast replication
+// of actors across multiple environments.
+//
+// The test logic is as follows:
+//
+// - Invoke an actor with the ExtraReplicas option set to 2 and broadcast strategy.
+// - Check if the actor has been replicated in all three environments.
+func testReplicationBroadcast(
+	t *testing.T,
+	env1, env2, env3 Environment,
+) {
+	ctx := context.Background()
+	_, err := env1.InvokeActor(
+		ctx, "ns-1", "actor-0", "test-module", "inc", nil,
+		types.CreateIfNotExist{Options: types.ActorOptions{
+			ReplicationStrategy: types.ReplicaSelectionStrategyBroadcast,
+			ExtraReplicas:       2,
+			RetryPolicy: types.RetryPolicy{
+				PerAttemptTimeout: 5 * time.Second,
+			},
+		}})
+	require.NoError(t, err)
+
+	// Broadcast returns the first successful response immediately so
+	// we may need to wait a bit for all the actors to be instantiated
+	// in all the environments after getting the successful response.
+	require.Eventually(t, func() bool {
+		return env1.NumActivatedActors() == 1 &&
+			env2.NumActivatedActors() == 1 &&
+			env3.NumActivatedActors() == 1
+	}, 15*time.Second, time.Millisecond)
 }
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server
@@ -1080,6 +970,86 @@ func runWithDifferentConfigs(
 			testFn(t, reg, env)
 		})
 	}
+}
+
+func runThreeEnvironmentsWithDifferentConfigs(
+	t *testing.T,
+	testFn func(t *testing.T, reg registry.Registry, env1, env2, env3 Environment),
+) {
+	t.Run("go module", func(t *testing.T) {
+		var (
+			reg = localregistry.NewLocalRegistryWithOptions(
+				"test-server-id",
+				registry.KVRegistryOptions{
+					RebalanceMemoryThreshold: 1 << 24,
+				})
+			moduleStore = newTestModuleStore()
+			ctx         = context.Background()
+		)
+		defer reg.Close(context.Background())
+
+		// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+		// needs its own port so it looks unique.
+		opts1 := defaultOptsGoByte
+		opts1.Discovery.Port = 1
+		env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+		require.NoError(t, err)
+		defer env1.Close(context.Background())
+		env1.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
+
+		opts2 := defaultOptsGoByte
+		opts2.Discovery.Port = 2
+		env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+		require.NoError(t, err)
+		defer env2.Close(context.Background())
+		env2.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
+
+		opts3 := defaultOptsGoByte
+		opts3.Discovery.Port = 3
+		env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+		require.NoError(t, err)
+		defer env3.Close(context.Background())
+		env3.RegisterGoModule(
+			types.NamespacedIDNoType{Namespace: "ns-1", ID: "test-module"}, testModule{})
+		testFn(t, reg, env1, env2, env3)
+	})
+
+	t.Run("WASM module", func(t *testing.T) {
+		var (
+			reg = localregistry.NewLocalRegistryWithOptions(
+				"test-server-id",
+				registry.KVRegistryOptions{
+					RebalanceMemoryThreshold: 1 << 24,
+				})
+			moduleStore = newTestModuleStore()
+			ctx         = context.Background()
+		)
+		_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+		require.NoError(t, err)
+
+		// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+		// needs its own port so it looks unique.
+		opts1 := defaultOptsWASM
+		opts1.Discovery.Port = 1
+		env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+		require.NoError(t, err)
+		defer env1.Close(context.Background())
+
+		opts2 := defaultOptsWASM
+		opts2.Discovery.Port = 2
+		env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+		require.NoError(t, err)
+		defer env2.Close(context.Background())
+
+		opts3 := defaultOptsWASM
+		opts3.Discovery.Port = 3
+		env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+		require.NoError(t, err)
+		defer env3.Close(context.Background())
+		testFn(t, reg, env1, env2, env3)
+	})
 }
 
 type testModule struct {

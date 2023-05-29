@@ -417,6 +417,10 @@ func (r *environment) InvokeActorStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
+	if err := create.Validate(); err != nil {
+		return nil, fmt.Errorf("error validating CreateIfNotExist: %w", err)
+	}
+
 	resp, err := r.invokeActorStreamHelper(
 		ctx, namespace, actorID, moduleID, operation, payload, create, nil)
 	if err == nil {
@@ -494,15 +498,18 @@ func (r *environment) invokeActorStreamHelper(
 	for retryAttempt := uint(0); retryAttempt < 1+retryPolicy.MaxNumRetries; retryAttempt++ {
 		if len(references) < 1 {
 			// If there are no more replicas left, the invocation is considered failed.
-			// Return an error indicating the failure, including the number of attempts and the last encountered error.
-			return nil, fmt.Errorf("failed invocation because there are no more replicas left, after %d attempts, and with last error %w", retryAttempt, invocationErr)
+			// Return an error indicating the failure, including the number of attempts
+			// and the last encountered error.
+			return nil, fmt.Errorf(
+				"failed invocation because there are no more replicas left, after %d attempts, and with last error %w",
+				retryAttempt, invocationErr)
 		}
 
 		// Create a new context with a timeout for each invocation attempt.
 		if retryPolicy.PerAttemptTimeout > 0 {
 			invokeCtx, cc = context.WithTimeout(ctx, retryPolicy.PerAttemptTimeout)
 		}
-		idx, resp, err := r.invokeReferences(invokeCtx, vs, references, operation, payload, create)
+		resp, selectedReferences, err := r.invokeReferences(invokeCtx, vs, references, operation, payload, create)
 		cc()
 
 		// If there is no error or the error is due to server blacklisting, consider the invocation successful.
@@ -514,8 +521,8 @@ func (r *environment) invokeActorStreamHelper(
 		// Store the error encountered during the current invocation attempt.
 		invocationErr = err
 
-		// Remove the server that failed to invoke the actor from the available references.
-		references = removeItem(references, idx)
+		// Remove the servers that failed to invoke the actor from the available references.
+		references = filterReferences(references, selectedReferences)
 	}
 
 	// Return an error indicating that the maximum number of retries has been reached without success.
@@ -535,6 +542,10 @@ func (r *environment) InvokeActorDirect(
 ) ([]byte, error) {
 	if r.isClosed() {
 		return nil, ErrEnvironmentClosed
+	}
+
+	if err := create.Validate(); err != nil {
+		return nil, fmt.Errorf("error validating CreateIfNotExist: %w", err)
 	}
 
 	reader, err := r.InvokeActorDirectStream(
@@ -656,7 +667,7 @@ func (r *environment) InvokeWorkerStream(
 
 	// TODO: The implementation of this function is nice because it just reusees a bunch of the
 	//       actor logic. However, it's also less performant than it could be because it still
-	//       effectively makes worker execution single-threaded per-server. We should add the
+	//       effectively makes worker execution single-threaded perserver. We should add the
 	//       ability for multiple workers of the same module ID to execute in parallel on a
 	//       single server. This should be relatively straightforward to do with a few modications
 	//       to activations.go.
@@ -805,10 +816,11 @@ var (
 	localEnvironmentsRouterLock sync.RWMutex
 )
 
-// invokeReferences invokes the specified operation on the given references.
-// It selects a server for invocation based on the provided references and the create flag.
-// The method returns the index of the reference that was invoked, the response as an io.ReadCloser,
-// and an error if any occurred during the invocation process.
+// invokeReferences invokes the specified operation on the given references using the appropriate
+// strategy based on the values in types.CreateIfNotExist.
+//
+// The method returns the result/error, and a slice of the references that were used to perform
+// the actual invocation so that the caller can remove them from subsequent retries, if necessary.
 func (r *environment) invokeReferences(
 	ctx context.Context,
 	versionStamp int64,
@@ -816,52 +828,158 @@ func (r *environment) invokeReferences(
 	operation string,
 	payload []byte,
 	create types.CreateIfNotExist,
-) (int, io.ReadCloser, error) {
-	ref, idx, err := r.pickServerForInvocation(references, create)
+) (io.ReadCloser, []types.ActorReference, error) {
+	// Usually references is a slice of size 1, but it may contain more than one
+	// entry in the case that ReplicaSelectionStrategyBroadcast is being used.
+	//
+	// Intentionally shadow references here to prevent use of the wrong value
+	// by accident in subsequent code.
+	references, err := r.pickServerForInvocation(references, create)
 	if err != nil {
-		return idx, nil, fmt.Errorf("error picking server for activation: %w", err)
+		return nil, nil, fmt.Errorf("error picking server for activation: %w", err)
+	}
+	if len(references) == 0 {
+		// This shouldn't happen since pickServerForInvocation should return
+		// an error in that case.
+		return nil, nil, fmt.Errorf("[invariant violated] no references available")
 	}
 
-	if !r.opts.ForceRemoteProcedureCalls {
-		// First check the global localEnvironmentsRouter map for scenarios where we're
-		// potentially trying to communicate between multiple different in-memory
-		// instances of Environment.
-		localEnvironmentsRouterLock.RLock()
-		localEnv, ok := localEnvironmentsRouter[ref.Physical.ServerState.Address]
-		localEnvironmentsRouterLock.RUnlock()
-		if ok {
-			resp, err := localEnv.InvokeActorDirectStream(
-				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
-				operation, payload, create)
-			return idx, resp, err
-		}
-
-		// Separately, if the registry returned an address that looks like localhost for any
-		// reason, then just route the request to the current node / this instance of
-		// Environment. This prevents unnecessary RPCs when the caller happened to send a
-		// request to the NOLA node that should actually run the actor invocation.
-		//
-		// More importantly, it also dramatically simplifies writing applications that embed
-		// NOLA as a library. This helps enable the ability to write application code that
-		// runs/behaves exactly the same way and follows the same code paths in production
-		// and in tests.
-		//
-		// For example, applications leveraging the DNS-backed registry implementation can
-		// use the exact same code in production and in single-node environments/tests by
-		// passing "localhost" as the hostname to the DNSRegistry which will cause it to
-		// always return dnsregistry.Localhost as the address for all actor references and
-		// thus ensure that tests can be written without having to also ensure that a NOLA
-		// server is running on the appropriate port, among other things.
-		if ref.Physical.ServerState.Address == Localhost || ref.Physical.ServerState.Address == dnsregistry.Localhost {
-			resp, err := localEnv.InvokeActorDirectStream(
-				ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
-				operation, payload, create)
-			return idx, resp, err
-		}
+	if len(references) == 1 {
+		result, err := r.invokeSingleReference(
+			ctx, versionStamp, references[0], operation, payload, create)
+		return result, references, err
 	}
 
+	// In the case of a broadcast we issue all the requests in parallel and then return
+	// the first successfult response. If all the responses are errors, then we return
+	// all of them.
+
+	if create.Options.RetryPolicy.PerAttemptTimeout <= 0 {
+		return nil, nil, fmt.Errorf("[invariant violated] RetryPolicy.PerAttemptTimeout must be > 0 when using broadcast")
+	}
+
+	// Create a new dedicated context because in the case of a broadcast we'll return the
+	// first successful response, but we don't want to cancel the request to all the other
+	// replicas that have not completed yet either which may happen if we use the same parent
+	// context which could be terminated once the successful response is returned.
+	//
+	// cc will be invoked only when all the async broadcast requests have completed which
+	// is managed by the async goroutine below that drains the results channel.
+	ctx, cc := context.WithTimeout(ctx, create.Options.RetryPolicy.PerAttemptTimeout)
+
+	type respOrErr struct {
+		resp io.ReadCloser
+		err  error
+	}
+	results := make(chan respOrErr, len(references))
+	for _, ref := range references {
+		ref := ref // Capture for async goroutine.
+		go func() {
+			resp, err := r.invokeSingleReference(ctx, versionStamp, ref, operation, payload, create)
+			results <- respOrErr{
+				resp: resp,
+				err:  err,
+			}
+		}()
+	}
+
+	finalResult := make(chan respOrErr)
+	go func() {
+		var (
+			i                  = 0
+			hasSentFinalResult = false
+			errs               []error
+		)
+		for result := range results {
+			if !hasSentFinalResult {
+				if result.err == nil {
+					hasSentFinalResult = true
+					finalResult <- result
+				} else {
+					errs = append(errs, result.err)
+				}
+			} else {
+				// Make sure we clean up all the resources for successful responses that
+				// occur after we've already returned the first successful response.
+				if result.err == nil {
+					result.resp.Close()
+				}
+			}
+
+			if i == len(references)-1 {
+				if !hasSentFinalResult {
+					finalResult <- respOrErr{
+						err: errors.Join(errs...),
+					}
+				}
+				cc()
+				return
+			}
+
+			i++
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, references, ctx.Err()
+	case final := <-finalResult:
+		return final.resp, references, final.err
+	}
+}
+
+func (r *environment) invokeSingleReference(
+	ctx context.Context,
+	versionStamp int64,
+	ref types.ActorReference,
+	operation string,
+	payload []byte,
+	create types.CreateIfNotExist,
+) (io.ReadCloser, error) {
+	if r.opts.ForceRemoteProcedureCalls {
+		resp, err := r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
+		return resp, err
+	}
+
+	// First check the global localEnvironmentsRouter map for scenarios where we're
+	// potentially trying to communicate between multiple different in-memory
+	// instances of Environment.
+	localEnvironmentsRouterLock.RLock()
+	localEnv, ok := localEnvironmentsRouter[ref.Physical.ServerState.Address]
+	localEnvironmentsRouterLock.RUnlock()
+	if ok {
+		resp, err := localEnv.InvokeActorDirectStream(
+			ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
+			operation, payload, create)
+		return resp, err
+	}
+
+	// Separately, if the registry returned an address that looks like localhost for any
+	// reason, then just route the request to the current node / this instance of
+	// Environment. This prevents unnecessary RPCs when the caller happened to send a
+	// request to the NOLA node that should actually run the actor invocation.
+	//
+	// More importantly, it also dramatically simplifies writing applications that embed
+	// NOLA as a library. This helps enable the ability to write application code that
+	// runs/behaves exactly the same way and follows the same code paths in production
+	// and in tests.
+	//
+	// For example, applications leveraging the DNS-backed registry implementation can
+	// use the exact same code in production and in single-node environments/tests by
+	// passing "localhost" as the hostname to the DNSRegistry which will cause it to
+	// always return dnsregistry.Localhost as the address for all actor references and
+	// thus ensure that tests can be written without having to also ensure that a NOLA
+	// server is running on the appropriate port, among other things.
+	if ref.Physical.ServerState.Address == Localhost || ref.Physical.ServerState.Address == dnsregistry.Localhost {
+		resp, err := localEnv.InvokeActorDirectStream(
+			ctx, versionStamp, ref.Physical.ServerID, ref.Physical.ServerVersion, ref.Virtual,
+			operation, payload, create)
+		return resp, err
+	}
+
+	// Definitely need to invoke remotely, so just do that.
 	resp, err := r.client.InvokeActorRemote(ctx, versionStamp, ref, operation, payload, create)
-	return idx, resp, err
+	return resp, err
 }
 
 func (r *environment) freezeHeartbeatState() {
@@ -896,25 +1014,27 @@ func (r *environment) isClosed() bool {
 	return r.shutdownState.closed
 }
 
-// pickServerForInvocation selects a server for invocation based on the provided references and retry policy.
-// It returns the selected actor reference, its index in the references slice, and an error if no references are available.
-// Note: The function may change the order of items in the references slice for efficiency and avoiding unnecessary copies.
+// pickServerForInvocation selects a server for invocation based on the provided
+// references and retry policy. It returns the selected actor reference, its index
+// in the references slice, and an error if no references are available.
 func (r *environment) pickServerForInvocation(
 	references []types.ActorReference,
 	create types.CreateIfNotExist,
-) (types.ActorReference, int, error) {
+) ([]types.ActorReference, error) {
 	if len(references) == 0 {
-		return types.ActorReference{}, 0, fmt.Errorf("no references available")
+		return nil, fmt.Errorf("no references available")
 	}
 
 	switch create.Options.ReplicationStrategy {
 	case types.ReplicaSelectionStrategySorted:
 		// Sort the references slice based on the server ID in descending order.
 		// This way, the retry selection is biased towards the replica with the highest server ID over time.
-		result, idx := findMax(references, func(i, j int) bool {
+		result := findMax(references, func(i, j int) bool {
 			return references[i].Physical.ServerID > references[j].Physical.ServerID
 		})
-		return result, idx, nil
+		return []types.ActorReference{result}, nil
+	case types.ReplicaSelectionStrategyBroadcast:
+		return references, nil
 	case types.ReplicaSelectionStrategyRandom:
 		fallthrough
 	default:
@@ -923,13 +1043,15 @@ func (r *environment) pickServerForInvocation(
 		r.randState.Lock()
 		defer r.randState.Unlock()
 		idx := r.randState.rng.Intn(len(references))
-		return references[idx], idx, nil
+		return []types.ActorReference{references[idx]}, nil
 	}
 }
 
 // findMax finds the max element in the slice based on the provided comparator function.
-// The comparator function should return true if the element at index i is considered greater than the element at index j.
-func findMax[T any](slice []T, comparator func(i, j int) bool) (T, int) {
+//
+// The comparator function should return true if the element at index i is considered
+// greater than the element at index j.
+func findMax[T any](slice []T, comparator func(i, j int) bool) T {
 	var (
 		extreme T
 		idx     int
@@ -940,7 +1062,7 @@ func findMax[T any](slice []T, comparator func(i, j int) bool) (T, int) {
 		}
 	}
 
-	return extreme, idx - 1
+	return extreme
 }
 
 func getSelfIP() (net.IP, error) {
@@ -1006,14 +1128,25 @@ func formatActorCacheKey(
 	return dst
 }
 
-// removeItem removes the item at the specified index from the slice.
-func removeItem[T any](slice []T, index int) []T {
-	if index == len(slice)-1 {
-		return slice[:index]
+func filterReferences(
+	toFilter []types.ActorReference,
+	toRemove []types.ActorReference,
+) []types.ActorReference {
+	filtered := make([]types.ActorReference, 0, len(toFilter)-len(toRemove))
+
+	for _, v1 := range toFilter {
+		shouldInclude := true
+		for _, v2 := range toRemove {
+			if v1 == v2 {
+				shouldInclude = false
+				break
+			}
+		}
+		if !shouldInclude {
+			continue
+		}
+		filtered = append(filtered, v1)
 	}
 
-	newSlice := make([]T, len(slice)-1)
-	copy(newSlice, slice[:index])
-	copy(newSlice[index:], slice[index+1:])
-	return newSlice
+	return filtered
 }
