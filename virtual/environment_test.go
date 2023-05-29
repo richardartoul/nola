@@ -676,6 +676,9 @@ func testReplicationBroadcast(
 		types.CreateIfNotExist{Options: types.ActorOptions{
 			ReplicationStrategy: types.ReplicaSelectionStrategyBroadcast,
 			ExtraReplicas:       2,
+			RetryPolicy: types.RetryPolicy{
+				PerAttemptTimeout: 5 * time.Second,
+			},
 		}})
 	require.NoError(t, err)
 
