@@ -503,8 +503,6 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 // deadline as the payload. The actor operation checks whether the expected deadline matches the context deadline received by
 // the server. Due to HTTP lag, the test verifies that the deadlines are no more than 1 second apart.
 func TestRemoteServerTimeout(t *testing.T) {
-	t.Parallel()
-
 	var (
 		lp          = &leaderProvider{}
 		portServer1 = nextPort()
@@ -539,7 +537,9 @@ func TestRemoteServerTimeout(t *testing.T) {
 		ReplicationStrategy: types.ReplicaSelectionStrategyRandom,
 	}}
 
-	// Use require.Eventually to invoke the actor until it is replicated in all available servers.
+	// We ensure that the actor invocation reaches two different servers, thus verifying that at least one
+	// of the requests went over the network. We use the "ctx-timeout-check" operation to propagate the
+	// context deadline as a payload to the actor invocation.
 	require.Eventually(t, func() bool {
 		deadline, _ := ctx.Deadline()
 		_, err := server1.InvokeActor(

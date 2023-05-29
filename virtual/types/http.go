@@ -1,5 +1,5 @@
 package types
 
 const (
-	HttpHeaderTimeout = "nola-context-timeout"
+	HTTPHeaderTimeout = "nola-context-timeout"
 )

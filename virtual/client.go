@@ -54,7 +54,7 @@ func (h *httpClient) InvokeActorRemote(
 	deadline, ok := ctx.Deadline()
 	if ok {
 		timeout := time.Until(deadline)
-		req.Header.Add(types.HttpHeaderTimeout, timeout.String())
+		req.Header.Add(types.HTTPHeaderTimeout, timeout.String())
 	}
 
 	resp, err := h.c.Do(req)

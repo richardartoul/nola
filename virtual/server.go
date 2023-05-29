@@ -16,6 +16,8 @@ import (
 	"github.com/richardartoul/nola/virtual/types"
 )
 
+const DefaultHTTPRequestTimeout = 15 * time.Second
+
 type Server struct {
 	sync.Mutex
 
@@ -337,14 +339,15 @@ func copyResultIntoStreamAndCloseResult(
 }
 
 func getContextFromRequest(r *http.Request) context.Context {
-	headerValue := r.Header.Get(types.HttpHeaderTimeout)
-	if headerValue != "" {
-		timeout, err := time.ParseDuration(headerValue)
-		if err != nil {
-			return r.Context()
+	timeout := DefaultHTTPRequestTimeout
+
+	if headerValue := r.Header.Get(types.HTTPHeaderTimeout); headerValue != "" {
+		headerTimeout, err := time.ParseDuration(headerValue)
+		if err == nil {
+			timeout = headerTimeout
 		}
-		ctx, _ := context.WithTimeout(r.Context(), timeout)
-		return ctx
 	}
-	return r.Context()
+
+	ctx, _ := context.WithTimeout(r.Context(), timeout)
+	return ctx
 }
