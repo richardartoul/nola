@@ -498,9 +498,9 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 	}
 }
 
-// TestRemoteServerTimeout tests the scenario where an actor is invoked with 2 replicas until it is invoked in every available server.
-// The invocation is done through a context with a deadline, and using a special operation that receives the expected
-// deadline as the payload. The test checks whether the expected deadline matches the context deadline received by
+// TestRemoteServerTimeout tests the scenario where an actor is invoked with 2 replicas.
+// The invocation is done using a context with a deadline, and invoking a special operation that receives the expected
+// deadline as the payload. The actor operation checks whether the expected deadline matches the context deadline received by
 // the server. Due to HTTP lag, the test verifies that the deadlines are no more than 1 second apart.
 func TestRemoteServerTimeout(t *testing.T) {
 	t.Parallel()
@@ -809,6 +809,10 @@ func (ta *testActor) Invoke(
 		ta.count++
 		return nil, nil
 	case "ctx-timeout-check":
+		// Handle the special "ctx-timeout-check" operation where the expected timeout
+		// value is passed as the payload. The function verifies whether the received
+		// context's deadline matches the expected timeout. This ensures that the context
+		// deadlines are propagated correctly over RPCs.
 		expectedTimeout, err := time.ParseDuration(string(payload))
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse duration: %w", err)
@@ -840,6 +844,8 @@ func nextPort() int {
 	return int(atomic.AddInt64(&nextServerPort, 1))
 }
 
+// areWithinDuration checks whether the duration between two given time values
+// is within the specified maximum duration.
 func areWithinDuration(t1, t2 time.Time, maxDuration time.Duration) bool {
 	duration := t1.Sub(t2)
 	absDuration := duration
