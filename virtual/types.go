@@ -140,18 +140,18 @@ type Debug interface {
 	// used for tests.
 	Heartbeat() error
 
-	// freezeHeartbeatState allows the environment to keep heartbeating the registry, but
+	// FreezeHeartbeatState allows the environment to keep heartbeating the registry, but
 	// prevents it from updating its internal heartbeat state. This keeps the server registered
 	// in the registry, but allows us to test interaction between the client versionstamp
 	// and the serverion heartbeat versionstamp.
-	freezeHeartbeatState()
+	FreezeHeartbeatState()
 
-	// pauseHeartbeat prevents the heartbeat goroutine from sending the heartbeat
+	// PauseHeartbeat prevents the heartbeat goroutine from sending the heartbeat
 	// only used for testing purposes to simulate a server missing (sending a delayed) heartbeat.
-	pauseHeartbeat()
+	PauseHeartbeat()
 
-	// resumeHeartbeat function resumes the heartbeat goroutine, used only for testing purposes.
-	resumeHeartbeat()
+	// ResumeHeartbeat function resumes the heartbeat goroutine, used only for testing purposes.
+	ResumeHeartbeat()
 }
 
 // RemoteClient is the interface implemented by a client that is capable of communicating with
