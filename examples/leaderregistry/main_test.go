@@ -1,5 +1,3 @@
-//go:build !race
-
 package main
 
 import (
@@ -45,8 +43,6 @@ var (
 // of memory is eventually isolated alone on 1 server with all other actors evenly
 // balanced between the two other servers.
 func TestMemoryBalancing(t *testing.T) {
-	t.Parallel()
-
 	var (
 		lp          = &leaderProvider{}
 		portServer1 = nextPort()
@@ -145,8 +141,6 @@ func TestMemoryBalancing(t *testing.T) {
 // and whose activation is cached in-memory even if new actors cannot be activated
 // in the meantime.
 func TestSurviveLeaderFailure(t *testing.T) {
-	t.Parallel()
-
 	var (
 		lp          = &leaderProvider{}
 		portServer1 = nextPort()
@@ -234,8 +228,6 @@ func TestSurviveLeaderFailure(t *testing.T) {
 // a server that is both the leader *and* running actors and then assert that by the end of the
 // test the actors are live and reachable again.
 func TestSurviveLeaderFailureKillActors(t *testing.T) {
-	t.Parallel()
-
 	var (
 		lp          = &leaderProvider{}
 		portServer1 = nextPort()
@@ -318,8 +310,6 @@ func TestSurviveLeaderFailureKillActors(t *testing.T) {
 // TestHandleLeaderTransitionGracefully tests that the implementation handles leader failures gracefully by ensuring
 // we don't relocate any actors in the general case of a leader transition.
 func TestHandleLeaderTransitionGracefully(t *testing.T) {
-	t.Parallel()
-
 	var (
 		lp          = &leaderProvider{}
 		portServer1 = nextPort()
@@ -425,8 +415,6 @@ func TestHandleLeaderTransitionGracefully(t *testing.T) {
 // 5. Set the MaxNumRetries to 1 and verify that the actor invocation is retried once on other available replicas and succeeds.
 // 6. Test that if we set the PerAttemptTimeout to an extremely low value, the actor invocation never succeeds.
 func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
-	t.Parallel()
-
 	var (
 		lp          = &leaderProvider{}
 		portServer1 = nextPort()
@@ -516,8 +504,6 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 // 8. Set the MaxNumRetries to 1 and verify that the actor invocation is retried once on other available replicas and succeeds.
 // 9. Test that if we set the PerAttemptTimeout to an extremely low value, the actor invocation never succeeds.
 func TestSurviveReplicaFailureWithSortedStrategy(t *testing.T) {
-	t.Parallel()
-
 	var (
 		lp          = &leaderProvider{}
 		portServer1 = nextPort()
