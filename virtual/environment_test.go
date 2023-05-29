@@ -1095,6 +1095,8 @@ func (ta *testActor) Invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	// Check the context immediately to ensure we catch bugs related to
+	// canceling contexts prematurely.
 	if err := ctx.Err(); err != nil {
 		return nil, ctx.Err()
 	}
