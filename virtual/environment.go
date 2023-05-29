@@ -417,6 +417,10 @@ func (r *environment) InvokeActorStream(
 	payload []byte,
 	create types.CreateIfNotExist,
 ) (io.ReadCloser, error) {
+	if err := create.Validate(); err != nil {
+		return nil, fmt.Errorf("error validating CreateIfNotExist: %w", err)
+	}
+
 	resp, err := r.invokeActorStreamHelper(
 		ctx, namespace, actorID, moduleID, operation, payload, create, nil)
 	if err == nil {
@@ -540,6 +544,10 @@ func (r *environment) InvokeActorDirect(
 		return nil, ErrEnvironmentClosed
 	}
 
+	if err := create.Validate(); err != nil {
+		return nil, fmt.Errorf("error validating CreateIfNotExist: %w", err)
+	}
+
 	reader, err := r.InvokeActorDirectStream(
 		ctx, versionStamp, serverID, serverVersion,
 		reference, operation, payload, create)
@@ -659,7 +667,7 @@ func (r *environment) InvokeWorkerStream(
 
 	// TODO: The implementation of this function is nice because it just reusees a bunch of the
 	//       actor logic. However, it's also less performant than it could be because it still
-	//       effectively makes worker execution single-threaded per-server. We should add the
+	//       effectively makes worker execution singlethreaded perserver. We should add the
 	//       ability for multiple workers of the same module ID to execute in parallel on a
 	//       single server. This should be relatively straightforward to do with a few modications
 	//       to activations.go.
@@ -845,6 +853,20 @@ func (r *environment) invokeReferences(
 	// In the case of a broadcast we issue all the requests in parallel and then return
 	// the first successfult response. If all the responses are errors, then we return
 	// all of them.
+
+	if create.Options.RetryPolicy.PerAttemptTimeout <= 0 {
+		return nil, nil, fmt.Errorf("[invariant violated] RetryPolicy.PerAttemptTimeout must be > 0 when using broadcast")
+	}
+
+	// Create a new dedicated context because in the case of a broadcast we'll return the
+	// first successful response, but we don't want to cancel the request to all the other
+	// replicas that have not completed yet either which may happen if we use the same parent
+	// context which could be terminated once the successful response is returned.
+	//
+	// cc will be invoked only when all the async broadcast requests have completed which
+	// is managed by the async goroutine below that drains the results channel.
+	ctx, cc := context.WithTimeout(ctx, create.Options.RetryPolicy.PerAttemptTimeout)
+
 	type respOrErr struct {
 		resp io.ReadCloser
 		err  error
@@ -890,6 +912,7 @@ func (r *environment) invokeReferences(
 						err: errors.Join(errs...),
 					}
 				}
+				cc()
 				return
 			}
 
