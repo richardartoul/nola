@@ -864,7 +864,7 @@ func (r *environment) invokeReferences(
 	return idx, resp, err
 }
 
-func (r *environment) FreezeHeartbeatState() {
+func (r *environment) freezeHeartbeatState() {
 	r.heartbeatState.Lock()
 	r.heartbeatState.frozen = true
 	r.heartbeatState.Unlock()
@@ -877,13 +877,13 @@ func (r *environment) isHeartbeatPaused() bool {
 	return r.heartbeatState.paused
 }
 
-func (r *environment) PauseHeartbeat() {
+func (r *environment) pauseHeartbeat() {
 	r.heartbeatState.Lock()
 	r.heartbeatState.paused = true
 	r.heartbeatState.Unlock()
 }
 
-func (r *environment) ResumeHeartbeat() {
+func (r *environment) resumeHeartbeat() {
 	r.heartbeatState.Lock()
 	r.heartbeatState.paused = false
 	r.heartbeatState.Unlock()

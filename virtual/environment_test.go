@@ -813,7 +813,7 @@ func TestVersionStampIsHonored(t *testing.T) {
 			ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 		require.NoError(t, err)
 
-		env.FreezeHeartbeatState()
+		env.freezeHeartbeatState()
 
 		for {
 			// Eventually RPCs should start to fail because the server's versionstamp will become
@@ -888,11 +888,11 @@ func TestServerVersionIsHonored(t *testing.T) {
 	_, err = env.InvokeActor(ctx, "ns-1", "a", "test-module", "inc", nil, types.CreateIfNotExist{})
 	require.NoError(t, err)
 
-	env.PauseHeartbeat()
+	env.pauseHeartbeat()
 
 	time.Sleep(registry.HeartbeatTTL + time.Second)
 
-	env.ResumeHeartbeat()
+	env.resumeHeartbeat()
 
 	require.NoError(t, env.Heartbeat())
 
