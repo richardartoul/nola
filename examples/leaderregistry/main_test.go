@@ -498,6 +498,58 @@ func TestSurviveReplicaFailureWithRandomStrategy(t *testing.T) {
 	}
 }
 
+// TestRemoteServerTimeout tests the scenario where an actor is invoked with 2 replicas until it is invoked in every available server.
+// The invocation is done through a context with a deadline, and using a special operation that receives the expected
+// deadline as the payload. The test checks whether the expected deadline matches the context deadline received by
+// the server. Due to HTTP lag, the test verifies that the deadlines are no more than 1 second apart.
+func TestRemoteServerTimeout(t *testing.T) {
+	t.Parallel()
+
+	var (
+		lp          = &leaderProvider{}
+		portServer1 = nextPort()
+	)
+
+	// Set the leader address for the registry.
+	lp.setLeader(registry.Address{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: baseRegistryPort + portServer1,
+	})
+
+	var (
+		server1, _, cleanupFn1 = newServer(t, lp, portServer1)
+		server2, _, cleanupFn2 = newServer(t, lp, nextPort())
+	)
+
+	// Clean up resources at the end of the test.
+	defer cleanupFn1()
+	defer cleanupFn2()
+	defer server1.Close(context.Background())
+	defer server2.Close(context.Background())
+
+	// Sleep for a few seconds to allow servers to heartbeat and actors to activate.
+	time.Sleep(5 * time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Define the actor options with 1 extra replica and the random selection strategy.
+	options := types.CreateIfNotExist{Options: types.ActorOptions{
+		ExtraReplicas:       1,
+		ReplicationStrategy: types.ReplicaSelectionStrategyRandom,
+	}}
+
+	// Use require.Eventually to invoke the actor until it is replicated in all available servers.
+	require.Eventually(t, func() bool {
+		deadline, _ := ctx.Deadline()
+		_, err := server1.InvokeActor(
+			ctx, namespace, actorID(0), module, "ctx-timeout-check", []byte(time.Until(deadline).String()), options)
+		require.NoError(t, err)
+
+		return server1.NumActivatedActors() == 1 && server2.NumActivatedActors() == 1
+	}, 10*time.Second, time.Millisecond, "actor should be replicated in all servers")
+}
+
 // TestSurviveReplicaFailureWithSortedStrategy tests the ability to survive replica failure with a sorted strategy (biased towards a single replica).
 // It validates that the actor can handle replica failures and still maintain high availability.
 // The test creates an actor with multiple replicas, ensures that the actor is replicated only on the server that is biased towards,
@@ -650,6 +702,19 @@ func newServer(
 	require.NoError(t, err)
 	require.NoError(t, env.RegisterGoModule(types.NewNamespacedIDNoType(namespace, module), &testModule{}))
 
+	server := newServerWithEnv(t, env, idx)
+	return env, reg, func() {
+		server.Stop(context.Background())
+		env.Close(context.Background())
+		reg.Close(context.Background())
+	}
+}
+
+func newServerWithEnv(t *testing.T, env virtual.Environment, idx int) *virtual.Server {
+	var (
+		envPort = baseEnvPort + idx
+	)
+
 	server := virtual.NewServer(registry.NewNoopModuleStore(), env)
 	go func() {
 		if err := server.Start(envPort); err != nil {
@@ -660,11 +725,7 @@ func newServer(
 		}
 	}()
 
-	return env, reg, func() {
-		reg.Close(context.Background())
-		env.Close(context.Background())
-		server.Stop(context.Background())
-	}
+	return server
 }
 
 func newRegistry(
@@ -747,6 +808,19 @@ func (ta *testActor) Invoke(
 	case "inc-memory-usage":
 		ta.count++
 		return nil, nil
+	case "ctx-timeout-check":
+		expectedTimeout, err := time.ParseDuration(string(payload))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse duration: %w", err)
+		}
+		got, ok := ctx.Deadline()
+		if !ok {
+			return nil, fmt.Errorf("context has no deadline")
+		}
+		if expected := time.Now().Add(expectedTimeout); !areWithinDuration(expected, got, time.Second) {
+			return nil, fmt.Errorf("context deadline is not within expected duration: expected %s got %s", expected, got)
+		}
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("testActor: unhandled operation: %s", operation)
 	}
@@ -764,4 +838,14 @@ func actorID(idx int) string {
 
 func nextPort() int {
 	return int(atomic.AddInt64(&nextServerPort, 1))
+}
+
+func areWithinDuration(t1, t2 time.Time, maxDuration time.Duration) bool {
+	duration := t1.Sub(t2)
+	absDuration := duration
+	if absDuration < 0 {
+		absDuration = -absDuration
+	}
+
+	return absDuration <= maxDuration
 }
