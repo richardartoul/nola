@@ -399,8 +399,6 @@ func (a *activations) ensureModule(
 
 		// Can set unconditionally without checking if it already exists since we're in
 		// the singleflight context.
-		//
-		// TODO: Deadlock here....
 		a._moduleState.Lock()
 		a._moduleState.modules[moduleID] = module
 		a._moduleState.Unlock()

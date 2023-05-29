@@ -519,7 +519,6 @@ func (r *environment) invokeActorStreamHelper(
 
 		// Remove the servers that failed to invoke the actor from the available references.
 		references = filterReferences(references, selectedReferences)
-		fmt.Println(len(references), "!=", len(selectedReferences))
 	}
 
 	// Return an error indicating that the maximum number of retries has been reached without success.
