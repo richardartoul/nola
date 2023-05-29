@@ -1011,10 +1011,10 @@ func (r *environment) pickServerForInvocation(
 			return references[i].Physical.ServerID > references[j].Physical.ServerID
 		})
 		return []types.ActorReference{result}, nil
-	case types.ReplicaSelectionStrategyRandom:
-		fallthrough
 	case types.ReplicaSelectionStrategyBroadcast:
 		return references, nil
+	case types.ReplicaSelectionStrategyRandom:
+		fallthrough
 	default:
 		// Use a random selection strategy by generating a random index within the range of available references.
 		// This evenly distributes the retry selection among the available replicas.
