@@ -539,7 +539,9 @@ func TestRemoteServerTimeout(t *testing.T) {
 
 	// We ensure that the actor invocation reaches two different servers, thus verifying that at least one
 	// of the requests went over the network. We use the "ctx-timeout-check" operation to propagate the
-	// context deadline as a payload to the actor invocation.
+	// context deadline as a payload to the actor invocation. The environment used for the test is created
+	// with the ForceRemoteProcedureCalls option enabled. This ensures that even localhost calls are done
+	// using HTTP, allowing us to validate network communication between different servers.
 	require.Eventually(t, func() bool {
 		deadline, _ := ctx.Deadline()
 		_, err := server1.InvokeActor(
