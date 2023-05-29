@@ -510,7 +510,14 @@ func (r *environment) invokeActorStreamHelper(
 			invokeCtx, cc = context.WithTimeout(ctx, retryPolicy.PerAttemptTimeout)
 		}
 		resp, selectedReferences, err := r.invokeReferences(invokeCtx, vs, references, operation, payload, create)
-		cc()
+		if err != nil {
+			// If there was an error we can cancel the per-attempt context immediately.
+			cc()
+		} else {
+			// However, if there was no error then we need to ensure that the cc() function
+			// will eventually be called, but not until the caller is done reading the stream.
+			resp = newCtxReaderCloser(cc, resp)
+		}
 
 		// If there is no error or the error is due to server blacklisting, consider the invocation successful.
 		// Return the response and error to exit the retry loop.
@@ -1149,4 +1156,27 @@ func filterReferences(
 	}
 
 	return filtered
+}
+
+// ctxReaderCloser wraps a io.ReaderCloser and a context such that they're both
+// finalized together to avoid leaking any resources.
+type ctxReaderCloser struct {
+	ctxCC func()
+	r     io.ReadCloser
+}
+
+func newCtxReaderCloser(ctxCC func(), r io.ReadCloser) io.ReadCloser {
+	return &ctxReaderCloser{
+		ctxCC: ctxCC,
+		r:     r,
+	}
+}
+
+func (c *ctxReaderCloser) Read(p []byte) (int, error) {
+	return c.r.Read(p)
+}
+
+func (c *ctxReaderCloser) Close() error {
+	defer c.ctxCC()
+	return c.r.Close()
 }

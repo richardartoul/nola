@@ -1095,6 +1095,10 @@ func (ta *testActor) Invoke(
 	operation string,
 	payload []byte,
 ) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, ctx.Err()
+	}
+
 	defer func() { ta.numInvocations++ }()
 
 	switch operation {
