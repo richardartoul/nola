@@ -775,9 +775,11 @@ func TestReplicationRandomWASMModule(t *testing.T) {
 	testReplicationRandom(t, env1, env2, env3)
 }
 
-// testReplicationRandom is a test function that verifies the random replication of actors across multiple environments.
+// testReplicationRandom is a test function that verifies the random replication of actors
+// across multiple environments.
 //
 // The test logic is as follows:
+//
 // - Invoke an actor with the ExtraReplicas option set to 2.
 // - Continuously check if the actor has been replicated in all three environments.
 // - If the actor is not activated in all three environments, invoke the actor again.
@@ -790,16 +792,84 @@ func testReplicationRandom(
 	ctx := context.Background()
 
 	require.Eventually(t, func() bool {
-		numActivatedActors := env1.NumActivatedActors() + env2.NumActivatedActors() + env3.NumActivatedActors()
-		if numActivatedActors == 3 {
+		if env1.NumActivatedActors() == 1 &&
+			env2.NumActivatedActors() == 1 &&
+			env3.NumActivatedActors() == 1 {
 			return true
 		}
 
-		_, err := env1.InvokeActor(ctx, "ns-1", "actor-0", "test-module", "inc", nil, types.CreateIfNotExist{Options: types.ActorOptions{ExtraReplicas: 2}})
+		_, err := env1.InvokeActor(
+			ctx, "ns-1", "actor-0", "test-module", "inc", nil,
+			types.CreateIfNotExist{Options: types.ActorOptions{
+				ReplicationStrategy: types.ReplicaSelectionStrategyRandom,
+				ExtraReplicas:       2,
+			}})
 		require.NoError(t, err)
 
 		return false
 	}, time.Minute, time.Microsecond, "actor is not replicated")
+}
+
+// TestReplicationBroadcastGoModule tests the broadast replication logic of the environment.
+func TestReplicationBroadcastGoModule(t *testing.T) {
+	var (
+		reg = localregistry.NewLocalRegistryWithOptions(
+			"test-server-id",
+			registry.KVRegistryOptions{
+				RebalanceMemoryThreshold: 1 << 24,
+			})
+		moduleStore = newTestModuleStore()
+		ctx         = context.Background()
+	)
+	_, err := moduleStore.RegisterModule(ctx, "ns-1", "test-module", utilWasmBytes, registry.ModuleOptions{})
+	require.NoError(t, err)
+
+	// Create 3 environments backed by the same registry to simulate 3 different servers. Each environment
+	// needs its own port so it looks unique.
+	opts1 := defaultOptsWASM
+	opts1.Discovery.Port = 1
+	env1, err := NewEnvironment(ctx, "serverID1", reg, moduleStore, nil, opts1)
+	require.NoError(t, err)
+	defer env1.Close(context.Background())
+
+	opts2 := defaultOptsWASM
+	opts2.Discovery.Port = 2
+	env2, err := NewEnvironment(ctx, "serverID2", reg, moduleStore, nil, opts2)
+	require.NoError(t, err)
+	defer env2.Close(context.Background())
+
+	opts3 := defaultOptsWASM
+	opts3.Discovery.Port = 3
+	env3, err := NewEnvironment(ctx, "serverID3", reg, moduleStore, nil, opts3)
+	require.NoError(t, err)
+	defer env3.Close(context.Background())
+
+	testReplicationBroadcast(t, env1, env2, env3)
+}
+
+// testReplicationBroadcast is a test function that verifies the broadcast replication
+// of actors across multiple environments.
+//
+// The test logic is as follows:
+//
+// - Invoke an actor with the ExtraReplicas option set to 2 and broadcast strategy.
+// - Check if the actor has been replicated in all three environments.
+func testReplicationBroadcast(
+	t *testing.T,
+	env1, env2, env3 Environment,
+) {
+	ctx := context.Background()
+	_, err := env1.InvokeActor(
+		ctx, "ns-1", "actor-0", "test-module", "inc", nil,
+		types.CreateIfNotExist{Options: types.ActorOptions{
+			ReplicationStrategy: types.ReplicaSelectionStrategyBroadcast,
+			ExtraReplicas:       2,
+		}})
+	require.NoError(t, err)
+	time.Sleep(2 * time.Second)
+	require.Equal(t, 1, env1.NumActivatedActors())
+	require.Equal(t, 1, env2.NumActivatedActors())
+	require.Equal(t, 1, env3.NumActivatedActors())
 }
 
 // TestVersionStampIsHonored ensures that the interaction between the client and server

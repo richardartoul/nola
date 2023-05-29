@@ -519,6 +519,7 @@ func (r *environment) invokeActorStreamHelper(
 
 		// Remove the servers that failed to invoke the actor from the available references.
 		references = filterReferences(references, selectedReferences)
+		fmt.Println(len(references), "!=", len(selectedReferences))
 	}
 
 	// Return an error indicating that the maximum number of retries has been reached without success.
@@ -839,7 +840,7 @@ func (r *environment) invokeReferences(
 	if len(references) == 1 {
 		result, err := r.invokeSingleReference(
 			ctx, versionStamp, references[0], operation, payload, create)
-		return result, references[1:], err
+		return result, references, err
 	}
 
 	// In the case of a broadcast we issue all the requests in parallel and then return
@@ -897,10 +898,12 @@ func (r *environment) invokeReferences(
 		}
 	}()
 
-	final := <-finalResult
-	// nil because there are no more references that can be used after a broacast since it
-	// exhausts all of them by definition.
-	return final.resp, references, final.err
+	select {
+	case <-ctx.Done():
+		return nil, references, ctx.Err()
+	case final := <-finalResult:
+		return final.resp, references, final.err
+	}
 }
 
 func (r *environment) invokeSingleReference(
