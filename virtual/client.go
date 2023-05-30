@@ -51,6 +51,12 @@ func (h *httpClient) InvokeActorRemote(
 		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error constructing request: %w", err)
 	}
 
+	deadline, ok := ctx.Deadline()
+	if ok {
+		timeout := time.Until(deadline)
+		req.Header.Add(types.HTTPHeaderTimeout, timeout.String())
+	}
+
 	resp, err := h.c.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTPClient: InvokeDirect: error running request: %w", err)

@@ -16,6 +16,8 @@ import (
 	"github.com/richardartoul/nola/virtual/types"
 )
 
+const DefaultHTTPRequestTimeout = 15 * time.Second
+
 type Server struct {
 	sync.Mutex
 
@@ -97,9 +99,7 @@ func (s *Server) registerModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cc := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cc()
-	result, err := s.moduleStore.RegisterModule(ctx, namespace, moduleID, moduleBytes, registry.ModuleOptions{})
+	result, err := s.moduleStore.RegisterModule(getContextFromRequest(r), namespace, moduleID, moduleBytes, registry.ModuleOptions{})
 	if err != nil {
 		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
@@ -156,11 +156,8 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 		req.Payload = marshaled
 	}
 
-	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
 	result, err := s.environment.InvokeActorStream(
-		ctx, req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
+		getContextFromRequest(r), req.Namespace, req.ActorID, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
 		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
@@ -203,10 +200,6 @@ func (s *Server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-
 	ref, err := types.NewVirtualActorReference(req.Namespace, req.ModuleID, req.ActorID, uint64(req.Generation))
 	if err != nil {
 		writeStatusCodeForError(w, err)
@@ -215,7 +208,7 @@ func (s *Server) invokeDirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := s.environment.InvokeActorDirectStream(
-		ctx, req.VersionStamp, req.ServerID, req.ServerVersion, ref,
+		getContextFromRequest(r), req.VersionStamp, req.ServerID, req.ServerVersion, ref,
 		req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
 		writeStatusCodeForError(w, err)
@@ -256,12 +249,8 @@ func (s *Server) invokeWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: This should be configurable, probably in a header with some maximum.
-	ctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cc()
-
 	result, err := s.environment.InvokeWorkerStream(
-		ctx, req.Namespace, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
+		getContextFromRequest(r), req.Namespace, req.ModuleID, req.Operation, req.Payload, req.CreateIfNotExist)
 	if err != nil {
 		writeStatusCodeForError(w, err)
 		w.Write([]byte(err.Error()))
@@ -347,4 +336,18 @@ func copyResultIntoStreamAndCloseResult(
 		// Same comment as above.
 		terminateConnection(w)
 	}
+}
+
+func getContextFromRequest(r *http.Request) context.Context {
+	timeout := DefaultHTTPRequestTimeout
+
+	if headerValue := r.Header.Get(types.HTTPHeaderTimeout); headerValue != "" {
+		headerTimeout, err := time.ParseDuration(headerValue)
+		if err == nil {
+			timeout = headerTimeout
+		}
+	}
+
+	ctx, _ := context.WithTimeout(r.Context(), timeout)
+	return ctx
 }
