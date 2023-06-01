@@ -298,39 +298,7 @@ func copyResultIntoStreamAndCloseResult(
 ) {
 	defer result.Close()
 
-	// Try reading 1 byte first to improve the probability we can return a readable
-	// error to the user.
-	var buf [1]byte
-	n, err := result.Read(buf[:])
-	if err == io.EOF {
-		// Special case handle for valid (but empty) streams.
-		return
-	}
-	if err != nil {
-		writeStatusCodeForError(w, err)
-		w.Write([]byte(err.Error()))
-		return
-	}
-	if n != 1 {
-		writeStatusCodeForError(w, err)
-		w.Write([]byte(fmt.Sprintf(
-			"expected to read 1 byte, but read: %d", n)))
-		return
-	}
-
-	// Ok we managed to read at least 1 byte so lets send the 200 status code and
-	// start streaming the response.
 	w.WriteHeader(200)
-
-	// Don't forget to copy the byte we already read.
-	if n, err := w.Write(buf[:]); n != 1 || err != nil {
-		// If we get any error copying the stream into the response then we
-		// need to terminate the connection to ensure that the caller observes
-		// an error and not a truncated response (that appears successful because
-		// of the 200 status code).
-		terminateConnection(w)
-		return
-	}
 
 	if _, err := io.Copy(w, result); err != nil {
 		// Same comment as above.

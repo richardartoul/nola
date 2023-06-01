@@ -323,8 +323,9 @@ func (a *activations) invokeActivatedActor(
 	actor *activatedActor,
 	operation string,
 	invokePayload []byte,
-) (io.ReadCloser, error) {
-	currMemUsage, stream, err := actor.invoke(ctx, operation, invokePayload, false, false)
+) (stream io.ReadCloser, err error) {
+	var currMemUsage int
+	currMemUsage, stream, err = actor.invoke(ctx, operation, invokePayload, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -750,7 +751,32 @@ func (a *activatedActor) invoke(
 		if err != nil {
 			return 0, nil, err
 		}
-		return a._a.MemoryUsageBytes(), stream, nil
+
+		// Try reading 1 byte first to improve the probability we can return a readable
+		// error to the user.
+		var buf [1]byte
+		n, err := stream.Read(buf[:])
+		if err == io.EOF {
+			// Special case handle for valid (but empty) streams.
+			stream.Close()
+			return a._a.MemoryUsageBytes(), io.NopCloser(bytes.NewBuffer(nil)), nil
+		}
+		if err != nil {
+			stream.Close()
+			return 0, nil, err
+		}
+		if n != 1 {
+			stream.Close()
+			return 0, nil, fmt.Errorf("expected to read 1 byte, but read: %d", n)
+		}
+
+		// Since we "cheated" by reading a byte, we have to wrap it into a MultiReader
+		// that will stitch together the byte we read with the rest of the stream so
+		// the caller doesn't lose the first byte. We use the newReadCloser abstraction
+		// to ensure that when the returned stream is closed that the original stream
+		// from the actor will be closed.
+		multiReader := io.MultiReader(bytes.NewBuffer(buf[:]), stream)
+		return a._a.MemoryUsageBytes(), newReadCloser(multiReader, stream.Close), nil
 	}
 
 	// The actor doesn't support streaming responses, we'll convert the returned []byte
@@ -801,4 +827,30 @@ func assertActorIface(actor Actor) error {
 	}
 
 	return fmt.Errorf("%T does not implement virtual.ActorBytes or virtual.ActorStream", actor)
+}
+
+// readCloser wraps an io.Reader such that reads are served by the reader, but the close
+// method invokes a caller-provided function.
+type readCloser struct {
+	sync.Once
+	io.Reader
+
+	closeFn  func() error
+	closeErr error
+}
+
+func newReadCloser(r io.Reader, closeFn func() error) io.ReadCloser {
+	return &readCloser{
+		Reader:  r,
+		closeFn: closeFn,
+	}
+}
+
+func (r *readCloser) Close() error {
+	// Wrap close in a once.Do() just to be super paranoid and make it safe to double close
+	// the stream in the rest of the code.
+	r.Do(func() {
+		r.closeErr = r.closeFn()
+	})
+	return r.closeErr
 }
