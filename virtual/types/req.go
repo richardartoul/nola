@@ -65,6 +65,10 @@ func (o *ActorOptions) Validate() error {
 		return fmt.Errorf("PerAttemptTimeout must be > 0 when using ReplicaSelectionStrategyBroadcast")
 	}
 
+	if o.RetryPolicy.PerAttemptTimeoutGrowthMultiplier > 0 && o.RetryPolicy.PerAttemptTimeoutGrowthMultiplier < 1 {
+		return fmt.Errorf("RetryPolicy.PerAttemptTimeoutGrowthMultiplier must be >= 1")
+	}
+
 	return nil
 }
 
@@ -93,6 +97,10 @@ type RetryPolicy struct {
 	// Note: If the `PerAttemptTimeout` is set to 0,
 	// it uses the parent context timeout and there is no specific per-attempt timeout.
 	PerAttemptTimeout time.Duration `json:"per_attempt_timeout"`
+
+	// PerAttemptTimeoutGrowthMultiplier controls how much the PerAttemptTimeout should
+	// grow after each failed attempt.
+	PerAttemptTimeoutGrowthMultiplier float64 `json:"per_attempt_timeout_growth_multiplier"`
 
 	// MaxNumRetries sets the maximum number of retries allowed for the actor invocation.
 	// After reaching this limit, the invocation will fail if no successful response is received.

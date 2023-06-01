@@ -324,8 +324,7 @@ func (a *activations) invokeActivatedActor(
 	operation string,
 	invokePayload []byte,
 ) (stream io.ReadCloser, err error) {
-	var currMemUsage int
-	currMemUsage, stream, err = actor.invoke(ctx, operation, invokePayload, false, false)
+	currMemUsage, stream, err := actor.invoke(ctx, operation, invokePayload, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -720,13 +719,71 @@ func (a *activatedActor) invoke(
 	alreadyLocked bool,
 	isClosing bool,
 ) (int, io.ReadCloser, error) {
+	memUsageBytes, wasStreamOriginally, stream, err := a.invokeHelperOnlyCallFromInvoke(
+		ctx, operation, payload, alreadyLocked, isClosing)
+	if err != nil {
+		return 0, nil, err
+	}
+	if !wasStreamOriginally {
+		return memUsageBytes, stream, nil
+	}
+
+	// The response is a true stream from the actor. The rest of this code's only purpose
+	// is to handle streams that are closed with an error before ever writing any real
+	// data. If that happens, the goal of this code is to surface that error directly in
+	// the error return of this method instead of the caller getting no error and then
+	// immediately getting an error when they try to read the stream bytes. This dramatically
+	// simplifies error handling when implementing stream-based actors. This code lives in
+	// this method instead of invokeHelperOnlyCallFromInvoke so we can do it outside the
+	// context of the actor's lock since reading from the stream could be slow (may involve
+	// reading over the network depending on how the actor is implemented, etc).
+
+	if stream == nil {
+		// Prevent panics when actors return nil streams which is valid.
+		stream = io.NopCloser(bytes.NewBuffer(nil))
+	}
+
+	// Try reading 1 byte first to improve the probability we can return a readable
+	// error to the user.
+	var buf [1]byte
+	n, err := stream.Read(buf[:])
+	if err == io.EOF {
+		// Special case handling for valid (but empty) streams.
+		stream.Close()
+		return a._a.MemoryUsageBytes(), io.NopCloser(bytes.NewBuffer(nil)), nil
+	}
+	if err != nil {
+		stream.Close()
+		return 0, nil, err
+	}
+	if n != 1 {
+		stream.Close()
+		return 0, nil, fmt.Errorf("expected to read 1 byte, but read: %d", n)
+	}
+
+	// Since we "cheated" by reading a byte, we have to wrap it into a MultiReader
+	// that will stitch together the byte we read with the rest of the stream so
+	// the caller doesn't lose the first byte. We use the newReadCloser abstraction
+	// to ensure that when the returned stream is closed that the original stream
+	// from the actor will be closed.
+	multiReader := io.MultiReader(bytes.NewBuffer(buf[:]), stream)
+	return a._a.MemoryUsageBytes(), newReadCloser(multiReader, stream.Close), nil
+}
+
+func (a *activatedActor) invokeHelperOnlyCallFromInvoke(
+	ctx context.Context,
+	operation string,
+	payload []byte,
+	alreadyLocked bool,
+	isClosing bool,
+) (int, bool, io.ReadCloser, error) {
 	if !alreadyLocked {
 		a.Lock()
 		defer a.Unlock()
 	}
 
 	if a._closed {
-		return 0, nil, fmt.Errorf(
+		return 0, false, nil, fmt.Errorf(
 			"tried to invoke actor: %s which has already been closed", a._reference.ActorID)
 	}
 
@@ -749,43 +806,18 @@ func (a *activatedActor) invoke(
 		// directly since its more efficient.
 		stream, err := streamActor.InvokeStream(ctx, operation, payload)
 		if err != nil {
-			return 0, nil, err
+			return 0, false, nil, err
 		}
-
-		// Try reading 1 byte first to improve the probability we can return a readable
-		// error to the user.
-		var buf [1]byte
-		n, err := stream.Read(buf[:])
-		if err == io.EOF {
-			// Special case handle for valid (but empty) streams.
-			stream.Close()
-			return a._a.MemoryUsageBytes(), io.NopCloser(bytes.NewBuffer(nil)), nil
-		}
-		if err != nil {
-			stream.Close()
-			return 0, nil, err
-		}
-		if n != 1 {
-			stream.Close()
-			return 0, nil, fmt.Errorf("expected to read 1 byte, but read: %d", n)
-		}
-
-		// Since we "cheated" by reading a byte, we have to wrap it into a MultiReader
-		// that will stitch together the byte we read with the rest of the stream so
-		// the caller doesn't lose the first byte. We use the newReadCloser abstraction
-		// to ensure that when the returned stream is closed that the original stream
-		// from the actor will be closed.
-		multiReader := io.MultiReader(bytes.NewBuffer(buf[:]), stream)
-		return a._a.MemoryUsageBytes(), newReadCloser(multiReader, stream.Close), nil
+		return a._a.MemoryUsageBytes(), true, stream, nil
 	}
 
 	// The actor doesn't support streaming responses, we'll convert the returned []byte
 	// to a stream ourselves.
 	resp, err := a._a.(ActorBytes).Invoke(ctx, operation, payload)
 	if err != nil {
-		return 0, nil, err
+		return 0, false, nil, err
 	}
-	return a._a.MemoryUsageBytes(), io.NopCloser(bytes.NewBuffer(resp)), nil
+	return a._a.MemoryUsageBytes(), false, io.NopCloser(bytes.NewBuffer(resp)), nil
 }
 
 func (a *activatedActor) close(ctx context.Context) error {
