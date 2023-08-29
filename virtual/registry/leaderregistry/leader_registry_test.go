@@ -37,7 +37,11 @@ func TestLeaderRegistry(t *testing.T) {
 }
 
 func TestLeaderRegistryTTL(t *testing.T) {
-	reg, err := NewLeaderRegistry(context.Background(), newTestLeaderProvider(), "test-registry-server-id", virtual.EnvironmentOptions{})
+	envOpts := virtual.EnvironmentOptions{Discovery: virtual.DiscoveryOptions{
+		DiscoveryType: virtual.DiscoveryTypeLocalHost,
+		Port:          9093,
+	}}
+	reg, err := NewLeaderRegistry(context.Background(), newTestLeaderProvider(), "test-registry-server-id", envOpts)
 	require.NoError(t, err)
 
 	assert.Equal(t, reg.HeartbeatTTL(), registry.DefaultHeartbeatTTL, "Expected leader registry to return default heartbeat TTL of 5s")
