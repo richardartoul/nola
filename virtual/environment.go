@@ -24,7 +24,6 @@ const (
 	Localhost = "127.0.0.1"
 
 	maxNumActivationsToCache = 1e6 // 1 Million.
-	heartbeatTimeout         = registry.HeartbeatTTL
 )
 
 var (
@@ -33,7 +32,7 @@ var (
 	ErrEnvironmentClosed = errors.New("environment is closed")
 
 	// Var so can be modified by tests.
-	defaultActivationsCacheTTL                    = heartbeatTimeout
+	defaultActivationsCacheTTL                    = registry.DefaultHeartbeatTTL
 	DefaultGCActorsAfterDurationWithNoInvocations = time.Minute
 )
 
@@ -736,7 +735,7 @@ func (r *environment) NumActivatedActors() int {
 }
 
 func (r *environment) Heartbeat() error {
-	ctx, cc := context.WithTimeout(context.Background(), heartbeatTimeout)
+	ctx, cc := context.WithTimeout(context.Background(), r.registry.HeartbeatTTL())
 	defer cc()
 
 	var (

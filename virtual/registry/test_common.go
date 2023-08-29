@@ -58,7 +58,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 		})
 		require.NoError(t, err)
 		require.True(t, heartbeatResult.VersionStamp > 0)
-		require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
+		require.Equal(t, DefaultHeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 	}
 
 	// Should succeed now that we have a server to activate on.
@@ -191,7 +191,7 @@ func testRegistryServiceDiscoveryAndEnsureActivation(t *testing.T, registry Regi
 	//
 	// TODO: Sleeps in tests are bad, but I'm lazy to inject a clock right now and deal
 	//       with all of that.
-	time.Sleep(HeartbeatTTL + time.Second)
+	time.Sleep(DefaultHeartbeatTTL + time.Second)
 
 	// Heartbeat server2. After this, the Registry should only consider server2 to be alive.
 	_, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
@@ -252,7 +252,7 @@ func testRegistryReplication(t *testing.T, registry Registry) {
 		})
 		require.NoError(t, err)
 		require.True(t, heartbeatResult.VersionStamp > 0)
-		require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
+		require.Equal(t, DefaultHeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 
 		heartbeatResult, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
 			NumActivatedActors: 10,
@@ -260,7 +260,7 @@ func testRegistryReplication(t *testing.T, registry Registry) {
 		})
 		require.NoError(t, err)
 		require.True(t, heartbeatResult.VersionStamp > 0)
-		require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
+		require.Equal(t, DefaultHeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 	}
 
 	activations, err := registry.EnsureActivation(ctx, EnsureActivationRequest{
@@ -312,7 +312,7 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		})
 		require.NoError(t, err)
 		require.True(t, heartbeatResult.VersionStamp > 0)
-		require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
+		require.Equal(t, DefaultHeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 
 		heartbeatResult, err = registry.Heartbeat(ctx, "server2", HeartbeatState{
 			NumActivatedActors: 10,
@@ -320,7 +320,7 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 		})
 		require.NoError(t, err)
 		require.True(t, heartbeatResult.VersionStamp > 0)
-		require.Equal(t, HeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
+		require.Equal(t, DefaultHeartbeatTTL.Microseconds(), heartbeatResult.HeartbeatTTL)
 	}
 
 	go func() {
@@ -338,9 +338,9 @@ func testEnsureActivationPersistence(t *testing.T, registry Registry) {
 				Address:            "server2_address",
 			})
 
-			// Wait for HeartbeatTTL / 2 before sending the next heartbeat
+			// Wait for DefaultHeartbeatTTL / 2 before sending the next heartbeat
 			select {
-			case <-time.After(HeartbeatTTL / 2):
+			case <-time.After(DefaultHeartbeatTTL / 2):
 			case <-ctx.Done():
 				return
 			}

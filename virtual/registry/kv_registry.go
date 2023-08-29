@@ -17,12 +17,6 @@ import (
 )
 
 const (
-	// HeartbeatTTL is the maximum amount of time between server heartbeats before
-	// the registry will consider a server as dead.
-	//
-	// TODO: Should be configurable.
-	HeartbeatTTL = 5 * time.Second
-
 	// 2GiB, see KVRegistryOptions.RebalanceMemoryThreshold for more details.
 	DefaultRebalanceMemoryThreshold = 1 << 31
 )
@@ -76,6 +70,10 @@ type KVRegistryOptions struct {
 	// from all the servers in the cluster.
 	MinSuccessiveHeartbeatsBeforeAllowActivations int
 
+	// HeartbeatTTL is the maximum amount of time between server heartbeats before
+	// the registry will consider a server as dead.
+	HeartbeatTTL time.Duration
+
 	// Logger is a logging instance used for logging messages.
 	// If no logger is provided, the default logger from the slog
 	// package (slog.Default()) will be used.
@@ -95,6 +93,9 @@ func NewKVRegistry(
 
 	if opts.RebalanceMemoryThreshold <= 0 {
 		opts.RebalanceMemoryThreshold = DefaultRebalanceMemoryThreshold
+	}
+	if opts.HeartbeatTTL <= 0 {
+		opts.HeartbeatTTL = DefaultHeartbeatTTL
 	}
 
 	return NewValidatedRegistry(&kvRegistry{
@@ -271,7 +272,7 @@ func (k *kvRegistry) EnsureActivation(
 		//   3. One or more of the servers where the actor is currently activated has blacklisted the actor, typically for load balancing purposes.
 
 		// First to see where the new replicas should be activated we need to get a list of all available servers.
-		liveServers, err := getLiveServers(ctx, vs, tr)
+		liveServers, err := getLiveServers(ctx, vs, k.opts.HeartbeatTTL, tr)
 		if err != nil {
 			return fmt.Errorf("failed to get live servers: %w", err), err
 		}
@@ -426,7 +427,7 @@ func (k *kvRegistry) getExistingUnblacklistedActivations(
 		if err := json.Unmarshal(v, &server); err != nil {
 			return nil, nil, fmt.Errorf("error unmarsaling server state with ID: %s", req.ActorID)
 		}
-		if versionSince(vs, server.LastHeartbeatedAt) > HeartbeatTTL {
+		if versionSince(vs, server.LastHeartbeatedAt) > k.opts.HeartbeatTTL {
 			// Server "exists" but has not heartbeated recently. Assume its dead and ignore this activation.
 			continue
 		}
@@ -536,7 +537,7 @@ func (k *kvRegistry) Heartbeat(
 			return nil, fmt.Errorf("error getting versionstamp: %w", err)
 		}
 		timeSinceLastHeartbeat := versionSince(vs, state.LastHeartbeatedAt)
-		if timeSinceLastHeartbeat >= HeartbeatTTL {
+		if timeSinceLastHeartbeat >= k.opts.HeartbeatTTL {
 			state.ServerVersion++
 		}
 
@@ -559,7 +560,7 @@ func (k *kvRegistry) Heartbeat(
 		// package directly, but right now its tested in environment.go and
 		// examples/leaderregistry/main_test.go
 
-		liveServers, err := getLiveServers(ctx, vs, tr)
+		liveServers, err := getLiveServers(ctx, vs, k.opts.HeartbeatTTL, tr)
 		if err != nil {
 			return nil, fmt.Errorf("error getting live servers during heartbeat for load balancing: %w", err)
 		}
@@ -567,7 +568,7 @@ func (k *kvRegistry) Heartbeat(
 		result := HeartbeatResult{
 			VersionStamp: vs,
 			// VersionStamp corresponds to ~ 1 million increments per second.
-			HeartbeatTTL:  int64(HeartbeatTTL.Microseconds()),
+			HeartbeatTTL:  int64(k.opts.HeartbeatTTL.Microseconds()),
 			ServerVersion: serverVersion,
 		}
 
@@ -594,6 +595,10 @@ func (k *kvRegistry) Close(ctx context.Context) error {
 
 func (k *kvRegistry) UnsafeWipeAll() error {
 	return k.kv.UnsafeWipeAll()
+}
+
+func (k *kvRegistry) HeartbeatTTL() time.Duration {
+	return k.opts.HeartbeatTTL
 }
 
 func (k *kvRegistry) getActorBytes(
@@ -713,6 +718,7 @@ func versionSince(curr, prev int64) time.Duration {
 func getLiveServers(
 	ctx context.Context,
 	versionStamp int64,
+	heartbeatTtl time.Duration,
 	tr kv.Transaction,
 ) ([]serverState, error) {
 	liveServers := []serverState{}
@@ -722,7 +728,7 @@ func getLiveServers(
 			return fmt.Errorf("error unmarshaling server state: %w", err)
 		}
 
-		if versionSince(versionStamp, currServer.LastHeartbeatedAt) < HeartbeatTTL {
+		if versionSince(versionStamp, currServer.LastHeartbeatedAt) < heartbeatTtl {
 			liveServers = append(liveServers, currServer)
 		}
 		return nil

@@ -2,6 +2,7 @@ package leaderregistry
 
 import (
 	"context"
+	"github.com/stretchr/testify/assert"
 	"net"
 	"sync"
 	"testing"
@@ -33,6 +34,13 @@ func TestLeaderRegistry(t *testing.T) {
 
 		return reg
 	})
+}
+
+func TestLeaderRegistryTTL(t *testing.T) {
+	reg, err := NewLeaderRegistry(context.Background(), newTestLeaderProvider(), "test-registry-server-id", virtual.EnvironmentOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, reg.HeartbeatTTL(), registry.DefaultHeartbeatTTL, "Expected leader registry to return default heartbeat TTL of 5s")
 }
 
 type testLeaderProvider struct {

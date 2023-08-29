@@ -2,6 +2,7 @@ package dnsregistry
 
 import (
 	"context"
+	"github.com/stretchr/testify/assert"
 	"net"
 	"strings"
 	"testing"
@@ -99,4 +100,12 @@ func TestDNSRegistrySingleNode(t *testing.T) {
 	require.Equal(t, "127.0.0.1:9090", activations.References[0].Physical.ServerState.Address)
 	require.Equal(t, DNSServerID, activations.References[0].Physical.ServerID)
 	require.Equal(t, DNSServerVersion, activations.References[0].Physical.ServerVersion)
+}
+
+func TestDNSRegistryTTL(t *testing.T) {
+	reg, err := NewDNSRegistry(Localhost, 9090, DNSRegistryOptions{
+		HeartbeatTTL: 25 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, reg.HeartbeatTTL(), 25*time.Millisecond, "Expected heartbeat TTL to be 25ms")
 }

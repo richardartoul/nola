@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/richardartoul/nola/virtual"
 	"github.com/richardartoul/nola/virtual/registry"
@@ -209,6 +210,10 @@ func (l *leaderRegistry) Close(ctx context.Context) error {
 
 func (l *leaderRegistry) UnsafeWipeAll() error {
 	return errors.New("not implemented")
+}
+
+func (l *leaderRegistry) HeartbeatTTL() time.Duration {
+	return registry.DefaultHeartbeatTTL
 }
 
 type leaderActorModule struct {

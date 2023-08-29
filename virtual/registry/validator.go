@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 var (
@@ -121,6 +122,10 @@ func (v *validator) Close(ctx context.Context) error {
 
 func (v *validator) UnsafeWipeAll() error {
 	return v.r.UnsafeWipeAll()
+}
+
+func (v *validator) HeartbeatTTL() time.Duration {
+	return DefaultHeartbeatTTL
 }
 
 func validateString(name, x string) error {
