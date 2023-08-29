@@ -780,7 +780,7 @@ func TestServerVersionIsHonored(t *testing.T) {
 
 	env.pauseHeartbeat()
 
-	time.Sleep(registry.HeartbeatTTL + time.Second)
+	time.Sleep(registry.DefaultHeartbeatTTL + time.Second)
 
 	env.resumeHeartbeat()
 

@@ -60,6 +60,11 @@ type DNSRegistryOptions struct {
 	// ResolveEvery controls how often the LookupIP method will be
 	// called on the DNSResolver to detect which IPs are active.
 	ResolveEvery time.Duration
+
+	// HeartbeatTTL is the maximum amount of time between server heartbeats before
+	// the registry will consider a server as dead.
+	HeartbeatTTL time.Duration
+
 	// Logger is a logging instance used for logging messages.
 	// If no logger is provided, the default logger from the slog package (slog.Default()) will be used.
 	Logger *slog.Logger
@@ -92,6 +97,9 @@ func NewDNSRegistryFromResolver(
 ) (registry.Registry, error) {
 	if opts.ResolveEvery == 0 {
 		opts.ResolveEvery = 5 * time.Second
+	}
+	if opts.HeartbeatTTL == 0 {
+		opts.HeartbeatTTL = registry.DefaultHeartbeatTTL
 	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -174,6 +182,10 @@ func (d *dnsRegistry) Close(ctx context.Context) error {
 
 func (d *dnsRegistry) UnsafeWipeAll() error {
 	return nil
+}
+
+func (d *dnsRegistry) HeartbeatTTL() time.Duration {
+	return d.opts.HeartbeatTTL
 }
 
 func (d *dnsRegistry) discover() error {

@@ -3,8 +3,14 @@ package registry
 import (
 	"context"
 	"net"
+	"time"
 
 	"github.com/richardartoul/nola/virtual/types"
+)
+
+const (
+	// DefaultHeartbeatTTL registry heartbeat TTL that defaults to 5 seconds.
+	DefaultHeartbeatTTL = 5 * time.Second
 )
 
 // Registry is the interface that is implemented by the virtual actor registry.
@@ -43,6 +49,9 @@ type Registry interface {
 	// UnsafeWipeAll wipes the entire registry. Only used for tests. Do not call it anywhere
 	// in production code.
 	UnsafeWipeAll() error
+
+	// HeartbeatTTL returns the configured heartbeat TTL duration.
+	HeartbeatTTL() time.Duration
 }
 
 // CreateActorResult is the result of a call to CreateActor().
