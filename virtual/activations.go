@@ -24,8 +24,7 @@ import (
 )
 
 const (
-	// TODO: This should be configurable.
-	activationBlacklistCacheTTL = time.Minute
+	defaultActivationBlacklistCacheTTL = time.Minute
 )
 
 type activations struct {
@@ -55,12 +54,18 @@ type activations struct {
 	}
 
 	// Dependencies.
-	registry      registry.Registry
-	moduleStore   registry.ModuleStore
-	environment   Environment
-	goModules     map[types.NamespacedIDNoType]Module
-	customHostFns map[string]func([]byte) ([]byte, error)
-	gcActorsAfter time.Duration
+	registry                    registry.Registry
+	moduleStore                 registry.ModuleStore
+	environment                 Environment
+	goModules                   map[types.NamespacedIDNoType]Module
+	customHostFns               map[string]func([]byte) ([]byte, error)
+	gcActorsAfter               time.Duration
+	activationBlacklistCacheTTL time.Duration
+}
+
+type activationsOptions struct {
+	gcActorsAfter               time.Duration
+	activationBlacklistCacheTTL time.Duration
 }
 
 func newActivations(
@@ -69,10 +74,16 @@ func newActivations(
 	moduleStore registry.ModuleStore,
 	environment Environment,
 	customHostFns map[string]func([]byte) ([]byte, error),
-	gcActorsAfter time.Duration,
+	opts activationsOptions,
 ) *activations {
+	gcActorsAfter := opts.gcActorsAfter
+	activationBlacklistCacheTTL := opts.activationBlacklistCacheTTL
+
 	if gcActorsAfter < 0 {
 		panic(fmt.Sprintf("[invariant violated] illegal value for gcActorsAfter: %d", gcActorsAfter))
+	}
+	if activationBlacklistCacheTTL <= 0 {
+		activationBlacklistCacheTTL = defaultActivationBlacklistCacheTTL
 	}
 
 	blacklist, err := ristretto.NewCache(&ristretto.Config{
@@ -93,13 +104,14 @@ func newActivations(
 		_blacklist:            blacklist,
 		_actorResourceTracker: newActorResourceTracker(),
 
-		log:           log.With(slog.String("module", "activations")),
-		registry:      registry,
-		moduleStore:   moduleStore,
-		environment:   environment,
-		goModules:     make(map[types.NamespacedIDNoType]Module),
-		customHostFns: customHostFns,
-		gcActorsAfter: gcActorsAfter,
+		log:                         log.With(slog.String("module", "activations")),
+		registry:                    registry,
+		moduleStore:                 moduleStore,
+		environment:                 environment,
+		goModules:                   make(map[types.NamespacedIDNoType]Module),
+		customHostFns:               customHostFns,
+		gcActorsAfter:               gcActorsAfter,
+		activationBlacklistCacheTTL: activationBlacklistCacheTTL,
 	}
 	a._moduleState.modules = make(map[types.NamespacedID]Module)
 	return a
@@ -538,7 +550,7 @@ func (a *activations) shedMemUsage(numBytes int) {
 	for _, v := range toShed {
 		key := formatActorCacheKey(nil, v.id.Namespace, v.id.Module, v.id.ID)
 		if _, ok := a._blacklist.Get(key); !ok {
-			a._blacklist.SetWithTTL(key, nil, 1, activationBlacklistCacheTTL)
+			a._blacklist.SetWithTTL(key, nil, 1, a.activationBlacklistCacheTTL)
 			a.log.Info(
 				"shedding actor to reduce memory usage",
 				slog.String("actor_id", v.id.String()))
