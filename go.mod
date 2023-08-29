@@ -1,6 +1,6 @@
 module github.com/richardartoul/nola
 
-go 1.19
+go 1.21
 
 require (
 	github.com/DataDog/sketches-go v1.4.1
