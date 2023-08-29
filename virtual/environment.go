@@ -91,6 +91,8 @@ const (
 type EnvironmentOptions struct {
 	// ActivationCacheTTL is the TTL of the activation cache.
 	ActivationCacheTTL time.Duration
+	// ActivationBlacklistCacheTTL is the TTL of the activations blacklist cache.
+	ActivationBlacklistCacheTTL time.Duration
 	// DisableActivationCache disables the activation cache.
 	DisableActivationCache bool
 	// Discovery contains the discovery options.
@@ -281,7 +283,10 @@ func NewEnvironment(
 	}
 	env.randState.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 	activations := newActivations(
-		opts.Logger, reg, moduleStore, env, env.opts.CustomHostFns, opts.GCActorsAfterDurationWithNoInvocations)
+		opts.Logger, reg, moduleStore, env, env.opts.CustomHostFns, activationsOptions{
+			gcActorsAfter:               opts.GCActorsAfterDurationWithNoInvocations,
+			activationBlacklistCacheTTL: opts.ActivationBlacklistCacheTTL,
+		})
 	env.activations = activations
 
 	// Skip confusing log if dnsregistry is being used since it doesn't use the registry-based
