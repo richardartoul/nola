@@ -19,6 +19,7 @@ type object struct {
 	sync.Mutex
 	instance wapc.Instance
 	onClose  func()
+	closed   bool
 }
 
 func newObject(
@@ -28,6 +29,7 @@ func newObject(
 	return &object{
 		instance: instance,
 		onClose:  onClose,
+		closed:   false,
 	}
 }
 
@@ -43,17 +45,23 @@ func (o *object) Invoke(
 	o.Lock()
 	defer o.Unlock()
 
+	if o.closed {
+		return nil, fmt.Errorf("error snapshotting object: Close() was already called on object")
+	}
 	// TODO: Make byte ownership more clear?
 	return o.instance.Invoke(ctx, operation, payload)
 }
 
-// TODO: Make this resilient to double-close.
-// TODO: Other methods like Snapshot/Invoke etc should return error after close.
 func (o *object) Close(ctx context.Context) error {
 	o.Lock()
 	defer o.Unlock()
 
+	if o.closed {
+		return nil
+	}
+
 	o.onClose()
+	o.closed = true
 	return o.instance.Close(ctx)
 }
 
@@ -64,6 +72,9 @@ func (o *object) Snapshot(
 	o.Lock()
 	defer o.Unlock()
 
+	if o.closed {
+		return fmt.Errorf("error snapshotting object: Close() was already called on object")
+	}
 	memory := o.instance.(*wazero.Instance).UnwrapModule().Memory()
 	bytes, ok := memory.Read(0, memory.Size())
 	if !ok {
@@ -89,6 +100,9 @@ func (o *object) SnapshotIncremental(
 	o.Lock()
 	defer o.Unlock()
 
+	if o.closed {
+		return fmt.Errorf("error snapshotting object: Close() was already called on object")
+	}
 	memory := o.instance.(*wazero.Instance).UnwrapModule().Memory()
 	memBytes, ok := memory.Read(0, memory.Size())
 	if !ok {
@@ -115,6 +129,9 @@ func (o *object) Hydrate(
 	o.Lock()
 	defer o.Unlock()
 
+	if o.closed {
+		return fmt.Errorf("error snapshotting object: Close() was already called on object")
+	}
 	var (
 		memory  = o.instance.(*wazero.Instance).UnwrapModule().Memory()
 		memSize = int(memory.Size())
