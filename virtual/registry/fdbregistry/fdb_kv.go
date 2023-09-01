@@ -38,8 +38,7 @@ func (f *fdbKV) Transact(fn func(tr kv.Transaction) (any, error)) (any, error) {
 }
 
 func (f *fdbKV) Close(ctx context.Context) error {
-	// TODO: Why does f.db.Close() not exist?
-	// https://pkg.go.dev/github.com/apple/foundationdb/bindings/go/src/fdb#Database.Close
+	f.db.Close()
 	return nil
 }
 
